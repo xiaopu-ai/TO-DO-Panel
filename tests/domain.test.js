@@ -297,8 +297,21 @@ test('todo editor updates text and deadline while keeping completion state', () 
   assert.equal(updated.text, '新标题');
   assert.equal(updated.done, true);
   assert.equal(updated.remindedAt, 0);
-  assert.equal(currentMonthDeadline({ day: 21, hour: 14, minute: 30 }, new Date('2026-08-01T00:00:00+08:00')), '2026-08-21T06:30:00.000Z');
-  assert.equal(currentMonthDeadline({ day: 32, hour: 14, minute: 30 }, new Date('2026-08-01T00:00:00+08:00')), null);
+  const localDeadline = new Date(currentMonthDeadline(
+    { day: 21, hour: 14, minute: 30 },
+    new Date(2026, 7, 1, 0, 0, 0, 0),
+  ));
+  assert.deepEqual([
+    localDeadline.getFullYear(),
+    localDeadline.getMonth(),
+    localDeadline.getDate(),
+    localDeadline.getHours(),
+    localDeadline.getMinutes(),
+  ], [2026, 7, 21, 14, 30]);
+  assert.equal(currentMonthDeadline(
+    { day: 32, hour: 14, minute: 30 },
+    new Date(2026, 7, 1, 0, 0, 0, 0),
+  ), null);
 });
 
 test('todos sort unfinished by DDL and creation time with completed items last', () => {
