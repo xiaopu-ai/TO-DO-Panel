@@ -3,7 +3,7 @@
 TO-DO Panel 的中文产品官网，与桌面应用源码一起维护。
 
 - 线上地址：[notchtodo.chusimin.chatgpt.site](https://notchtodo.chusimin.chatgpt.site)
-- 下载入口：[GitHub Releases](https://github.com/xiaopu-ai/dynamic-panel/releases/latest)
+- 下载入口：[GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest)
 - 运行环境：Node.js 22.13.0+
 
 ```bash

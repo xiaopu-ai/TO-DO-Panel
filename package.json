@@ -1,9 +1,9 @@
 {
-  "name": "dynamic-panel",
+  "name": "to-do-panel",
   "version": "0.4.1",
-  "description": "Dynamic Panel - macOS notch-shaped local workspace",
+  "description": "TO-DO Panel - a local workspace that lives under the Mac notch",
   "main": "main.js",
-  "author": "Vibe Coding",
+  "author": "xiaopu-ai",
   "license": "MIT",
   "scripts": {
     "test": "node --test tests/*.test.js && node --check main.js && node --check main-services.js && node --check preload.js && node --check renderer/domain.js && node --check renderer/effects.js && node --check renderer/app.js && node --check renderer/workspace.js && node --check renderer/icon-motion.js && node --check renderer/notification.js && node --check build/afterPack.js && node --check scripts/codex-notify.js && node --check scripts/claude-notify.js",
@@ -18,8 +18,8 @@
   },
   "build": {
     "appId": "com.dynamicpanel.app",
-    "productName": "Dynamic Panel",
-    "copyright": "© 2026 Vibe Coding",
+    "productName": "TO-DO Panel",
+    "copyright": "© 2026 xiaopu-ai",
     "asar": false,
     "directories": {
       "output": "dist",
@@ -59,14 +59,14 @@
       "extendInfo": {
         "LSUIElement": true,
         "NSHighResolutionCapable": true,
-        "CFBundleDisplayName": "Dynamic Panel",
-        "NSCameraUsageDescription": "Dynamic Panel 需要使用摄像头来显示「镜子」预览。",
-        "NSMicrophoneUsageDescription": "Dynamic Panel 需要使用麦克风来录音并生成转写文本。",
-        "NSAppleEventsUsageDescription": "Dynamic Panel 需要控制「系统事件」来枚举并聚焦当前窗口、发送汽水音乐快捷键。"
+        "CFBundleDisplayName": "TO-DO Panel",
+        "NSCameraUsageDescription": "TO-DO Panel 需要使用摄像头来显示「镜子」预览。",
+        "NSMicrophoneUsageDescription": "TO-DO Panel 需要使用麦克风来录音并生成转写文本。",
+        "NSAppleEventsUsageDescription": "TO-DO Panel 需要控制「系统事件」来枚举并聚焦当前窗口、发送汽水音乐快捷键。"
       }
     },
     "dmg": {
-      "title": "Dynamic Panel ${version}",
+      "title": "TO-DO Panel ${version}",
       "iconSize": 100,
       "contents": [
         {

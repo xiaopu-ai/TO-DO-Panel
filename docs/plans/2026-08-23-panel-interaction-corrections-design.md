@@ -1,4 +1,4 @@
-# Dynamic Panel 列表、链接、剪贴板与通知交互修正
+# TO-DO Panel 列表、链接、剪贴板与通知交互修正
 
 > **本文已于 2026-08-25 作废。** 原生刘海壳已从仓库移除，项目回到单一 Electron 架构；
 > 原因见 [adr/0001-native-macos-architecture.md](../adr/0001-native-macos-architecture.md) 文首说明。

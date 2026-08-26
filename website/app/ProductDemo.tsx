@@ -219,7 +219,7 @@ function HomePanel() {
         <div className="pd-tile-header"><span>收藏剪贴</span><small>3</small></div>
         <div className="pd-favorite-clips">
           <p>今天先完成最重要的一件事。</p>
-          <p>github.com/xiaopu-ai/dynamic-panel</p>
+          <p>github.com/xiaopu-ai/TO-DO-Panel</p>
           <p>npm run build</p>
         </div>
       </section>
@@ -285,7 +285,7 @@ function LinksPanel() {
     { id: "reading", label: "稍后阅读", count: 5 },
   ];
   const links = [
-    ["项目发布检查清单", "github.com/xiaopu-ai/dynamic-panel", "GH"],
+    ["项目发布检查清单", "github.com/xiaopu-ai/TO-DO-Panel", "GH"],
     ["Apple 设计资源", "developer.apple.com/design", "A"],
     ["React 交互组件", "reactbits.dev", "R"],
     ["Framer 页面参考", "framer.com", "F"],

@@ -1,8 +1,8 @@
-# Dynamic Panel Interaction Corrections Implementation Plan
+# TO-DO Panel Interaction Corrections Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 修正 Dynamic Panel 的快捷键、待办排序、链接分组与拖拽、列表 hover、密钥检索、剪贴板回填和原生通知安全区。
+**Goal:** 修正 TO-DO Panel 的快捷键、待办排序、链接分组与拖拽、列表 hover、密钥检索、剪贴板回填和原生通知安全区。
 
 **Architecture:** 可测的纯逻辑放在 `renderer/domain.js` 和 `main-services.js`；DOM 动画、拖拽与检索留在渲染层；系统剪贴板、应用激活与键盘粘贴留在 Electron 主进程；通知安全区由 SwiftUI 原生壳处理。
 

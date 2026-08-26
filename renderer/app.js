@@ -522,7 +522,7 @@ function syncPanelAccessibility(expanded) {
   }
   if (!notch) return;
   notch.setAttribute('aria-expanded', String(expanded));
-  notch.setAttribute('aria-label', expanded ? '收起 Dynamic Panel' : '展开 Dynamic Panel');
+  notch.setAttribute('aria-label', expanded ? '收起 TO-DO Panel' : '展开 TO-DO Panel');
   if (expanded && document.activeElement === notch) {
     const activeTabButton = document.querySelector(`.tab[data-tab="${activeTab}"]`);
     if (activeTabButton) activeTabButton.focus({ preventScroll: true });

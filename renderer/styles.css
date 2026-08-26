@@ -3706,7 +3706,7 @@ body {
 .credential-inline-fields input { width:100%; height:32px; padding:0 9px; border:0; border-radius:10px; outline:none; background:rgba(255,255,255,.055); color:var(--text-1); }
 .credential-inline-editor > button { align-self:end; }
 
-/* ============ Dynamic Panel · final compact component pass ============ */
+/* ============ TO-DO Panel · final compact component pass ============ */
 .shortcut-recorder {
   position: absolute;
   top: 52px;

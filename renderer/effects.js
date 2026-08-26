@@ -1,5 +1,5 @@
 /*
- * Dynamic Panel visual effects.
+ * TO-DO Panel visual effects.
  * The music shader is adapted from the open-source Vue Bits Color Bends
  * component and rewritten for the app's dependency-free renderer.
  */
@@ -284,7 +284,7 @@
     try {
       program = createProgram(gl, fragmentSource);
     } catch (error) {
-      console.warn('[Dynamic Panel] visual effect unavailable:', error);
+      console.warn('[TO-DO Panel] visual effect unavailable:', error);
       container?.classList.add('effect-fallback');
       return null;
     }

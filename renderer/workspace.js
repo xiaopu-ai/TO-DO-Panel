@@ -265,7 +265,7 @@
     if (!linkGroups.length) {
       const empty = document.createElement('div');
       empty.className = 'links-empty';
-      empty.innerHTML = '<strong>还没有链接</strong><span>粘贴一个网址，Dynamic Panel 会读取标题并放进合适的分组。</span>';
+      empty.innerHTML = '<strong>还没有链接</strong><span>粘贴一个网址，TO-DO Panel 会读取标题并放进合适的分组。</span>';
       linkGroupsEl.appendChild(empty);
       return;
     }
@@ -1687,7 +1687,7 @@
       const heading = document.createElement('strong');
       heading.textContent = title;
       const hint = document.createElement('span');
-      hint.textContent = `系统设置 → 隐私与安全性 → ${pane}，允许 Dynamic Panel 后重试。`;
+      hint.textContent = `系统设置 → 隐私与安全性 → ${pane}，允许 TO-DO Panel 后重试。`;
       const action = document.createElement('button');
       action.type = 'button';
       action.className = 'window-permission-open';
@@ -1904,7 +1904,7 @@
       if (typeof showStatusToast === 'function') {
         showStatusToast(result && result.error === 'not_installed'
           ? '未安装汽水音乐'
-          : needsPermission ? '请在系统设置中允许 Dynamic Panel 使用辅助功能'
+          : needsPermission ? '请在系统设置中允许 TO-DO Panel 使用辅助功能'
             : needsSession ? '请先点击播放，再使用切歌控制' : '汽水音乐控制暂不可用');
       }
     } else {

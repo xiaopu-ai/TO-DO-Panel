@@ -1,13 +1,13 @@
 # GitHub Release 发布流程
 
-Dynamic Panel 采用与 CC Switch 类似的开源分发方式：源码公开在 GitHub，安装包放在 Releases，暂不购买 Developer ID，也不提交 Mac App Store。
+TO-DO Panel 采用与 CC Switch 类似的开源分发方式：源码公开在 GitHub，安装包放在 Releases，暂不购买 Developer ID，也不提交 Mac App Store。
 
 ## 用户安装
 
-1. 从 [GitHub Releases](https://github.com/xiaopu-ai/dynamic-panel/releases/latest) 下载 `Dynamic Panel-*-arm64.dmg`。
-2. 打开 DMG，将 `Dynamic Panel.app` 拖入“应用程序”。
+1. 从 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO Panel-*-arm64.dmg`。
+2. 打开 DMG，将 `TO-DO Panel.app` 拖入“应用程序”。
 3. 首次启动若被 macOS 拦截，打开“系统设置 → 隐私与安全性”，点击“仍要打开”。
-4. 再次启动 Dynamic Panel，并按系统提示授权摄像头和麦克风。
+4. 再次启动 TO-DO Panel，并按系统提示授权摄像头和麦克风。
 
 “仍要打开”只需要确认一次。安装包使用 ad-hoc 签名且未经过 Apple 公证，因此无法省略这一步。
 
@@ -21,13 +21,13 @@ npm test
 npm run build
 ```
 
-产物是 `dist/Dynamic Panel-<版本>-arm64.dmg`。`afterPack` 的 ad-hoc 签名校验失败会直接中断构建，
+产物是 `dist/TO-DO Panel-<版本>-arm64.dmg`。`afterPack` 的 ad-hoc 签名校验失败会直接中断构建，
 所以只要命令成功退出，产物就是可分发的。
 
 ## 维护者经 GitHub 发布新版本
 
 > **前置条件**：本地 `main` 已跟踪 GitHub 的 `origin/main`，并已配置可写入
-> `xiaopu-ai/dynamic-panel` 的 GitHub 凭据。发布前先确认工作区干净且本地提交已经推送。
+> `xiaopu-ai/TO-DO-Panel` 的 GitHub 凭据。发布前先确认工作区干净且本地提交已经推送。
 
 GitHub Actions 只在推送语义化版本标签时发布安装包。标签必须与 `package.json` 中的版本一致，
 所以先读版本号再打标签，不要照抄示例里的数字：

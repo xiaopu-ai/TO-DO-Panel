@@ -4,8 +4,8 @@ import Image from "next/image";
 import ProductDemo from "./ProductDemo";
 import SideRays from "./SideRays";
 
-const DOWNLOAD_URL = "https://github.com/xiaopu-ai/dynamic-panel/releases/latest";
-const GITHUB_URL = "https://github.com/xiaopu-ai/dynamic-panel";
+const DOWNLOAD_URL = "https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest";
+const GITHUB_URL = "https://github.com/xiaopu-ai/TO-DO-Panel";
 
 const capabilities = [
   { number: "01", label: "首页工作台", title: "一次展开，接住所有临时动作。", body: "当前窗口、快速录音、随笔记、常用指令与番茄钟，被收进同一块本地 Bento 工作台。", accent: "lime" },

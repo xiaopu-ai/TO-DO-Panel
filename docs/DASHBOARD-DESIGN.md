@@ -1,4 +1,4 @@
-# Dynamic Panel · 仪表盘设计规格（DASHBOARD-DESIGN）
+# TO-DO Panel · 仪表盘设计规格（DASHBOARD-DESIGN）
 
 > 本文记录渲染层（`renderer/`）的设计演进。当前产品约束以 §11 为准，精确颜色、圆角、
 > 间距、字号与动效取值以 `renderer/styles.css` 的 CSS 自定义属性为准。
