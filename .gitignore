@@ -1,0 +1,25 @@
+.DS_Store
+node_modules/
+dist/
+*.log
+*.tmp
+.claude/settings.local.json
+.vscode/settings.json
+.idea/
+.cache/
+coverage/
+*.swp
+
+# Swift Package Manager 构建目录（体积可达数百 MB，绝不入库）
+native/.build/
+
+website/node_modules/
+website/dist/
+website/.vinext/
+website/.next/
+website/.wrangler/
+website/public/product-captures/raw/
+
+.env
+.env.*
+!.env.example

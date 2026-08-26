@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+
+  "permissions": {
+    "allow": [
+      "Bash(npm install*)",
+      "Bash(npm run*)",
+      "Bash(npm create*)",
+      "Bash(npx *)",
+      "Bash(pnpm *)",
+      "Bash(bun *)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git checkout*)",
+      "Bash(git switch*)",
+      "Bash(git stash*)",
+      "Bash(git merge*)",
+      "Bash(ls*)",
+      "Bash(find*)",
+      "Bash(grep*)",
+      "Bash(cat*)",
+      "Bash(mkdir*)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(node *)",
+      "Bash(tsc*)",
+      "Bash(eslint*)",
+      "Bash(prettier*)",
+      "Bash(wc *)",
+      "Bash(sort *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Read",
+      "Edit",
+      "Write",
+      "Agent"
+    ],
+
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -r /*)",
+      "Bash(sudo *)",
+      "Bash(chmod -R 777*)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -fd*)",
+      "Bash(curl * | bash*)",
+      "Bash(wget * | bash*)",
+      "Bash(kill -9 *)",
+      "Read(.env*)",
+      "Read(**/credentials*)",
+      "Read(**/*secret*)",
+      "Read(~/.ssh/*)",
+      "Read(~/.aws/*)",
+      "Write(.env*)",
+      "Write(**/credentials*)"
+    ]
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-dangerous.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/auto-format.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "在结束前检查：1) 是否有未完成的功能？2) 最近的改动是否已经 commit？3) 是否有引入的 TypeScript 类型错误？如果有未完成的工作，列出待办事项。"
+          }
+        ]
+      }
+    ]
+  },
+
+  "env": {
+    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-4-6"
+  }
+}

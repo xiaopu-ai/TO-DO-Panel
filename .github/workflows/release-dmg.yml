@@ -1,0 +1,78 @@
+name: Release macOS DMG
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build unsigned Apple Silicon DMG
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify release version
+        shell: zsh {0}
+        run: |
+          package_version=$(node -p "require('./package.json').version")
+          tag_version=${GITHUB_REF_NAME#v}
+          if [[ ${package_version} != ${tag_version} ]]; then
+            print -u2 "package.json 版本 ${package_version} 与标签 ${GITHUB_REF_NAME} 不一致"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run desktop checks
+        run: npm test
+
+      - name: Build DMG
+        run: npm run build
+
+      - name: Verify and checksum DMG
+        id: artifact
+        shell: zsh {0}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          dmg_path="dist/Dynamic Panel-${version}-arm64.dmg"
+          app_path="dist/mac-arm64/Dynamic Panel.app"
+          [[ -f ${dmg_path} ]]
+          [[ -x "${app_path}/Contents/MacOS/Dynamic Panel" ]]
+          codesign --verify --deep --strict "${app_path}"
+          hdiutil verify "${dmg_path}"
+          shasum -a 256 "${dmg_path}" > "${dmg_path}.sha256"
+          print "dmg_path=${dmg_path}" >> "${GITHUB_OUTPUT}"
+          print "checksum_path=${dmg_path}.sha256" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DMG_PATH: ${{ steps.artifact.outputs.dmg_path }}
+          CHECKSUM_PATH: ${{ steps.artifact.outputs.checksum_path }}
+        shell: zsh {0}
+        run: |
+          release_notes=$'## 安装\n\n1. 下载下方 `Dynamic Panel-*-arm64.dmg`。\n2. 打开 DMG，将 `Dynamic Panel.app` 拖入“应用程序”。\n3. 首次启动若被 macOS 拦截，打开“系统设置 → 隐私与安全性”，点击“仍要打开”。此操作只需一次。\n\n当前安装包适用于 Apple Silicon Mac，采用 ad-hoc 签名且未经过 Apple 公证。'
+          gh release create "${GITHUB_REF_NAME}" \
+            "${DMG_PATH}" \
+            "${CHECKSUM_PATH}" \
+            --title "Dynamic Panel ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --notes "${release_notes}"

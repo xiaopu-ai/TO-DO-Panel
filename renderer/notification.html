@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dynamic Panel 提醒</title>
+    <link rel="stylesheet" href="./notification.css" />
+  </head>
+  <body>
+    <main
+      id="notification-root"
+      class="notification-root"
+      aria-live="polite"
+      aria-atomic="true"
+      hidden
+    >
+      <button
+        id="notification-shell"
+        class="notification-shell"
+        type="button"
+        aria-label="打开任务对应窗口"
+      >
+        <span class="notification-content">
+          <span class="notification-logo-wrap" aria-hidden="true">
+            <svg class="notification-glyph notification-glyph-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6.5 12.5 3.5 3.5 7.5-8"/></svg>
+            <svg class="notification-glyph notification-glyph-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5c.7 4 2.8 6.1 6.8 6.8-4 .7-6.1 2.8-6.8 6.8-.7-4-2.8-6.1-6.8-6.8 4-.7 6.1-2.8 6.8-6.8Z"/><path d="M18.5 16.5c.25 1.35.95 2.05 2.3 2.3-1.35.25-2.05.95-2.3 2.3-.25-1.35-.95-2.05-2.3-2.3 1.35-.25 2.05-.95 2.3-2.3Z"/></svg>
+            <svg class="notification-glyph notification-glyph-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.5"/><path d="M12 7.8v4.7l3.2 1.8"/></svg>
+            <span class="notification-status-dot"></span>
+          </span>
+
+          <span class="notification-copy">
+            <span id="notification-title" class="notification-title">任务已完成</span>
+            <span class="notification-meta">
+              <span id="notification-source" class="notification-source">Codex</span>
+              <span id="notification-detail" class="notification-detail"
+                >任务已完成，可以查看了</span
+              >
+            </span>
+          </span>
+
+          <span class="notification-trailing" aria-hidden="true">
+            <span class="notification-time">刚刚</span>
+            <span id="notification-queue" class="notification-queue" hidden>+1</span>
+          </span>
+        </span>
+      </button>
+    </main>
+
+    <script src="./notification.js" defer></script>
+  </body>
+</html>

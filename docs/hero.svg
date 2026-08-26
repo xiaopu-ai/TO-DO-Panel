@@ -1,0 +1,190 @@
+<svg viewBox="0 0 1200 500" xmlns="http://www.w3.org/2000/svg" role="img" font-family="-apple-system, 'SF Pro Display', 'PingFang SC', system-ui, sans-serif">
+  <title>Dynamic Panel — 常驻 macOS 刘海的纯单色玻璃仪表盘</title>
+  <desc>左侧产品名与四个 Tab 功能介绍（首页 / 待办 / 剪贴板 / 应用），右侧是从刘海垂下的仪表盘界面模拟图，展示剪贴板横向四列网格。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0E0E12"/>
+      <stop offset="1" stop-color="#08080A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#5B6CFF" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#5B6CFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="panelEdge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.07"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 背景 -->
+  <rect x="0" y="0" width="1200" height="500" rx="28" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="1199" height="499" rx="27.5" fill="none" stroke="#ffffff" stroke-opacity="0.06"/>
+  <ellipse cx="880" cy="230" rx="430" ry="320" fill="url(#glow)"/>
+
+  <!-- ============ 左：文案 ============ -->
+  <!-- 品牌字标 -->
+  <text x="72" y="110" font-size="54" font-weight="700" letter-spacing="-1.6" fill="#F5F5F7">Dynamic Panel</text>
+  <text x="74" y="152" font-size="18" font-weight="500" fill="#ffffff" fill-opacity="0.62">常驻 macOS 刘海的纯单色玻璃仪表盘</text>
+  <text x="74" y="178" font-size="14.5" fill="#ffffff" fill-opacity="0.40">点一下从刘海垂下展开 · 黑色玻璃 HUD · 折叠回刘海</text>
+
+  <!-- 功能四行 -->
+  <!-- 首页 -->
+  <g transform="translate(74,214)">
+    <rect x="0" y="0" width="34" height="34" rx="9" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.10"/>
+    <path d="M9 17 L17 10 L25 17 M11 15.5 V24 H23 V15.5" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="48" y="15" font-size="15.5" font-weight="600" fill="#F0F0F2">首页</text>
+    <text x="48" y="32" font-size="13" fill="#ffffff" fill-opacity="0.50">时钟 · 速记 · 快捷应用 · 镜子 · 收藏剪贴</text>
+  </g>
+  <!-- 待办 -->
+  <g transform="translate(74,266)">
+    <rect x="0" y="0" width="34" height="34" rx="9" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.10"/>
+    <path d="M9 11 H21 M9 17 H21 M9 23 H17" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M23.5 10.5 L25.5 12.5 L29 8.5" fill="none" stroke="#30D158" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="48" y="15" font-size="15.5" font-weight="600" fill="#F0F0F2">待办</text>
+    <text x="48" y="32" font-size="13" fill="#ffffff" fill-opacity="0.50">P0–P3 四象限 · 连按两次回车防误触</text>
+    <circle cx="322" cy="11" r="4.5" fill="#FF453A"/>
+    <circle cx="340" cy="11" r="4.5" fill="#FF9F0A"/>
+    <circle cx="358" cy="11" r="4.5" fill="#FFD60A"/>
+    <circle cx="376" cy="11" r="4.5" fill="#30D158"/>
+  </g>
+  <!-- 剪贴板 -->
+  <g transform="translate(74,318)">
+    <rect x="0" y="0" width="34" height="34" rx="9" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.10"/>
+    <rect x="11" y="9" width="12" height="16" rx="2.5" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.5"/>
+    <path d="M14 9 v-1.5 a1 1 0 0 1 1 -1 h4 a1 1 0 0 1 1 1 V9" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.5" stroke-linejoin="round"/>
+    <text x="48" y="15" font-size="15.5" font-weight="600" fill="#F0F0F2">剪贴板</text>
+    <text x="48" y="32" font-size="13" fill="#ffffff" fill-opacity="0.50">自动记录复制 · 收藏写回 · ⌘⇧V 召唤</text>
+    <!-- 三种类型色点（文字/链接/图片，克制低饱和） -->
+    <circle cx="330" cy="11" r="4.5" fill="#ffffff" fill-opacity="0.32"/>
+    <circle cx="348" cy="11" r="4.5" fill="#5AA0DC"/>
+    <circle cx="366" cy="11" r="4.5" fill="#A064DC"/>
+  </g>
+  <!-- 应用 -->
+  <g transform="translate(74,370)">
+    <rect x="0" y="0" width="34" height="34" rx="9" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.10"/>
+    <rect x="9" y="9" width="7" height="7" rx="2" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.5"/>
+    <rect x="18" y="9" width="7" height="7" rx="2" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.5"/>
+    <rect x="9" y="18" width="7" height="7" rx="2" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.5"/>
+    <rect x="18" y="18" width="7" height="7" rx="2" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="1.5"/>
+    <text x="48" y="15" font-size="15.5" font-weight="600" fill="#F0F0F2">应用</text>
+    <text x="48" y="32" font-size="13" fill="#ffffff" fill-opacity="0.50">本机启动坞 · 搜索 · 收藏 · 拖拽排序</text>
+  </g>
+
+  <!-- 平台标 -->
+  <g transform="translate(74,430)">
+    <rect x="0" y="0" width="208" height="28" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.10"/>
+    <circle cx="18" cy="14" r="3.5" fill="#30D158"/>
+    <text x="32" y="18.5" font-size="12.5" font-weight="500" fill="#ffffff" fill-opacity="0.62">macOS · Apple Silicon · Electron</text>
+  </g>
+
+  <!-- ============ 右：产品模拟（剪贴板 Tab · 横向四列网格） ============ -->
+  <!-- 菜单栏暗示（细线 + 状态点） -->
+  <line x1="600" y1="86" x2="1140" y2="86" stroke="#ffffff" stroke-opacity="0.07"/>
+  <circle cx="1118" cy="80" r="2.2" fill="#ffffff" fill-opacity="0.30"/>
+  <circle cx="1108" cy="80" r="2.2" fill="#ffffff" fill-opacity="0.30"/>
+  <circle cx="1098" cy="80" r="2.2" fill="#ffffff" fill-opacity="0.30"/>
+
+  <!-- 面板投影（本轮已缩小的克制阴影感） -->
+  <ellipse cx="870" cy="418" rx="250" ry="22" fill="#000000" fill-opacity="0.5"/>
+
+  <!-- 刘海 -->
+  <path d="M805 72 L935 72 L935 97 Q935 108 924 108 L816 108 Q805 108 805 97 Z" fill="#000000"/>
+  <!-- 面板（上沿接刘海、只圆下两角） -->
+  <path d="M600 108 L1140 108 L1140 390 Q1140 412 1118 412 L622 412 Q600 412 600 390 Z" fill="#000000" stroke="url(#panelEdge)" stroke-width="1"/>
+
+  <!-- 顶栏：品牌 + 四 Tab 分段控件（激活在「剪贴板」）+ 收起钮 -->
+  <rect x="622" y="122" width="22" height="22" rx="7" fill="#ffffff" fill-opacity="0.08"/>
+  <path d="M628 133 l4 -3 l5 3 l-1 5 l-7 0 Z" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="1.1"/>
+  <text x="654" y="139" font-size="13" font-weight="600" fill="#F2F2F4">Dynamic Panel</text>
+  <!-- 分段控件（四 Tab） -->
+  <rect x="748" y="120" width="300" height="28" rx="14" fill="#ffffff" fill-opacity="0.05" stroke="#ffffff" stroke-opacity="0.06"/>
+  <text x="768" y="138" font-size="12.5" fill="#ffffff" fill-opacity="0.42">首页</text>
+  <text x="824" y="138" font-size="12.5" fill="#ffffff" fill-opacity="0.42">待办</text>
+  <!-- 激活胶囊落在「剪贴板」 -->
+  <rect x="872" y="124" width="86" height="20" rx="10" fill="#ffffff" fill-opacity="0.10"/>
+  <text x="884" y="138" font-size="12.5" font-weight="500" fill="#F2F2F4">剪贴板</text>
+  <text x="986" y="138" font-size="12.5" fill="#ffffff" fill-opacity="0.42">应用</text>
+  <path d="M1108 138 l6 -6 l6 6" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 工具栏：过滤器胶囊 [全部/文字/图片/收藏] + 清空钮 -->
+  <g transform="translate(620,166)">
+    <rect x="0" y="0" width="40" height="22" rx="11" fill="#ffffff" fill-opacity="0.08"/>
+    <text x="20" y="15" font-size="11" font-weight="500" fill="#F2F2F4" text-anchor="middle">全部</text>
+    <rect x="48" y="0" width="40" height="22" rx="11" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.06"/>
+    <text x="68" y="15" font-size="11" fill="#ffffff" fill-opacity="0.42" text-anchor="middle">文字</text>
+    <rect x="96" y="0" width="40" height="22" rx="11" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.06"/>
+    <text x="116" y="15" font-size="11" fill="#ffffff" fill-opacity="0.42" text-anchor="middle">图片</text>
+    <rect x="144" y="0" width="40" height="22" rx="11" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.06"/>
+    <text x="164" y="15" font-size="11" fill="#ffffff" fill-opacity="0.42" text-anchor="middle">收藏</text>
+    <!-- 清空钮 -->
+    <rect x="498" y="0" width="22" height="22" rx="7" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.06"/>
+    <path d="M505 6 h8 M507 6 v-1 h4 v1 M506 8 l1 9 h6 l1 -9" fill="none" stroke="#ffffff" stroke-opacity="0.4" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- 横向四列网格：文字/链接/图片，左 2px 类型色条 -->
+  <!-- 第一行 -->
+  <!-- 链接（低饱和蓝青色条 + 徽章） -->
+  <g transform="translate(620,200)">
+    <rect x="0" y="0" width="120" height="80" rx="12" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.06"/>
+    <rect x="0" y="0" width="2" height="80" rx="1" fill="#5AA0DC"/>
+    <text x="14" y="24" font-size="10.5" fill="#F2F2F4">linear.app</text>
+    <text x="14" y="38" font-size="10.5" fill="#ffffff" fill-opacity="0.55">/method</text>
+    <rect x="14" y="52" width="30" height="15" rx="7.5" fill="#5AA0DC" fill-opacity="0.12" stroke="#5AA0DC" stroke-opacity="0.35"/>
+    <text x="29" y="62.5" font-size="9" fill="#5AA0DC" text-anchor="middle">链接</text>
+    <!-- 收藏星 -->
+    <path d="M104 12 l1.6 3.4 l3.6 0.4 l-2.7 2.5 l0.8 3.6 l-3.3 -1.9 l-3.3 1.9 l0.8 -3.6 l-2.7 -2.5 l3.6 -0.4 Z" fill="#ffffff" fill-opacity="0.85"/>
+  </g>
+  <!-- 文字（近中性色条） -->
+  <g transform="translate(748,200)">
+    <rect x="0" y="0" width="120" height="80" rx="12" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.06"/>
+    <rect x="0" y="0" width="2" height="80" rx="1" fill="#ffffff" fill-opacity="0.32"/>
+    <text x="14" y="24" font-size="10.5" fill="#F2F2F4">这是一段复制的</text>
+    <text x="14" y="39" font-size="10.5" fill="#F2F2F4">文字，超出会</text>
+    <text x="14" y="54" font-size="10.5" fill="#ffffff" fill-opacity="0.7">省略号截断…</text>
+    <text x="14" y="72" font-size="9.5" fill="#ffffff" fill-opacity="0.3">5 分钟前</text>
+  </g>
+  <!-- 图片（低饱和紫色条 + 卡片缩略图） -->
+  <g transform="translate(876,200)">
+    <rect x="0" y="0" width="120" height="80" rx="12" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.06"/>
+    <rect x="0" y="0" width="2" height="80" rx="1" fill="#A064DC"/>
+    <rect x="12" y="12" width="96" height="42" rx="7" fill="#ffffff" fill-opacity="0.07"/>
+    <path d="M12 46 l24 -18 l18 13 l14 -10 l28 21 v0 a7 7 0 0 1 -7 7 h-70 a7 7 0 0 1 -7 -7 Z" fill="#ffffff" fill-opacity="0.12"/>
+    <circle cx="34" cy="26" r="5" fill="#ffffff" fill-opacity="0.18"/>
+    <rect x="12" y="62" width="30" height="14" rx="7" fill="#A064DC" fill-opacity="0.12" stroke="#A064DC" stroke-opacity="0.35"/>
+    <text x="27" y="72" font-size="9" fill="#A064DC" text-anchor="middle">图片</text>
+  </g>
+  <!-- 文字 -->
+  <g transform="translate(1004,200)">
+    <rect x="0" y="0" width="120" height="80" rx="12" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.06"/>
+    <rect x="0" y="0" width="2" height="80" rx="1" fill="#ffffff" fill-opacity="0.32"/>
+    <text x="14" y="24" font-size="10.5" font-family="'SF Mono', ui-monospace, monospace" fill="#F2F2F4">npm run build</text>
+    <text x="14" y="72" font-size="9.5" fill="#ffffff" fill-opacity="0.3">2 小时前</text>
+  </g>
+  <!-- 第二行 -->
+  <g transform="translate(620,290)">
+    <rect x="0" y="0" width="120" height="80" rx="12" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.06"/>
+    <rect x="0" y="0" width="2" height="80" rx="1" fill="#ffffff" fill-opacity="0.32"/>
+    <text x="14" y="24" font-size="10.5" fill="#F2F2F4">又一条速记内容</text>
+    <text x="14" y="72" font-size="9.5" fill="#ffffff" fill-opacity="0.3">昨天</text>
+  </g>
+  <g transform="translate(748,290)">
+    <rect x="0" y="0" width="120" height="80" rx="12" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.06"/>
+    <rect x="0" y="0" width="2" height="80" rx="1" fill="#5AA0DC"/>
+    <text x="14" y="24" font-size="10.5" fill="#F2F2F4">github.com</text>
+    <text x="14" y="38" font-size="10.5" fill="#ffffff" fill-opacity="0.55">/notch-todo</text>
+    <rect x="14" y="52" width="30" height="15" rx="7.5" fill="#5AA0DC" fill-opacity="0.12" stroke="#5AA0DC" stroke-opacity="0.35"/>
+    <text x="29" y="62.5" font-size="9" fill="#5AA0DC" text-anchor="middle">链接</text>
+  </g>
+  <g transform="translate(876,290)">
+    <rect x="0" y="0" width="120" height="80" rx="12" fill="#ffffff" fill-opacity="0.045" stroke="#ffffff" stroke-opacity="0.06"/>
+    <rect x="0" y="0" width="2" height="80" rx="1" fill="#ffffff" fill-opacity="0.32"/>
+    <text x="14" y="24" font-size="10.5" fill="#F2F2F4">Cmd + Shift + V</text>
+    <text x="14" y="39" font-size="10.5" fill="#ffffff" fill-opacity="0.7">全局召唤</text>
+    <text x="14" y="72" font-size="9.5" fill="#ffffff" fill-opacity="0.3">昨天</text>
+  </g>
+  <g transform="translate(1004,290)">
+    <rect x="0" y="0" width="120" height="80" rx="12" fill="#ffffff" fill-opacity="0.03" stroke="#ffffff" stroke-opacity="0.05" stroke-dasharray="4 4"/>
+    <text x="60" y="44" font-size="10" fill="#ffffff" fill-opacity="0.28" text-anchor="middle">最新在左上</text>
+  </g>
+</svg>

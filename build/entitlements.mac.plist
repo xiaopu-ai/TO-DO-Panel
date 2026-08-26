@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.cs.disable-executable-page-protection</key>
+  <true/>
+  <key>com.apple.security.device.camera</key>
+  <true/>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <!-- 窗口枚举与聚焦、汽水音乐快捷键、剪贴板粘贴都要经 osascript 驱动 System Events，
+       hardenedRuntime 下缺这项会在打包后静默失效（开发期未打包所以看不出来）。 -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
+</dict>
+</plist>

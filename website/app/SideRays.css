@@ -1,0 +1,94 @@
+.side-rays-container {
+  --side-rays-color-1: #eab308;
+  --side-rays-color-2: #96c8ff;
+  --side-rays-opacity: 1;
+  --side-rays-origin-x: 100%;
+  --side-rays-origin-y: 0%;
+  position: relative;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  isolation: isolate;
+}
+
+.side-rays-container[data-origin='top-left'] {
+  --side-rays-origin-x: 0%;
+  --side-rays-origin-y: 0%;
+}
+
+.side-rays-container[data-origin='bottom-right'] {
+  --side-rays-origin-x: 100%;
+  --side-rays-origin-y: 100%;
+}
+
+.side-rays-container[data-origin='bottom-left'] {
+  --side-rays-origin-x: 0%;
+  --side-rays-origin-y: 100%;
+}
+
+.side-rays-container canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* If WebGL cannot start or its context is lost, retain a quiet static glow. */
+.side-rays-container[data-webgl-status='failed']::before,
+.side-rays-container[data-webgl-status='failed']::after {
+  position: absolute;
+  z-index: 0;
+  content: '';
+  pointer-events: none;
+}
+
+.side-rays-container[data-webgl-status='failed']::before {
+  inset: -20%;
+  background: radial-gradient(
+    ellipse at var(--side-rays-origin-x) var(--side-rays-origin-y),
+    rgb(255 255 255 / 24%),
+    transparent 64%
+  );
+  background: radial-gradient(
+    ellipse at var(--side-rays-origin-x) var(--side-rays-origin-y),
+    color-mix(in srgb, var(--side-rays-color-1) 34%, transparent),
+    transparent 64%
+  );
+  opacity: var(--side-rays-opacity);
+  filter: blur(18px);
+}
+
+.side-rays-container[data-webgl-status='failed']::after {
+  inset: -35%;
+  background: conic-gradient(
+    from 145deg at var(--side-rays-origin-x) var(--side-rays-origin-y),
+    transparent 0deg,
+    rgb(150 200 255 / 20%) 24deg,
+    transparent 62deg,
+    rgb(234 179 8 / 14%) 90deg,
+    transparent 128deg
+  );
+  background: conic-gradient(
+    from 145deg at var(--side-rays-origin-x) var(--side-rays-origin-y),
+    transparent 0deg,
+    color-mix(in srgb, var(--side-rays-color-2) 28%, transparent) 24deg,
+    transparent 62deg,
+    color-mix(in srgb, var(--side-rays-color-1) 20%, transparent) 90deg,
+    transparent 128deg
+  );
+  opacity: var(--side-rays-opacity);
+  filter: blur(24px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-rays-container,
+  .side-rays-container::before,
+  .side-rays-container::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "name": "dynamic-panel",
+  "version": "0.4.1",
+  "description": "Dynamic Panel - macOS notch-shaped local workspace",
+  "main": "main.js",
+  "author": "Vibe Coding",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test tests/*.test.js && node --check main.js && node --check main-services.js && node --check preload.js && node --check renderer/domain.js && node --check renderer/effects.js && node --check renderer/app.js && node --check renderer/workspace.js && node --check renderer/icon-motion.js && node --check renderer/notification.js && node --check build/afterPack.js && node --check scripts/codex-notify.js && node --check scripts/claude-notify.js",
+    "start": "electron .",
+    "build": "electron-builder --mac dmg",
+    "build:zip": "electron-builder --mac zip",
+    "pack": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.dynamicpanel.app",
+    "productName": "Dynamic Panel",
+    "copyright": "© 2026 Vibe Coding",
+    "asar": false,
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "afterPack": "./build/afterPack.js",
+    "files": [
+      "main.js",
+      "main-services.js",
+      "preload.js",
+      "renderer/**/*",
+      "scripts/codex-notify.js",
+      "scripts/claude-notify.js",
+      "package.json",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/.bin",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}"
+    ],
+    "mac": {
+      "icon": "build/to-do-panel-icon.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "darkModeSupport": true,
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSHighResolutionCapable": true,
+        "CFBundleDisplayName": "Dynamic Panel",
+        "NSCameraUsageDescription": "Dynamic Panel 需要使用摄像头来显示「镜子」预览。",
+        "NSMicrophoneUsageDescription": "Dynamic Panel 需要使用麦克风来录音并生成转写文本。",
+        "NSAppleEventsUsageDescription": "Dynamic Panel 需要控制「系统事件」来枚举并聚焦当前窗口、发送汽水音乐快捷键。"
+      }
+    },
+    "dmg": {
+      "title": "Dynamic Panel ${version}",
+      "iconSize": 100,
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    }
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}
