@@ -21,7 +21,7 @@ npm test
 npm run build
 ```
 
-产物是 `dist/TO-DO-Panel-<版本>-arm64.dmg`。`afterPack` 的 ad-hoc 签名校验失败会直接中断构建，
+产物是 `dist.noindex/TO-DO-Panel-<版本>-arm64.dmg`。`.noindex` 后缀避免解包后的应用被 Spotlight 当成第二份已安装应用；`afterPack` 的 ad-hoc 签名校验失败会直接中断构建，
 所以只要命令成功退出，产物就是可分发的。
 
 ## 维护者经 GitHub 发布新版本

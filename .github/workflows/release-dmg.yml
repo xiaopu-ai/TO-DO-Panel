@@ -52,8 +52,8 @@ jobs:
         shell: zsh {0}
         run: |
           version=$(node -p "require('./package.json').version")
-          dmg_path="dist/TO-DO-Panel-${version}-arm64.dmg"
-          app_path="dist/mac-arm64/TO-DO Panel.app"
+          dmg_path="dist.noindex/TO-DO-Panel-${version}-arm64.dmg"
+          app_path="dist.noindex/mac-arm64/TO-DO Panel.app"
           [[ -f ${dmg_path} ]]
           [[ -x "${app_path}/Contents/MacOS/TO-DO Panel" ]]
           codesign --verify --deep --strict "${app_path}"

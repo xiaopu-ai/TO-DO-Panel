@@ -18,7 +18,9 @@
   </p>
 </div>
 
-![TO-DO Panel 产品预览](docs/hero.svg)
+![TO-DO Panel 首页](docs/screenshots/home.png)
+
+![TO-DO Panel 待办](docs/screenshots/todo.png)
 
 ## 它是什么
 
@@ -37,7 +39,7 @@ TO-DO Panel 是一个常驻 macOS 屏幕顶部的本地工作台。默认折叠�
 
 ## 下载与安装
 
-> 当前版本：**0.4.1** · 支持 **Apple Silicon Mac**
+> 当前版本：**1.0.0** · 支持 **Apple Silicon Mac**
 
 1. 前往 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO-Panel-*-arm64.dmg`。
 2. 打开 DMG，将 `TO-DO Panel.app` 拖入「应用程序」。

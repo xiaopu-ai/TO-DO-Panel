@@ -173,8 +173,14 @@ body {
     background var(--d-fast) var(--ease-out);
 }
 
-.notch:focus-visible {
-  outline-offset: -4px;
+#app .notch:focus-visible {
+  outline: none;
+}
+
+/* 折叠条与物理刘海重合时，外壳焦点环只会从底部两角漏出两个蓝白像素。
+   把键盘焦点提示收进中间抓握条，既保留可访问性，也不再暴露圆角边缘。 */
+#app.collapsed .notch:focus-visible .notch-dot {
+  box-shadow: 0 0 0 1px var(--focus-ring);
 }
 
 /* 折叠态始终锁定物理刘海高度。即使原生窗口边界晚一帧收缩，

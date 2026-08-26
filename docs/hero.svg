@@ -23,7 +23,7 @@
     <rect width="132" height="38" rx="19" fill="#F5F5F7"/><text x="66" y="24.5" text-anchor="middle" font-size="13" font-weight="700" fill="#0B0C0F">Apple Silicon</text>
     <rect x="144" width="110" height="38" rx="19" fill="#fff" fill-opacity=".06" stroke="#fff" stroke-opacity=".12"/><circle cx="164" cy="19" r="4" fill="#4FE18A"/><text x="211" y="24.5" text-anchor="middle" font-size="13" font-weight="600" fill="#fff" fill-opacity=".72">本机优先</text>
   </g>
-  <text x="74" y="407" font-size="12.5" font-weight="600" fill="#fff" fill-opacity=".34" letter-spacing="1.6">OPEN SOURCE · macOS · v0.4.1</text>
+  <text x="74" y="407" font-size="12.5" font-weight="600" fill="#fff" fill-opacity=".34" letter-spacing="1.6">OPEN SOURCE · macOS · v1.0.0</text>
   <g transform="translate(590 72)" filter="url(#shadow)">
     <rect x="0" y="48" width="542" height="382" rx="0 0 28 28" fill="#050506" stroke="#fff" stroke-opacity=".12"/>
     <path d="M210 0h122v39c0 15-12 27-27 27h-68c-15 0-27-12-27-27z" fill="#000"/>
