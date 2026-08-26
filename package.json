@@ -19,6 +19,7 @@
   "build": {
     "appId": "com.dynamicpanel.app",
     "productName": "TO-DO Panel",
+    "artifactName": "TO-DO-Panel-${version}-${arch}.${ext}",
     "copyright": "© 2026 xiaopu-ai",
     "asar": false,
     "directories": {

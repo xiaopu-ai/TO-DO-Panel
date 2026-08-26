@@ -4,7 +4,7 @@ TO-DO Panel 采用与 CC Switch 类似的开源分发方式：源码公开在 Gi
 
 ## 用户安装
 
-1. 从 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO Panel-*-arm64.dmg`。
+1. 从 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO-Panel-*-arm64.dmg`。
 2. 打开 DMG，将 `TO-DO Panel.app` 拖入“应用程序”。
 3. 首次启动若被 macOS 拦截，打开“系统设置 → 隐私与安全性”，点击“仍要打开”。
 4. 再次启动 TO-DO Panel，并按系统提示授权摄像头和麦克风。
@@ -21,7 +21,7 @@ npm test
 npm run build
 ```
 
-产物是 `dist/TO-DO Panel-<版本>-arm64.dmg`。`afterPack` 的 ad-hoc 签名校验失败会直接中断构建，
+产物是 `dist/TO-DO-Panel-<版本>-arm64.dmg`。`afterPack` 的 ad-hoc 签名校验失败会直接中断构建，
 所以只要命令成功退出，产物就是可分发的。
 
 ## 维护者经 GitHub 发布新版本

@@ -39,7 +39,7 @@ TO-DO Panel 是一个常驻 macOS 屏幕顶部的本地工作台。默认折叠�
 
 > 当前版本：**0.4.1** · 支持 **Apple Silicon Mac**
 
-1. 前往 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO Panel-*-arm64.dmg`。
+1. 前往 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO-Panel-*-arm64.dmg`。
 2. 打开 DMG，将 `TO-DO Panel.app` 拖入「应用程序」。
 3. 首次启动若被 macOS 拦截，前往「系统设置 → 隐私与安全性」，点击「仍要打开」。
 4. 再次启动，根据需要授予辅助功能、屏幕录制、麦克风或摄像头权限。
