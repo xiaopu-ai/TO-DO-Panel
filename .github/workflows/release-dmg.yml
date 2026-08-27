@@ -1,6 +1,7 @@
 name: Release macOS DMG
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*.*.*"
@@ -28,15 +29,9 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Verify release version
-        shell: zsh {0}
-        run: |
-          package_version=$(node -p "require('./package.json').version")
-          tag_version=${GITHUB_REF_NAME#v}
-          if [[ ${package_version} != ${tag_version} ]]; then
-            print -u2 "package.json 版本 ${package_version} 与标签 ${GITHUB_REF_NAME} 不一致"
-            exit 1
-          fi
+      - name: Resolve release policy
+        id: release
+        run: node scripts/release-policy.js
 
       - name: Install dependencies
         run: npm ci
@@ -63,13 +58,14 @@ jobs:
           print "checksum_path=${dmg_path}.sha256" >> "${GITHUB_OUTPUT}"
 
       - name: Publish GitHub Release
+        if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           DMG_PATH: ${{ steps.artifact.outputs.dmg_path }}
           CHECKSUM_PATH: ${{ steps.artifact.outputs.checksum_path }}
         shell: zsh {0}
         run: |
-          release_notes=$'## 安装\n\n1. 下载下方 `TO-DO-Panel-*-arm64.dmg`。\n2. 打开 DMG，将 `TO-DO Panel.app` 拖入“应用程序”。\n3. 首次启动若被 macOS 拦截，打开“系统设置 → 隐私与安全性”，点击“仍要打开”。此操作只需一次。\n\n当前安装包适用于 Apple Silicon Mac，采用 ad-hoc 签名且未经过 Apple 公证。'
+          release_notes=$'## 安装\n\n1. 下载下方 `TO-DO-Panel-*-arm64.dmg`。\n2. 打开 DMG，将 `TO-DO Panel.app` 拖入“应用程序”。\n3. 首次启动若被 macOS 拦截，打开“系统设置 → 隐私与安全性”，点击“仍要打开”。此操作只需一次。\n\n当前安装包适用于 Apple Silicon Mac。项目采用 ad-hoc 签名分发，不进行 Apple 公证，也不上架 Mac App Store。'
           gh release create "${GITHUB_REF_NAME}" \
             "${DMG_PATH}" \
             "${CHECKSUM_PATH}" \

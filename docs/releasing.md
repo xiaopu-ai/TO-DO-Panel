@@ -1,6 +1,6 @@
 # GitHub Release 发布流程
 
-TO-DO Panel 采用与 CC Switch 类似的开源分发方式：源码公开在 GitHub，安装包放在 Releases，暂不购买 Developer ID，也不提交 Mac App Store。
+TO-DO Panel 采用与 CC Switch 类似的开源分发方式：源码公开在 GitHub，安装包放在 Releases。项目明确使用 ad-hoc 签名、不进行 Apple 公证，也不上架 Mac App Store；用户首次启动时通过“隐私与安全性”确认“仍要打开”是正式安装流程。
 
 ## 用户安装
 
@@ -49,6 +49,12 @@ git push origin "v${version}"
 5. 创建 GitHub Release，并上传 DMG 与校验文件。
 
 如果任一测试、版本检查或 DMG 校验失败，Release 不会创建。
+
+## 手动验证发布流程（不发布）
+
+发布工作流支持从 GitHub Actions 页面手动运行。选择 `Release macOS DMG`，点击 `Run workflow` 后，工作流会安装依赖、执行桌面检查、生成 DMG，并完成签名、镜像与 SHA-256 校验。
+
+手动运行固定为验证模式：它会在 GitHub 托管 runner 中临时重新构建安装包，但不会创建或修改 GitHub Release，也不会覆盖现有版本。只有推送与 `package.json` 版本一致的 `v*.*.*` 标签时，发布步骤才会启用。
 
 ## 发布前检查
 
