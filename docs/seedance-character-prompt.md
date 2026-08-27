@@ -2,7 +2,7 @@
 
 ## 推荐设置
 
-- 模式：图生视频（首帧使用 `renderer/assets/notch-character.png`）
+- 模式：图生视频（首帧使用 `docs/assets/notch-character.png`）
 - 模型：Seedance 2.0
 - 时长：5 秒
 - 比例：9:16
