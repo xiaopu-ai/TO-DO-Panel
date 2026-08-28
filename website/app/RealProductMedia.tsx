@@ -11,6 +11,7 @@ type Props = {
   alt: string;
   className?: string;
   fullCapture?: boolean;
+  missingLabel?: string;
 };
 
 export default function RealProductMedia({
@@ -20,6 +21,7 @@ export default function RealProductMedia({
   alt,
   className = "",
   fullCapture = false,
+  missingLabel = "真实截图 / 录屏待接入",
 }: Props) {
   const spec = { src, fallbackSrc, kind };
   const [media, setMedia] = useState(() => initialMediaState(spec));
@@ -30,7 +32,7 @@ export default function RealProductMedia({
       {media.missing ? (
         <div className="real-media-missing" role="img" aria-label={`${alt}，真实素材待接入`}>
           <span>REAL PRODUCT CAPTURE</span>
-          <small>真实截图 / 录屏待接入</small>
+          <small>{missingLabel}</small>
         </div>
       ) : media.kind === "video" ? (
         <video src={media.src} muted loop playsInline autoPlay aria-label={alt} onError={handleError} />
@@ -42,4 +44,3 @@ export default function RealProductMedia({
     </div>
   );
 }
-

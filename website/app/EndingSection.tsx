@@ -43,7 +43,7 @@ export default function EndingSection() {
 
         <motion.div className="ending-copy">
           <span>BACK TO FLOW</span>
-          <p>需要时展开，用完即收起。</p>
+          <p>需要时展开，用完即收起</p>
         </motion.div>
 
         <footer><span>macOS 14+ · Apple Silicon · MIT</span><span>© 2026 TO-DO Panel</span></footer>

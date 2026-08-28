@@ -57,6 +57,19 @@ test("tab stack renders six ordered cards with one full real-capture surface eac
   assert.doesNotMatch(html, /VIEW TAB|查看功能|tab-detail/);
   assert.match(html, /一个TAB解决一种高频需求/);
   assert.doesNotMatch(html, /一页解决一种高频动作。继续滚动，六个工作空间依次展开。/);
+  assert.equal((html.match(/全桌面循环视频待接入/g) || []).length, 6);
+});
+
+test("second screen uses six real feature captures without the home panel", async () => {
+  const { MARQUEE_ITEMS } = await import("../app/landingContent.ts");
+
+  assert.deepEqual(
+    MARQUEE_ITEMS.map((item) => item.id),
+    ["todo", "clipboard", "notes", "links", "recordings", "credentials"],
+  );
+  assert.ok(MARQUEE_ITEMS.every((item) => item.kind === "image"));
+  assert.ok(MARQUEE_ITEMS.every((item) => item.src && existsSync(new URL(`../public${item.src}`, import.meta.url))));
+  assert.ok(MARQUEE_ITEMS.every((item) => !item.id.includes("home")));
 });
 
 test("ending resolves the experience with the real collapsed panel", async () => {
@@ -64,7 +77,8 @@ test("ending resolves the experience with the real collapsed panel", async () =>
   const html = renderToStaticMarkup(createElement(LandingPage));
   const ending = html.slice(html.indexOf('data-section="ending"'));
 
-  assert.match(ending, /需要时展开，用完即收起。/);
+  assert.match(ending, /需要时展开，用完即收起</);
+  assert.doesNotMatch(ending, /需要时展开，用完即收起。/);
   assert.match(ending, /\/hero\/panel-collapsed\.png/);
   assert.doesNotMatch(ending, /data-primary-action|data-secondary-action/);
 });

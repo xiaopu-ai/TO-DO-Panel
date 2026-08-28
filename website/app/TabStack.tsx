@@ -16,7 +16,14 @@ function TabCard({ item, index, progress, reducedMotion }: { item: TabItem; inde
     <section className="tab-card-track" data-tab-id={item.id} data-stack-layer={index + 1} style={layerStyle}>
       <motion.article className={`tab-card tab-accent-${item.accent}`} style={reducedMotion ? undefined : { y, scale, opacity }}>
         <header><strong>{String(index + 1).padStart(2, "0")}</strong><div><span>{item.eyebrow}</span><h3>{item.title}</h3><p>{item.description}</p></div></header>
-        <RealProductMedia src={item.capture} alt={`${item.title}真实完整面板`} className="tab-capture" fullCapture />
+        <RealProductMedia
+          src={item.capture}
+          kind={item.captureKind}
+          alt={`${item.title}全桌面真实操作录屏`}
+          className="tab-capture"
+          fullCapture
+          missingLabel="全桌面循环视频待接入"
+        />
       </motion.article>
     </section>
   );
