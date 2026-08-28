@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -31,6 +31,10 @@ test("hero renders the approved photographic composition with one real panel tog
   assert.match(hero, /class="echo-text hero-echo-text"/);
   assert.match(hero, /color-mix\(in srgb, #181ecb/);
   assert.match(hero, /data-magnet="download"/);
+
+  const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  const heroWordmarkStyles = styles.match(/\.hero-wordmark\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.doesNotMatch(heroWordmarkStyles, /background(?:-clip)?\s*:/);
   assert.match(hero, />GITHUB</);
   assert.match(hero, />FEATURES</);
   assert.match(hero, />TABS</);
@@ -90,6 +94,7 @@ test("ending resolves the experience with the real collapsed panel", async () =>
   assert.doesNotMatch(ending, /需要时展开，用完即收起。/);
   assert.match(ending, /\/hero\/panel-collapsed\.png/);
   assert.match(ending, /data-prism-animation="hover"/);
+  assert.match(ending, /data-prism-noise="0.12"/);
   assert.match(ending, /class="prism-container"/);
   assert.doesNotMatch(ending, /ending-convergence|ending-ray/);
   assert.doesNotMatch(ending, /data-primary-action|data-secondary-action/);

@@ -78,9 +78,6 @@ button, input, textarea, select { font: inherit; }
   z-index: 1;
   width: 96vw;
   margin: 0;
-  background: linear-gradient(180deg, var(--heading-a), var(--heading-b));
-  background-clip: text;
-  color: transparent;
   font: 900 clamp(5.4rem, 11.2vw, 13.2rem)/0.8 "Kanit", sans-serif;
   letter-spacing: 0.006em;
   text-align: center;
