@@ -34,6 +34,7 @@ const {
   moveLinkToPosition,
   filterCredentials,
   credentialRowAction,
+  visiblePanelTabs,
   normalizeNoteArchive,
   filterNotes,
   updateNoteInArchive,
@@ -368,6 +369,23 @@ test('credential row routes its trailing action to delete while its body still o
   assert.deepEqual(credentialRowAction({ copyField: 'account' }), { type: 'copy', field: 'account' });
   assert.deepEqual(credentialRowAction({ rowBody: true }), { type: 'edit' });
   assert.deepEqual(credentialRowAction({ rowBody: true, shiftKey: true }), { type: 'select' });
+});
+
+test('settings stays at the far right when optional tabs are hidden', () => {
+  assert.equal(typeof visiblePanelTabs, 'function', 'visiblePanelTabs must exist');
+  const tabs = ['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'];
+  assert.deepEqual(visiblePanelTabs(tabs, { todo: false, clip: true }), [
+    'home', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings',
+  ]);
+  assert.deepEqual(visiblePanelTabs(tabs, {
+    todo: false,
+    notes: false,
+    links: false,
+    recordings: false,
+    credentials: false,
+    clip: false,
+    settings: false,
+  }), ['home', 'settings']);
 });
 
 test('saved notes preserve cleared content and keep recently updated notes first', () => {

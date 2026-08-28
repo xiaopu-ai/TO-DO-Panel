@@ -368,6 +368,16 @@
     return { type: 'select' };
   }
 
+  function visiblePanelTabs(allTabs, features) {
+    const tabs = Array.isArray(allTabs) ? allTabs : [];
+    const state = features && typeof features === 'object' && !Array.isArray(features) ? features : {};
+    const visible = tabs.filter((name) => (
+      name !== 'settings' && (name === 'home' || state[name] !== false)
+    ));
+    if (tabs.includes('settings')) visible.push('settings');
+    return visible;
+  }
+
   function normalizeNoteArchive(value) {
     if (!Array.isArray(value)) return [];
     return value
@@ -714,6 +724,7 @@
     sortTodosForDisplay,
     filterCredentials,
     credentialRowAction,
+    visiblePanelTabs,
     normalizeNoteArchive,
     filterNotes,
     updateNoteInArchive,

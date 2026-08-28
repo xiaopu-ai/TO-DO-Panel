@@ -174,6 +174,7 @@ const TAB_SIZES = {
   links: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   recordings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   credentials: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
+  settings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
 };
 // 与渲染层结构常量对应：panel padding-top(--s-2 8) + 顶栏(--topbar-h 40)
 // + panels margin-top(--s-3 12) + panel padding-bottom(--s-4 16)。内容顶到屏幕最上沿，不留菜单栏带。

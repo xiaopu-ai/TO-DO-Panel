@@ -77,6 +77,13 @@
               </svg>
               <span class="tab-label">密钥</span>
             </button>
+            <button class="tab" id="tab-button-settings" type="button" data-tab="settings" role="tab" aria-controls="tab-settings" aria-selected="false" tabindex="-1">
+              <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.17.38.48.7.86.88.34.16.7.22 1.06.2H21v4h-.09a1.7 1.7 0 0 0-1.51.92Z" />
+              </svg>
+              <span class="tab-label">设置</span>
+            </button>
             <span class="tab-indicator" id="tab-indicator" aria-hidden="true"></span>
           </div>
 
@@ -392,6 +399,10 @@
                 <div class="credential-list" id="credential-list"></div>
               </section>
             </div>
+          </section>
+
+          <section id="tab-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-settings" aria-hidden="true" inert>
+            <div class="settings-page" id="settings-page" aria-label="TO-DO Panel 设置"></div>
           </section>
         </div>
         <div class="todo-date-popover" id="todo-date-popover" hidden>
