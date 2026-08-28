@@ -19,9 +19,10 @@ export default function EndingSection() {
           className="ending-prism"
           data-prism-animation="hover"
           data-prism-noise="0.12"
+          data-prism-scale="3"
           aria-hidden="true"
         >
-          {reducedMotion !== true && <Prism animationType="hover" noise={0.12} />}
+          {reducedMotion !== true && <Prism animationType="hover" noise={0.12} scale={3} />}
         </div>
 
         <motion.h2

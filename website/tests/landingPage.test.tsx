@@ -95,6 +95,7 @@ test("ending resolves the experience with the real collapsed panel", async () =>
   assert.match(ending, /\/hero\/panel-collapsed\.png/);
   assert.match(ending, /data-prism-animation="hover"/);
   assert.match(ending, /data-prism-noise="0.12"/);
+  assert.match(ending, /data-prism-scale="3"/);
   assert.match(ending, /class="prism-container"/);
   assert.doesNotMatch(ending, /ending-convergence|ending-ray/);
   assert.doesNotMatch(ending, /data-primary-action|data-secondary-action/);
