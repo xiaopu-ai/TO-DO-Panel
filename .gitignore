@@ -9,6 +9,7 @@ dist.noindex/
 .idea/
 .cache/
 coverage/
+.worktrees/
 *.swp
 
 # Swift Package Manager 构建目录（体积可达数百 MB，绝不入库）
