@@ -3560,6 +3560,7 @@ body {
 .credential-item:focus-within .credential-actions { opacity: 1; }
 .credential-actions button { padding: 5px 7px; border: 0; border-radius: 8px; background: rgba(255,255,255,.06); color: var(--text-3); font: 9px var(--font); cursor: pointer; }
 .credential-actions button:hover { background: rgba(255,255,255,.12); color: var(--text-1); }
+.credential-actions button[data-credential-delete]:hover { background: rgba(255,95,87,.18); color: #ff8a84; }
 .credential-empty { grid-column: 1 / -1; min-height: 280px; display: grid; place-content: center; gap: 6px; color: var(--text-4); text-align: center; }
 .credential-empty strong { color: var(--text-2); font-size: 13px; }
 .credential-empty span { font-size: 10px; }

@@ -357,6 +357,17 @@
     ));
   }
 
+  function credentialRowAction(options = {}) {
+    if (options.requestedAction === 'delete') {
+      return { type: 'delete', label: '删除', ariaLabel: '删除密钥' };
+    }
+    if (options.copyField === 'account' || options.copyField === 'password') {
+      return { type: 'copy', field: options.copyField };
+    }
+    if (options.rowBody && !options.shiftKey) return { type: 'edit' };
+    return { type: 'select' };
+  }
+
   function normalizeNoteArchive(value) {
     if (!Array.isArray(value)) return [];
     return value
@@ -702,6 +713,7 @@
     updateTodo,
     sortTodosForDisplay,
     filterCredentials,
+    credentialRowAction,
     normalizeNoteArchive,
     filterNotes,
     updateNoteInArchive,

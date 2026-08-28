@@ -33,6 +33,7 @@ const {
   moveLinkToGroup,
   moveLinkToPosition,
   filterCredentials,
+  credentialRowAction,
   normalizeNoteArchive,
   filterNotes,
   updateNoteInArchive,
@@ -355,6 +356,18 @@ test('credential search matches service or account without exposing passwords', 
   assert.deepEqual(filterCredentials(rows, 'GITHUB').map((row) => row.id), ['github']);
   assert.deepEqual(filterCredentials(rows, 'example').map((row) => row.id), ['github']);
   assert.deepEqual(filterCredentials(rows, '').map((row) => row.id), ['github', 'feishu']);
+});
+
+test('credential row routes its trailing action to delete while its body still opens editing', () => {
+  assert.equal(typeof credentialRowAction, 'function', 'credentialRowAction must exist');
+  assert.deepEqual(credentialRowAction({ requestedAction: 'delete' }), {
+    type: 'delete',
+    label: '删除',
+    ariaLabel: '删除密钥',
+  });
+  assert.deepEqual(credentialRowAction({ copyField: 'account' }), { type: 'copy', field: 'account' });
+  assert.deepEqual(credentialRowAction({ rowBody: true }), { type: 'edit' });
+  assert.deepEqual(credentialRowAction({ rowBody: true, shiftKey: true }), { type: 'select' });
 });
 
 test('saved notes preserve cleared content and keep recently updated notes first', () => {

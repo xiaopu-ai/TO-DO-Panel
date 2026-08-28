@@ -2195,11 +2195,13 @@
       passwordCopy.dataset.credentialCopy = 'password';
       passwordCopy.textContent = '密码';
       passwordCopy.setAttribute('aria-label', '复制密码');
-      const edit = document.createElement('button');
-      edit.type = 'button';
-      edit.dataset.credentialEdit = 'true';
-      edit.textContent = '修改';
-      actions.append(accountCopy, passwordCopy, edit);
+      const deleteAction = Domain.credentialRowAction({ requestedAction: 'delete' });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.dataset.credentialDelete = 'true';
+      remove.textContent = deleteAction.label;
+      remove.setAttribute('aria-label', deleteAction.ariaLabel);
+      actions.append(accountCopy, passwordCopy, remove);
       row.append(copy, actions);
       credentialList.appendChild(row);
     });
@@ -2277,12 +2279,42 @@
     }
     if (row.classList.contains('editing')) return;
     const copyField = event.target.closest('[data-credential-copy]')?.dataset.credentialCopy;
-    if (copyField) {
-      const copied = await window.notchAPI.copyCredential(row.dataset.id, copyField).catch(() => false);
+    const action = Domain.credentialRowAction({
+      requestedAction: event.target.closest('[data-credential-delete]') ? 'delete' : '',
+      copyField,
+      rowBody: Boolean(event.target.closest('.credential-copy')),
+      shiftKey: event.shiftKey,
+    });
+    if (action.type === 'delete') {
+      const deleteButton = event.target.closest('[data-credential-delete]');
+      if (deleteButton) deleteButton.disabled = true;
+      const result = await window.notchAPI.deleteCredentials([row.dataset.id]).catch(() => ({ ok: false }));
+      if (!result?.ok) {
+        if (deleteButton) deleteButton.disabled = false;
+        if (credentialsNote) {
+          credentialsNote.textContent = '删除失败，请稍后重试。';
+          credentialsNote.classList.add('error');
+        }
+        return;
+      }
+      credentialSelection.delete(row.dataset.id);
+      if (editingCredentialId === row.dataset.id) {
+        editingCredentialId = '';
+        editingCredential = null;
+      }
+      await loadCredentials();
+      if (credentialsNote) {
+        credentialsNote.textContent = '密钥已删除。';
+        credentialsNote.classList.remove('error');
+      }
+      return;
+    }
+    if (action.type === 'copy') {
+      const copied = await window.notchAPI.copyCredential(row.dataset.id, action.field).catch(() => false);
       if (credentialsNote) credentialsNote.textContent = copied ? `${copyField === 'password' ? '密码' : '账号'}已复制` : '复制失败';
       return;
     }
-    if (event.target.closest('[data-credential-edit]') || (!event.shiftKey && event.target.closest('.credential-copy'))) {
+    if (action.type === 'edit') {
       const originRect = row.getBoundingClientRect();
       const result = await window.notchAPI.getCredential(row.dataset.id).catch(() => ({ ok: false }));
       if (!result || !result.ok || !result.item) return;
