@@ -2,7 +2,7 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
-import { DOWNLOAD_URL, GITHUB_URL, NAV_ITEMS } from "./landingContent";
+import { DOWNLOAD_URL, NAV_ITEMS } from "./landingContent";
 import {
   INITIAL_HERO_PANEL_STATE,
   nextHeroPanelState,
@@ -38,7 +38,7 @@ export default function HeroSection() {
         aria-hidden="true"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/hero/mac-scene.png" alt="" />
+        <img src="/hero/mac-scene-hq.png" alt="" />
       </motion.div>
 
       <motion.h1
@@ -58,7 +58,7 @@ export default function HeroSection() {
       >
         <div className="hero-screen">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="hero-screen-wallpaper" src="/hero/mac-wallpaper.png" alt="Mac 屏幕默认壁纸" />
+          <img className="hero-screen-wallpaper" src="/hero/mac-wallpaper-v2.png" alt="Mac 屏幕山脉壁纸" />
           <motion.div
             className="hero-panel-reveal"
             initial={noMotion ? false : { opacity: 0, clipPath: "inset(0 0 100% 0 round 18px)" }}
@@ -95,7 +95,7 @@ export default function HeroSection() {
       >
         {/* Reuses original photo pixels through a mask; no foreground is generated. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/hero/mac-scene.png" alt="" />
+        <img src="/hero/mac-scene-hq.png" alt="" />
       </motion.div>
 
       <motion.nav
@@ -110,7 +110,19 @@ export default function HeroSection() {
           <img src="/favicon.png" alt="" width="34" height="34" />
           <span>TO-DO PANEL</span>
         </a>
-        <div className="hero-nav-links">{NAV_ITEMS.map(([label, href]) => <a href={href} key={label}>{label}</a>)}</div>
+        <div className="hero-nav-links">
+          {NAV_ITEMS.map(([label, href]) => (
+            <a
+              href={href}
+              key={label}
+              data-nav-github={label === "GITHUB" ? "" : undefined}
+              target={href.startsWith("http") ? "_blank" : undefined}
+              rel={href.startsWith("http") ? "noreferrer" : undefined}
+            >
+              {label}
+            </a>
+          ))}
+        </div>
       </motion.nav>
 
       <motion.div
@@ -122,7 +134,6 @@ export default function HeroSection() {
         <p>把灵动岛，变成随手可用的工作台。</p>
         <div className="hero-actions">
           <a className="landing-cta landing-cta-primary" href={DOWNLOAD_URL} data-primary-action>下载 macOS 版本</a>
-          <a className="landing-cta landing-cta-secondary" href={GITHUB_URL} data-secondary-action>查看 GitHub 仓库</a>
         </div>
       </motion.div>
     </section>

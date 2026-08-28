@@ -21,20 +21,14 @@ export type TabItem = {
 };
 
 export const NAV_ITEMS = [
+  ["GITHUB", GITHUB_URL],
   ["FEATURES", "#features"],
   ["TABS", "#tabs"],
-  ["PRIVACY", "#privacy"],
 ] as const;
 
 export const MARQUEE_ITEMS: MediaItem[] = [
-  { id: "home-open", src: "", fallbackSrc: "/product-captures/home.png", kind: "video", alt: "TO-DO Panel 首页展开操作" },
-  { id: "todo-flow", src: "", fallbackSrc: "/product-captures/todo.png", kind: "video", alt: "待办创建与完成操作" },
-  { id: "clipboard-flow", src: "", fallbackSrc: "", kind: "video", alt: "剪贴板收藏操作" },
-  { id: "notes-flow", src: "", fallbackSrc: "", kind: "video", alt: "笔记编辑与归档操作" },
-  { id: "links-flow", src: "", fallbackSrc: "", kind: "video", alt: "链接保存与分组操作" },
-  { id: "recordings-flow", src: "", fallbackSrc: "", kind: "video", alt: "录音与转写操作" },
-  { id: "credentials-flow", src: "", fallbackSrc: "", kind: "video", alt: "密钥保存操作" },
-  { id: "notification-flow", src: "", fallbackSrc: "", kind: "video", alt: "本机 AI 完成提醒" },
+  { id: "home-open", src: "/product-captures/home.png", fallbackSrc: "", kind: "image", alt: "TO-DO Panel 首页完整面板" },
+  { id: "todo-flow", src: "/product-captures/todo.png", fallbackSrc: "", kind: "image", alt: "TO-DO Panel 待办完整面板" },
 ];
 
 export const CAPABILITIES = [

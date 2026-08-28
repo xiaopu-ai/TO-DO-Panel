@@ -6,7 +6,7 @@ import RealProductMedia from "./RealProductMedia";
 import { MARQUEE_ITEMS, type MediaItem } from "./landingContent";
 
 function MarqueeRow({ items }: { items: MediaItem[] }) {
-  const rowItems = [...items, ...items];
+  const rowItems = Array.from({ length: 6 }, () => items).flat();
   return <div className="marquee-viewport"><div className="marquee-row">{rowItems.map((item, index) => <RealProductMedia key={`${item.id}-${index}`} src={item.src} fallbackSrc={item.fallbackSrc} kind={item.kind} alt={item.alt} className="marquee-media" />)}</div></div>;
 }
 
