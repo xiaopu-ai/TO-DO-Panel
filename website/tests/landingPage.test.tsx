@@ -43,7 +43,7 @@ test("hero renders the approved photographic composition with one real panel tog
   assert.doesNotMatch(hero, />ABOUT</);
   assert.equal((hero.match(/aria-expanded="true"/g) || []).length, 1);
 
-  for (const asset of ["/hero/mac-scene-hq.png", "/hero/mac-wallpaper-v2.png", "/product-captures/home.png", "/hero/panel-collapsed.png"]) {
+  for (const asset of ["/hero/mac-scene-hq.jpg", "/hero/mac-wallpaper-v2.jpg", "/product-captures/home.jpg", "/hero/panel-collapsed.png"]) {
     assert.match(hero, new RegExp(asset.replaceAll("/", "\\/")));
     assert.ok(existsSync(new URL(`../public${asset}`, import.meta.url)), `${asset} must be a real file-backed asset`);
   }

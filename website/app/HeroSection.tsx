@@ -71,7 +71,7 @@ export default function HeroSection() {
         aria-hidden="true"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={assetPath("/hero/mac-scene-hq.png")} alt="" />
+        <img src={assetPath("/hero/mac-scene-hq.jpg")} alt="" />
       </motion.div>
 
       <motion.h1
@@ -98,7 +98,7 @@ export default function HeroSection() {
       >
         <div className="hero-screen">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="hero-screen-wallpaper" src={assetPath("/hero/mac-wallpaper-v2.png")} alt="Mac 屏幕山脉壁纸" />
+          <img className="hero-screen-wallpaper" src={assetPath("/hero/mac-wallpaper-v2.jpg")} alt="Mac 屏幕山脉壁纸" />
           <motion.div
             className="hero-panel-reveal"
             initial={noMotion ? false : { opacity: 0, clipPath: "inset(0 0 100% 0 round 18px)" }}
@@ -110,7 +110,7 @@ export default function HeroSection() {
             >
               {/* Product UI is shown only through real screenshots from the running app. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="hero-panel-image hero-panel-image-expanded" src={assetPath("/product-captures/home.png")} alt="TO-DO Panel 真实首页展开态" />
+              <img className="hero-panel-image hero-panel-image-expanded" src={assetPath("/product-captures/home.jpg")} alt="TO-DO Panel 真实首页展开态" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img className="hero-panel-image hero-panel-image-collapsed" src={assetPath("/hero/panel-collapsed.png")} alt="TO-DO Panel 真实折叠态" />
               <button
@@ -136,7 +136,7 @@ export default function HeroSection() {
       >
         {/* Reuses original photo pixels through a mask; no foreground is generated. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={assetPath("/hero/mac-scene-hq.png")} alt="" />
+        <img src={assetPath("/hero/mac-scene-hq.jpg")} alt="" />
       </motion.div>
 
       <motion.nav
