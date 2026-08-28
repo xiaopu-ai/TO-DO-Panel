@@ -33,3 +33,10 @@ test('recordings expose in-page API settings and create a live draft while recor
   assert.match(workspaceJs, /recordingLiveTranscript/);
   assert.match(workspaceJs, /configure-transcription/);
 });
+
+test('a live recording can be paused, resumed, and stopped from the recordings tab', () => {
+  assert.match(workspaceJs, /recording-live-pause/);
+  assert.match(workspaceJs, /recording-live-stop/);
+  assert.match(workspaceJs, /togglePauseRecording/);
+  assert.match(workspaceJs, /stopRecording/);
+});

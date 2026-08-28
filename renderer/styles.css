@@ -2573,6 +2573,8 @@ body {
 .recording-live-audio { display: flex; flex-direction: column; gap: 5px; margin-bottom: var(--s-4); padding: 14px; border: 1px solid rgba(255,95,87,.16); border-radius: var(--r-input); background: linear-gradient(135deg, rgba(255,95,87,.08), rgba(255,255,255,.025)); }
 .recording-live-audio strong { color: var(--text-1); font-size: var(--fs-small); font-weight: 580; }
 .recording-live-audio span { color: var(--text-3); font-size: var(--fs-caption); }
+.recording-live-controls { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.recording-live-controls .workspace-button { min-width: 72px; }
 .recording-live-transcript[readonly] { cursor: default; }
 .recording-live-feedback { min-height: 18px; margin: 8px 2px 0; color: var(--text-3); font-size: var(--fs-caption); }
 .recording-live-configure[hidden] { display: none; }

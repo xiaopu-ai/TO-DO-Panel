@@ -1065,12 +1065,19 @@
     const detailTranscript = recordingDetail?.querySelector('[data-recording-live-transcript]');
     const detailFeedback = recordingDetail?.querySelector('[data-recording-live-feedback]');
     const detailConfigure = recordingDetail?.querySelector('[data-action="configure-transcription"]');
+    const detailPause = recordingDetail?.querySelector('.recording-live-pause');
+    const detailStop = recordingDetail?.querySelector('.recording-live-stop');
     if (detailState) detailState.textContent = recordingStatus === 'saving' ? '正在保存' : recordingStatus === 'paused' ? '已暂停' : '正在录音';
     if (detailDot) detailDot.dataset.state = recordingStatus;
     if (detailTime) detailTime.textContent = formatClock(durationMs);
     if (detailTranscript && detailTranscript.value !== text) detailTranscript.value = text;
     if (detailFeedback) detailFeedback.textContent = text ? '转写内容会随录音实时更新' : currentRecordingFeedback();
     if (detailConfigure) detailConfigure.hidden = transcriptionConfig.configured && !transcriptionConfig.asrNeedsReentry;
+    if (detailPause) {
+      detailPause.textContent = recordingStatus === 'paused' ? '继续' : '暂停';
+      detailPause.disabled = recordingStatus === 'saving';
+    }
+    if (detailStop) detailStop.disabled = recordingStatus === 'saving';
   }
 
   function stopTranscriptionAudioPipeline() {
@@ -1573,7 +1580,20 @@
       liveAudioTitle.textContent = '音频正在本机录制';
       const liveAudioHint = document.createElement('span');
       liveAudioHint.textContent = '结束后会自动保存并出现播放器';
-      liveAudio.append(liveAudioTitle, liveAudioHint);
+      const liveControls = document.createElement('div');
+      liveControls.className = 'recording-live-controls';
+      const pause = document.createElement('button');
+      pause.type = 'button';
+      pause.className = 'workspace-button compact recording-live-pause';
+      pause.textContent = recordingStatus === 'paused' ? '继续' : '暂停';
+      pause.addEventListener('click', togglePauseRecording);
+      const stop = document.createElement('button');
+      stop.type = 'button';
+      stop.className = 'workspace-button compact primary recording-live-stop';
+      stop.textContent = '结束并保存';
+      stop.addEventListener('click', stopRecording);
+      liveControls.append(pause, stop);
+      liveAudio.append(liveAudioTitle, liveAudioHint, liveControls);
 
       const transcriptHead = document.createElement('div');
       transcriptHead.className = 'recording-transcript-head';
