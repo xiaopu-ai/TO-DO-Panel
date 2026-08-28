@@ -1,21 +1,20 @@
 "use client";
 
-import { motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
+import { motion, type MotionValue, useReducedMotion, useScroll, useTransform } from "framer-motion";
 import { type CSSProperties, useRef } from "react";
 import RealProductMedia from "./RealProductMedia";
 import { TAB_ITEMS, type TabItem } from "./landingContent";
+import { tabCardVisualState } from "./landingTabs.mjs";
 
-function TabCard({ item, index }: { item: TabItem; index: number }) {
-  const trackRef = useRef<HTMLElement>(null);
-  const reducedMotion = useReducedMotion();
-  const { scrollYProgress } = useScroll({ target: trackRef, offset: ["start start", "end start"] });
-  const scale = useTransform(scrollYProgress, [0, 0.62, 1], [1, 0.965, 0.94]);
-  const opacity = useTransform(scrollYProgress, [0, 0.78, 1], [1, 0.92, 0.72]);
+function TabCard({ item, index, progress, reducedMotion }: { item: TabItem; index: number; progress: MotionValue<number>; reducedMotion: boolean }) {
+  const y = useTransform(progress, (value) => `${tabCardVisualState(value, index, TAB_ITEMS.length).yPercent}%`);
+  const opacity = useTransform(progress, (value) => tabCardVisualState(value, index, TAB_ITEMS.length).opacity);
+  const scale = useTransform(progress, (value) => tabCardVisualState(value, index, TAB_ITEMS.length).scale);
   const layerStyle = { "--stack-index": index + 1 } as CSSProperties;
 
   return (
-    <section className="tab-card-track" data-tab-id={item.id} data-stack-layer={index + 1} ref={trackRef} style={layerStyle}>
-      <motion.article className={`tab-card tab-accent-${item.accent}`} style={reducedMotion ? undefined : { scale, opacity }}>
+    <section className="tab-card-track" data-tab-id={item.id} data-stack-layer={index + 1} style={layerStyle}>
+      <motion.article className={`tab-card tab-accent-${item.accent}`} style={reducedMotion ? undefined : { y, scale, opacity }}>
         <header><strong>{String(index + 1).padStart(2, "0")}</strong><div><span>{item.eyebrow}</span><h3>{item.title}</h3><p>{item.description}</p></div></header>
         <RealProductMedia src={item.capture} alt={`${item.title}真实完整面板`} className="tab-capture" fullCapture />
       </motion.article>
@@ -24,5 +23,17 @@ function TabCard({ item, index }: { item: TabItem; index: number }) {
 }
 
 export default function TabStack() {
-  return <div className="tab-stack">{TAB_ITEMS.map((item, index) => <TabCard item={item} index={index} key={item.id} />)}</div>;
+  const stackRef = useRef<HTMLDivElement>(null);
+  const reducedMotion = useReducedMotion() === true;
+  const { scrollYProgress } = useScroll({ target: stackRef, offset: ["start start", "end end"] });
+
+  return (
+    <div className={`tab-stack${reducedMotion ? " is-reduced-motion" : ""}`} ref={stackRef}>
+      <div className="tab-stack-stage">
+        {TAB_ITEMS.map((item, index) => (
+          <TabCard item={item} index={index} progress={scrollYProgress} reducedMotion={reducedMotion} key={item.id} />
+        ))}
+      </div>
+    </div>
+  );
 }

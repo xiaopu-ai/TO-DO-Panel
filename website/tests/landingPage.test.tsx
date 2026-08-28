@@ -55,6 +55,8 @@ test("tab stack renders six ordered cards with one full real-capture surface eac
     [1, 2, 3, 4, 5, 6],
   );
   assert.doesNotMatch(html, /VIEW TAB|查看功能|tab-detail/);
+  assert.match(html, /一个TAB解决一种高频需求/);
+  assert.doesNotMatch(html, /一页解决一种高频动作。继续滚动，六个工作空间依次展开。/);
 });
 
 test("ending resolves the experience with the real collapsed panel", async () => {

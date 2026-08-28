@@ -12,7 +12,7 @@ export default function LandingPage() {
       <OperationMarquee />
       <ProductStory />
       <CapabilitiesSection />
-      <section className="tabs-intro" data-section="tabs-intro" id="tabs"><span className="section-kicker">SIX WORKSPACES</span><h2>EVERY TAB</h2><p>一页解决一种高频动作。继续滚动，六个工作空间依次展开。</p></section>
+      <section className="tabs-intro" data-section="tabs-intro" id="tabs"><span className="section-kicker">SIX WORKSPACES</span><h2>EVERY TAB</h2><p>一个TAB解决一种高频需求</p></section>
       <section className="tab-stack-section" data-section="tab-stack"><TabStack /></section>
       <EndingSection />
     </main>
