@@ -17,6 +17,7 @@ const {
   createTodo,
   updateTodo,
   currentMonthDeadline,
+  defaultTodoDeadline,
   normalizeTodoCategoryNames,
   normalizeHomeWidgetSizes,
   packHomeWidgetLayout,
@@ -312,6 +313,28 @@ test('todo editor updates text and deadline while keeping completion state', () 
     { day: 32, hour: 14, minute: 30 },
     new Date(2026, 7, 1, 0, 0, 0, 0),
   ), null);
+});
+
+test('default todo deadline follows the current local day across midnight and month boundaries', () => {
+  const daytime = new Date(2026, 7, 28, 9, 15, 0, 0);
+  const sameDayDeadline = new Date(defaultTodoDeadline(daytime));
+  assert.deepEqual([
+    sameDayDeadline.getFullYear(),
+    sameDayDeadline.getMonth(),
+    sameDayDeadline.getDate(),
+    sameDayDeadline.getHours(),
+    sameDayDeadline.getMinutes(),
+  ], [2026, 7, 28, 23, 30]);
+
+  const afterCutoff = new Date(2026, 7, 31, 23, 31, 0, 0);
+  const nextDayDeadline = new Date(defaultTodoDeadline(afterCutoff));
+  assert.deepEqual([
+    nextDayDeadline.getFullYear(),
+    nextDayDeadline.getMonth(),
+    nextDayDeadline.getDate(),
+    nextDayDeadline.getHours(),
+    nextDayDeadline.getMinutes(),
+  ], [2026, 8, 1, 23, 30]);
 });
 
 test('todos sort unfinished by DDL and creation time with completed items last', () => {

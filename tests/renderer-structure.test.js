@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf8');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'app.js'), 'utf8');
+const workspaceJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'workspace.js'), 'utf8');
 
 test('clipboard rows define both favorite icons before rendering entries', () => {
   assert.match(appJs, /const starOutlineSvg\s*=/);
@@ -24,4 +25,11 @@ test('home scratch note keeps only the save action', () => {
   assert.match(homeNote, /id="note-save-btn"/);
   assert.doesNotMatch(homeNote, /id="note-library-btn"/);
   assert.doesNotMatch(homeNote, /id="note-library"/);
+});
+
+test('recordings expose in-page API settings and create a live draft while recording', () => {
+  assert.match(html, /id="recording-configure"/);
+  assert.match(workspaceJs, /function beginRecordingDraft\(\)/);
+  assert.match(workspaceJs, /recordingLiveTranscript/);
+  assert.match(workspaceJs, /configure-transcription/);
 });

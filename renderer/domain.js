@@ -459,6 +459,14 @@
     return new Date(base.getFullYear(), base.getMonth(), day, hour, minute, 0, 0).toISOString();
   }
 
+  function defaultTodoDeadline(now = new Date()) {
+    const base = now instanceof Date ? new Date(now.getTime()) : new Date(now);
+    if (!Number.isFinite(base.getTime())) return null;
+    const deadline = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 30, 0, 0);
+    if (deadline.getTime() <= base.getTime()) deadline.setDate(deadline.getDate() + 1);
+    return deadline.toISOString();
+  }
+
   function todoTimeBattery(todo, now = Date.now()) {
     if (!todo || todo.done === true) return null;
     const createdAt = Number(todo.createdAt);
@@ -701,6 +709,7 @@
     applyGeneratedNoteTitle,
     apiCredentialStatuses,
     currentMonthDeadline,
+    defaultTodoDeadline,
     todoTimeBattery,
     updateRangeSelection,
     normalizeHomeLayout,

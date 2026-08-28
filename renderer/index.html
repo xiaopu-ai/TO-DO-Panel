@@ -342,7 +342,10 @@
               <aside class="recording-library">
                 <div class="recording-library-head">
                   <div><span class="tile-label">录音资料库</span><strong id="recording-count">0 条</strong></div>
-                  <button class="workspace-button compact" id="recording-new" type="button">录音</button>
+                  <div class="recording-library-actions">
+                    <button class="workspace-button compact" id="recording-configure" type="button">API 配置</button>
+                    <button class="workspace-button compact primary" id="recording-new" type="button">录音</button>
+                  </div>
                   <button class="bulk-delete" id="recording-bulk-delete" type="button" hidden>删除</button>
                 </div>
                 <div class="recording-list" id="recording-list"></div>

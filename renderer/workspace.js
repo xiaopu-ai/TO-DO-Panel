@@ -702,6 +702,7 @@
   const recordPause = document.getElementById('record-pause');
   const recordStop = document.getElementById('record-stop');
   const recordingNew = document.getElementById('recording-new');
+  const recordingConfigure = document.getElementById('recording-configure');
   const recordingList = document.getElementById('recording-list');
   const recordingDetail = document.getElementById('recording-detail');
   const recordingCount = document.getElementById('recording-count');
@@ -741,6 +742,7 @@
   let recordingTimer = null;
   let recordingStopDurationMs = 0;
   let recordingCaptureIssue = '';
+  let recordingDraftId = '';
   let currentAudioUrl = '';
   let transcriptionConfig = {
     configured: false,
@@ -971,11 +973,20 @@
     setTimeout(() => {
       if (transcriptionSettingsSave) transcriptionSettingsSave.textContent = '保存';
     }, 1200);
+    if (
+      transcriptionConfig.configured
+      && ['recording', 'paused'].includes(recordingStatus)
+      && !transcriptionStartPromise
+    ) {
+      stopSpeechRecognition();
+      transcriptionStatus = 'idle';
+      transcriptionStartPromise = startCloudTranscription();
+    }
     updateRecordingUi();
   }
 
   function persistRecordings() {
-    saveJson(RECORDINGS_KEY, recordings);
+    saveJson(RECORDINGS_KEY, recordings.filter((recording) => !recording.isDraft));
   }
 
   function currentDuration() {
@@ -986,6 +997,80 @@
       pausedTotalMs,
       now: Date.now(),
     });
+  }
+
+  function activeRecordingDraft() {
+    return recordingDraftId && recordings.find((recording) => recording.id === recordingDraftId) || null;
+  }
+
+  function currentRecordingText() {
+    return `${recordingTranscript} ${interimTranscript}`.trim();
+  }
+
+  function currentRecordingFeedback() {
+    if (recordingCaptureIssue) return recordingCaptureIssue;
+    if (recordingStatus === 'saving') return '正在保存录音…';
+    if (transcriptionConfig.asrNeedsReentry) return '转写密钥已失效 · 请重新配置 API Key';
+    if (transcriptionStatus === 'browser-error') return '未配置转写 API · 音频仍在录制';
+    if (transcriptionStatus === 'error') return '转写连接失败 · 音频仍在录制';
+    if (transcriptionStatus === 'connecting') return '正在连接转写服务';
+    if (recordingStatus === 'paused') return '录音已暂停';
+    if (!transcriptionConfig.configured && !currentRecordingText()) return '未配置转写 API · 音频仍会保存在本机';
+    return '正在录音';
+  }
+
+  function beginRecordingDraft() {
+    recordingDraftId = uid('recording');
+    const draft = {
+      ...Domain.createRecording({
+        id: recordingDraftId,
+        createdAt: recordingStartedAt,
+        durationMs: 0,
+        transcript: '',
+      }),
+      isDraft: true,
+    };
+    recordings.unshift(draft);
+    selectedRecordingId = draft.id;
+    recordingSelectionAnchor = draft.id;
+    renderRecordings();
+  }
+
+  function discardRecordingDraft() {
+    if (!recordingDraftId) return;
+    recordings = recordings.filter((recording) => recording.id !== recordingDraftId);
+    recordingSelection.delete(recordingDraftId);
+    selectedRecordingId = recordings[0]?.id || '';
+    recordingSelectionAnchor = selectedRecordingId || null;
+    recordingDraftId = '';
+    renderRecordings();
+  }
+
+  function syncRecordingDraftUi() {
+    const draft = activeRecordingDraft();
+    if (!draft) return;
+    const durationMs = recordingStopDurationMs || currentDuration();
+    const text = currentRecordingText();
+    draft.durationMs = durationMs;
+    draft.transcript = recordingTranscript;
+    const row = recordingList?.querySelector(`.recording-item[data-id="${CSS.escape(draft.id)}"]`);
+    const preview = row?.querySelector('[data-recording-preview]');
+    const meta = row?.querySelector('[data-recording-meta]');
+    if (preview) preview.textContent = text || currentRecordingFeedback();
+    if (meta) meta.textContent = `${recordingStatus === 'saving' ? '保存中' : recordingStatus === 'paused' ? '已暂停' : '录音中'} · ${formatClock(durationMs)}`;
+    if (selectedRecordingId !== draft.id) return;
+    const detailState = recordingDetail?.querySelector('[data-recording-live-state]');
+    const detailDot = recordingDetail?.querySelector('[data-recording-live-dot]');
+    const detailTime = recordingDetail?.querySelector('[data-recording-live-time]');
+    const detailTranscript = recordingDetail?.querySelector('[data-recording-live-transcript]');
+    const detailFeedback = recordingDetail?.querySelector('[data-recording-live-feedback]');
+    const detailConfigure = recordingDetail?.querySelector('[data-action="configure-transcription"]');
+    if (detailState) detailState.textContent = recordingStatus === 'saving' ? '正在保存' : recordingStatus === 'paused' ? '已暂停' : '正在录音';
+    if (detailDot) detailDot.dataset.state = recordingStatus;
+    if (detailTime) detailTime.textContent = formatClock(durationMs);
+    if (detailTranscript && detailTranscript.value !== text) detailTranscript.value = text;
+    if (detailFeedback) detailFeedback.textContent = text ? '转写内容会随录音实时更新' : currentRecordingFeedback();
+    if (detailConfigure) detailConfigure.hidden = transcriptionConfig.configured && !transcriptionConfig.asrNeedsReentry;
   }
 
   function stopTranscriptionAudioPipeline() {
@@ -1131,26 +1216,16 @@
       recordingNew.setAttribute('aria-label', active ? '录音进行中' : '开始录音');
     }
     if (liveTranscript && active) {
-      const text = `${recordingTranscript} ${interimTranscript}`.trim();
+      const text = currentRecordingText();
       // asrNeedsReentry = 密文还在但当前应用解不开它。safeStorage 的密钥存在钥匙串里、
       // ACL 绑代码签名，所以开发版存的 Key 装成 DMG 后就读不出来（ad-hoc 签名每次打包
       // 都会换 cdhash，也是同样的结果）。这种情况下录音正常、只有转写不工作，
       // 原来只在设置面板里提示一行，录音的人看不到，表现就是「能录但不转写」。
-      const fallback = recordingCaptureIssue
-        || (transcriptionConfig.asrNeedsReentry
-          ? '转写密钥已失效 · 请到设置重填 API Key'
-          : transcriptionStatus === 'browser-error'
-            ? '转写需 API · 音频仍在录制'
-            : transcriptionStatus === 'error'
-              ? '转写连接失败 · 音频仍在录制'
-              : transcriptionStatus === 'connecting'
-                ? '正在连接转写服务'
-                : !transcriptionConfig.configured && !text
-                  ? '正在录音 · 等待本机转写'
-                  : '');
+      const fallback = currentRecordingFeedback();
       liveTranscript.textContent = text || fallback;
       liveTranscript.hidden = !(text || fallback);
     }
+    syncRecordingDraftUi();
   }
 
   function stopSpeechRecognition() {
@@ -1164,7 +1239,12 @@
 
   function startSpeechRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition || speechRecognitionBlocked || recordingStatus !== 'recording') return;
+    if (!SpeechRecognition) {
+      transcriptionStatus = 'browser-error';
+      updateRecordingUi();
+      return;
+    }
+    if (speechRecognitionBlocked || recordingStatus !== 'recording') return;
     const recognition = new SpeechRecognition();
     recognition.lang = 'zh-CN';
     recognition.continuous = true;
@@ -1223,6 +1303,7 @@
     if (!blob || blob.size === 0) {
       recordingStatus = 'idle';
       recordingCaptureIssue = '';
+      discardRecordingDraft();
       if (liveTranscript) {
         liveTranscript.textContent = '录音为空 · 请检查麦克风输入';
         liveTranscript.hidden = false;
@@ -1240,15 +1321,19 @@
       saved = null;
     }
     if (saved && saved.ok) {
+      const draft = activeRecordingDraft();
       const recording = Domain.createRecording({
-        id: uid('recording'),
-        createdAt: Date.now(),
+        id: draft?.id || uid('recording'),
+        createdAt: draft?.createdAt || Date.now(),
         durationMs,
         transcript: recordingTranscript,
         audioPath: saved.audioPath,
         mimeType: saved.mimeType || blob.type,
       });
-      recordings.unshift(recording);
+      const draftIndex = recordings.findIndex((item) => item.id === recording.id);
+      if (draftIndex >= 0) recordings.splice(draftIndex, 1, recording);
+      else recordings.unshift(recording);
+      recordingDraftId = '';
       selectedRecordingId = recording.id;
       persistRecordings();
       renderRecordings();
@@ -1268,9 +1353,12 @@
           : '录音已保存 · 请配置转写 API');
         liveTranscript.hidden = false;
       }
-    } else if (liveTranscript) {
-      liveTranscript.textContent = '录音保存失败，请检查本机存储权限';
-      liveTranscript.hidden = false;
+    } else {
+      discardRecordingDraft();
+      if (liveTranscript) {
+        liveTranscript.textContent = '录音保存失败，请检查本机存储权限';
+        liveTranscript.hidden = false;
+      }
     }
     recordingStatus = 'idle';
     recordingStartedAt = 0;
@@ -1346,6 +1434,7 @@
       transcriptionStatus = 'idle';
       transcriptionStartPromise = null;
       transcriptionFinishPromise = null;
+      beginRecordingDraft();
       if (transcriptionConfig.configured) {
         transcriptionStartPromise = startCloudTranscription();
       } else {
@@ -1358,6 +1447,7 @@
       stopMediaTracks();
       recordingStatus = 'idle';
       recordingCaptureIssue = '';
+      discardRecordingDraft();
       if (liveTranscript) {
         liveTranscript.textContent = '无法开始录音 · 请检查麦克风权限';
         liveTranscript.hidden = false;
@@ -1399,6 +1489,7 @@
     } catch (error) {
       stopMediaTracks();
       recordingStatus = 'idle';
+      discardRecordingDraft();
       updateRecordingUi();
     }
   }
@@ -1407,6 +1498,7 @@
   if (recordPause) recordPause.addEventListener('click', togglePauseRecording);
   if (recordStop) recordStop.addEventListener('click', stopRecording);
   if (recordingNew) recordingNew.addEventListener('click', startRecording);
+  if (recordingConfigure) recordingConfigure.addEventListener('click', openTranscriptionSettings);
   if (transcriptionSettingsClose) transcriptionSettingsClose.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsCancel) transcriptionSettingsCancel.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsSave) transcriptionSettingsSave.addEventListener('click', saveTranscriptionSettings);
@@ -1457,6 +1549,57 @@
       empty.className = 'recording-detail-empty';
       empty.textContent = '完成一次录音后，音频和转写文本会保存在这里。';
       recordingDetail.appendChild(empty);
+      return;
+    }
+    if (recording.isDraft) {
+      const liveHeader = document.createElement('header');
+      liveHeader.className = 'recording-live-head';
+      const liveState = document.createElement('div');
+      liveState.className = 'recording-live-state';
+      const liveDot = document.createElement('span');
+      liveDot.className = 'recording-state-dot';
+      liveDot.dataset.recordingLiveDot = '';
+      liveDot.dataset.state = recordingStatus;
+      const liveLabel = document.createElement('strong');
+      liveLabel.dataset.recordingLiveState = '';
+      const liveTime = document.createElement('time');
+      liveTime.dataset.recordingLiveTime = '';
+      liveState.append(liveDot, liveLabel);
+      liveHeader.append(liveState, liveTime);
+
+      const liveAudio = document.createElement('div');
+      liveAudio.className = 'recording-live-audio';
+      const liveAudioTitle = document.createElement('strong');
+      liveAudioTitle.textContent = '音频正在本机录制';
+      const liveAudioHint = document.createElement('span');
+      liveAudioHint.textContent = '结束后会自动保存并出现播放器';
+      liveAudio.append(liveAudioTitle, liveAudioHint);
+
+      const transcriptHead = document.createElement('div');
+      transcriptHead.className = 'recording-transcript-head';
+      const transcriptLabel = document.createElement('span');
+      transcriptLabel.className = 'tile-label';
+      transcriptLabel.textContent = '实时转写';
+      const configure = document.createElement('button');
+      configure.type = 'button';
+      configure.className = 'workspace-button compact recording-live-configure';
+      configure.dataset.action = 'configure-transcription';
+      configure.textContent = '配置 API';
+      configure.addEventListener('click', openTranscriptionSettings);
+      transcriptHead.append(transcriptLabel, configure);
+
+      const transcript = document.createElement('textarea');
+      transcript.className = 'recording-transcript-editor recording-live-transcript';
+      transcript.readOnly = true;
+      transcript.dataset.recordingLiveTranscript = '';
+      transcript.placeholder = '开始说话后，转写内容会出现在这里。';
+      transcript.setAttribute('aria-label', '实时转写文本');
+      const feedback = document.createElement('p');
+      feedback.className = 'recording-live-feedback';
+      feedback.dataset.recordingLiveFeedback = '';
+      feedback.setAttribute('aria-live', 'polite');
+      recordingDetail.append(liveHeader, liveAudio, transcriptHead, transcript, feedback);
+      syncRecordingDraftUi();
       return;
     }
     const header = document.createElement('header');
@@ -1558,7 +1701,7 @@
     }
     recordings.forEach((recording) => {
       const row = document.createElement('div');
-      row.className = `recording-item${recording.id === selectedRecordingId ? ' active' : ''}${recordingSelection.has(recording.id) ? ' multi-selected' : ''}`;
+      row.className = `recording-item${recording.id === selectedRecordingId ? ' active' : ''}${recordingSelection.has(recording.id) ? ' multi-selected' : ''}${recording.isDraft ? ' is-live' : ''}`;
       row.dataset.id = recording.id;
       const button = document.createElement('button');
       button.type = 'button';
@@ -1567,13 +1710,20 @@
       const title = document.createElement('strong');
       title.textContent = recording.title;
       const preview = document.createElement('span');
-      preview.textContent = recording.transcript || '仅音频 · 暂无转写';
+      preview.dataset.recordingPreview = '';
+      preview.textContent = recording.isDraft ? (currentRecordingText() || currentRecordingFeedback()) : (recording.transcript || '仅音频 · 暂无转写');
       const meta = document.createElement('time');
-      meta.textContent = `${formatShortDate(recording.createdAt)} · ${formatClock(recording.durationMs)}`;
+      meta.dataset.recordingMeta = '';
+      meta.textContent = recording.isDraft
+        ? `${recordingStatus === 'saving' ? '保存中' : recordingStatus === 'paused' ? '已暂停' : '录音中'} · ${formatClock(recording.durationMs)}`
+        : `${formatShortDate(recording.createdAt)} · ${formatClock(recording.durationMs)}`;
       button.append(title, preview, meta);
-      const remove = createIconButton('delete-recording-item', `删除录音：${recording.title}`, DELETE_ICON, true);
-      remove.classList.add('recording-item-delete');
-      row.append(button, remove);
+      row.append(button);
+      if (!recording.isDraft) {
+        const remove = createIconButton('delete-recording-item', `删除录音：${recording.title}`, DELETE_ICON, true);
+        remove.classList.add('recording-item-delete');
+        row.append(remove);
+      }
       recordingList.appendChild(row);
     });
   }
@@ -1596,10 +1746,11 @@
       }
       const item = event.target.closest('.recording-item[data-id]');
       if (!item) return;
-      if (event.shiftKey) {
+      const targetRecording = recordings.find((recording) => recording.id === item.dataset.id);
+      if (event.shiftKey && targetRecording && !targetRecording.isDraft) {
         event.preventDefault();
         const result = Domain.updateRangeSelection(
-          recordings.map((recording) => recording.id),
+          recordings.filter((recording) => !recording.isDraft).map((recording) => recording.id),
           [...recordingSelection],
           item.dataset.id,
           recordingSelectionAnchor,
@@ -1618,13 +1769,15 @@
 
   recordingBulkDelete?.addEventListener('click', async () => {
     if (!recordingSelection.size) return;
-    const targets = recordings.filter((recording) => recordingSelection.has(recording.id));
+    const targets = recordings.filter((recording) => !recording.isDraft && recordingSelection.has(recording.id));
+    if (!targets.length) return;
     if (window.notchAPI) {
       await Promise.all(targets.map((recording) => recording.audioPath
         ? window.notchAPI.deleteRecording(recording.audioPath).catch(() => false)
         : Promise.resolve(true)));
     }
-    recordings = recordings.filter((recording) => !recordingSelection.has(recording.id));
+    const targetIds = new Set(targets.map((recording) => recording.id));
+    recordings = recordings.filter((recording) => !targetIds.has(recording.id));
     recordingSelection.clear();
     selectedRecordingId = recordings[0] && recordings[0].id;
     recordingSelectionAnchor = selectedRecordingId || null;

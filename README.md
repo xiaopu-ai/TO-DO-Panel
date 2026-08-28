@@ -32,14 +32,14 @@ TO-DO Panel 是一个常驻 macOS 屏幕顶部的本地工作台。默认折叠�
 | **待办** | 四个可改名的工作流，按截止时间排序，并在到期前一小时提醒 |
 | **随笔记** | Markdown 速记、归档、搜索、重命名与智能标题 |
 | **链接** | 保存公开网址，后台补全标题、图标和分组 |
-| **录制** | 本地录音、转写、暂停续录与访达定位 |
+| **录制** | 录音开始即创建实时记录，同步显示状态与转写，并可在页内配置 API |
 | **密钥** | 使用 macOS 安全存储加密账号、密码和 API Key |
 
 剪贴板历史默认关闭，可从菜单栏的「显示功能」中按需启用。Codex、Claude Code 与 GPT 的本机完成事件也可以直接显示为不抢焦点的顶部提醒。
 
 ## 下载与安装
 
-> 当前版本：**1.0.0** · 支持 **Apple Silicon Mac**
+> 当前版本：**1.0.1** · 支持 **Apple Silicon Mac**
 
 1. 前往 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO-Panel-*-arm64.dmg`。
 2. 打开 DMG，将 `TO-DO Panel.app` 拖入「应用程序」。

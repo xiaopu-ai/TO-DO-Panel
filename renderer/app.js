@@ -1039,7 +1039,7 @@ function selectedTodoDeadline() {
   });
 }
 
-function applyTodoEditorSelection() {
+function applyTodoEditorSelection(markManual = true) {
   if (!todoEditorContext) return false;
   const deadline = selectedTodoDeadline();
   if (!deadline || Date.parse(deadline) <= Date.now()) {
@@ -1057,6 +1057,7 @@ function applyTodoEditorSelection() {
     const trigger = document.querySelector(`.todo-deadline-trigger[data-deadline-priority="${priority}"]`);
     if (!trigger) return false;
     trigger.dataset.deadline = deadline;
+    trigger.dataset.deadlineSource = markManual ? 'manual' : (trigger.dataset.deadlineSource || 'default');
     trigger.querySelector('span').textContent = new Intl.DateTimeFormat('zh-CN', {
       day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
     }).format(new Date(deadline));
@@ -1093,7 +1094,7 @@ function openTodoEditor(priority, item = null, anchor = null) {
     todoEditorBackdrop.style.right = '12px';
     todoEditorBackdrop.style.bottom = '58px';
   }
-  applyTodoEditorSelection();
+  applyTodoEditorSelection(false);
 }
 
 todoCalendarGrid?.addEventListener('click', (event) => {
@@ -1101,10 +1102,10 @@ todoCalendarGrid?.addEventListener('click', (event) => {
   if (!button) return;
   todoEditorDay = Number(button.dataset.day);
   renderTodoCalendar();
-  applyTodoEditorSelection();
+  applyTodoEditorSelection(true);
 });
-todoEditorHour?.addEventListener('change', applyTodoEditorSelection);
-todoEditorMinute?.addEventListener('change', applyTodoEditorSelection);
+todoEditorHour?.addEventListener('change', () => applyTodoEditorSelection(true));
+todoEditorMinute?.addEventListener('change', () => applyTodoEditorSelection(true));
 
 document.addEventListener('pointerdown', (event) => {
   if (todoEditorBackdrop?.hidden) return;
@@ -1112,26 +1113,23 @@ document.addEventListener('pointerdown', (event) => {
   closeTodoEditor();
 }, true);
 
-function defaultTodoDeadline() {
-  const now = new Date();
-  let day = now.getDate();
-  let value = window.NotchDomain.currentMonthDeadline({ day, hour: 23, minute: 30 });
-  if (value && Date.parse(value) <= Date.now()) {
-    const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    if (day < days) value = window.NotchDomain.currentMonthDeadline({ day: day + 1, hour: 23, minute: 30 });
-  }
-  return value && Date.parse(value) > Date.now() ? value : '';
-}
-
-function applyDefaultTodoDeadline(trigger) {
-  if (!trigger || trigger.dataset.deadline) return;
-  const deadline = defaultTodoDeadline();
+function applyDefaultTodoDeadline(trigger, now = new Date()) {
+  if (!trigger || (trigger.dataset.deadline && trigger.dataset.deadlineSource !== 'default')) return;
+  const deadline = window.NotchDomain.defaultTodoDeadline(now);
   if (!deadline) return;
   trigger.dataset.deadline = deadline;
+  trigger.dataset.deadlineSource = 'default';
   trigger.querySelector('span').textContent = new Intl.DateTimeFormat('zh-CN', {
     day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date(deadline));
   trigger.classList.add('selected');
+}
+
+function refreshDefaultTodoDeadlines(now = new Date()) {
+  document.querySelectorAll('.todo-deadline-trigger[data-deadline-priority]').forEach((trigger) => {
+    if (trigger.dataset.deadlineSource === 'manual') return;
+    applyDefaultTodoDeadline(trigger, now);
+  });
 }
 
 PRIORITIES.forEach((priority) => {
@@ -1155,6 +1153,7 @@ PRIORITIES.forEach((priority) => {
     }
     input.value = '';
     delete deadlineInput.dataset.deadline;
+    delete deadlineInput.dataset.deadlineSource;
     applyDefaultTodoDeadline(deadlineInput);
     deadlineInput.classList.remove('invalid');
     input.focus({ preventScroll: true });
@@ -1249,6 +1248,7 @@ const clockDateEl = document.getElementById('clock-date');
 const clockHEl = document.getElementById('clock-h');
 const clockMEl = document.getElementById('clock-m');
 const clockSsEl = document.getElementById('clock-ss');
+let todoDefaultRefreshKey = '';
 
 function pad2(n) {
   return n < 10 ? '0' + n : String(n);
@@ -1265,6 +1265,11 @@ function tickClock() {
   if (clockDateEl) {
     const dateStr = `${WEEKDAYS[now.getDay()]} · ${now.getMonth() + 1}/${now.getDate()}`;
     if (clockDateEl.textContent !== dateStr) clockDateEl.textContent = dateStr;
+  }
+  const refreshKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours() > 23 || (now.getHours() === 23 && now.getMinutes() >= 30)}`;
+  if (refreshKey !== todoDefaultRefreshKey) {
+    todoDefaultRefreshKey = refreshKey;
+    refreshDefaultTodoDeadlines(now);
   }
 }
 
