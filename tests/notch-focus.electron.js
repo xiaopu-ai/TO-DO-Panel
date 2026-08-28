@@ -46,6 +46,44 @@ async function main() {
       `折叠外壳不能画焦点描边，当前为 ${focusStyle.outlineWidth} ${focusStyle.outlineStyle}`
     );
     assert.notEqual(focusStyle.dotBoxShadow, 'none', '焦点提示应转移到中间抓握条');
+
+    window.setSize(1240, 616);
+    const settingsSurface = await window.webContents.executeJavaScript(`
+      new Promise((resolve) => {
+        const appSurface = document.getElementById('app');
+        appSurface.classList.remove('collapsed');
+        appSurface.classList.add('expanded');
+        document.getElementById('tab-button-settings').click();
+        setTimeout(() => {
+          const page = document.getElementById('settings-page');
+          resolve({
+            rightmostTab: document.querySelector('.tab[data-tab]:last-of-type')?.dataset.tab,
+            activePanel: document.getElementById('tab-settings')?.classList.contains('active'),
+            display: getComputedStyle(page).display,
+            columns: getComputedStyle(page).gridTemplateColumns.split(' ').filter(Boolean).length,
+            api: Boolean(document.getElementById('settings-api-configure')),
+            mirror: Boolean(document.getElementById('settings-mirror-choose')),
+            features: document.querySelectorAll('[data-settings-feature]').length,
+            shortcut: Boolean(document.getElementById('settings-shortcut-change')),
+            workspace: Boolean(document.getElementById('settings-workspace-choose')),
+            autoLaunch: Boolean(document.getElementById('settings-auto-launch')),
+          });
+        }, 80);
+      })
+    `);
+
+    assert.deepEqual(settingsSurface, {
+      rightmostTab: 'settings',
+      activePanel: true,
+      display: 'grid',
+      columns: 2,
+      api: true,
+      mirror: true,
+      features: 6,
+      shortcut: true,
+      workspace: true,
+      autoLaunch: true,
+    });
   } finally {
     window.destroy();
   }
