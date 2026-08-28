@@ -21,7 +21,6 @@ export type TabItem = {
 };
 
 export const NAV_ITEMS = [
-  ["ABOUT", "#about"],
   ["FEATURES", "#features"],
   ["TABS", "#tabs"],
   ["PRIVACY", "#privacy"],
