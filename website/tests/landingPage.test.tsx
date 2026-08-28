@@ -26,7 +26,11 @@ test("hero renders the approved photographic composition with one real panel tog
   const html = renderToStaticMarkup(createElement(LandingPage));
   const hero = html.slice(html.indexOf('data-section="hero"'), html.indexOf('data-section="marquee"'));
 
-  assert.match(hero, /把灵动岛，变成随手可用的工作台。/);
+  assert.match(hero, /把灵动岛，变成随手可用的工作台</);
+  assert.doesNotMatch(hero, /把灵动岛，变成随手可用的工作台。/);
+  assert.match(hero, /class="echo-text hero-echo-text"/);
+  assert.match(hero, /color-mix\(in srgb, #181ecb/);
+  assert.match(hero, /data-magnet="download"/);
   assert.match(hero, />GITHUB</);
   assert.match(hero, />FEATURES</);
   assert.match(hero, />TABS</);
@@ -70,6 +74,11 @@ test("second screen uses six real feature captures without the home panel", asyn
   assert.ok(MARQUEE_ITEMS.every((item) => item.kind === "image"));
   assert.ok(MARQUEE_ITEMS.every((item) => item.src && existsSync(new URL(`../public${item.src}`, import.meta.url))));
   assert.ok(MARQUEE_ITEMS.every((item) => !item.id.includes("home")));
+
+  const { default: LandingPage } = await import(moduleUrl.href);
+  const html = renderToStaticMarkup(createElement(LandingPage));
+  const marquee = html.slice(html.indexOf('data-section="marquee"'), html.indexOf('data-section="story"'));
+  assert.doesNotMatch(marquee, /真实操作，从打开面板到完成任务。/);
 });
 
 test("ending resolves the experience with the real collapsed panel", async () => {
@@ -80,5 +89,8 @@ test("ending resolves the experience with the real collapsed panel", async () =>
   assert.match(ending, /需要时展开，用完即收起</);
   assert.doesNotMatch(ending, /需要时展开，用完即收起。/);
   assert.match(ending, /\/hero\/panel-collapsed\.png/);
+  assert.match(ending, /data-prism-animation="hover"/);
+  assert.match(ending, /class="prism-container"/);
+  assert.doesNotMatch(ending, /ending-convergence|ending-ray/);
   assert.doesNotMatch(ending, /data-primary-action|data-secondary-action/);
 });

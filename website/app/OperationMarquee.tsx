@@ -20,7 +20,7 @@ export default function OperationMarquee() {
 
   return (
     <section className="marquee-section" data-section="marquee" ref={sectionRef} aria-labelledby="marquee-title">
-      <header className="marquee-heading"><h2 id="marquee-title">WORK IN FLOW</h2><p>真实操作，从打开面板到完成任务。</p></header>
+      <header className="marquee-heading"><h2 id="marquee-title">WORK IN FLOW</h2></header>
       <motion.div style={reducedMotion ? undefined : { x: firstX }}><MarqueeRow items={MARQUEE_ITEMS.slice(0, midpoint)} /></motion.div>
       <motion.div style={reducedMotion ? undefined : { x: secondX }}><MarqueeRow items={MARQUEE_ITEMS.slice(midpoint)} /></motion.div>
     </section>

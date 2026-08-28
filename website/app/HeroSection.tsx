@@ -3,6 +3,8 @@
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { DOWNLOAD_URL, NAV_ITEMS } from "./landingContent";
+import EchoText from "./reactbits/EchoText/EchoText";
+import Magnet from "./reactbits/Magnet/Magnet";
 import {
   INITIAL_HERO_PANEL_STATE,
   nextHeroPanelState,
@@ -47,7 +49,14 @@ export default function HeroSection() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
       >
-        TO-DO PANEL
+        <EchoText
+          text="TO-DO PANEL"
+          tint="#181ecb"
+          fontSize="inherit"
+          fontWeight="inherit"
+          color="#d7e2ea"
+          className="hero-echo-text"
+        />
       </motion.h1>
 
       <motion.div
@@ -131,9 +140,17 @@ export default function HeroSection() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.65, delay: 1.05, ease: [0.22, 1, 0.36, 1] }}
       >
-        <p>把灵动岛，变成随手可用的工作台。</p>
+        <p>把灵动岛，变成随手可用的工作台</p>
         <div className="hero-actions">
-          <a className="landing-cta landing-cta-primary" href={DOWNLOAD_URL} data-primary-action>下载 macOS 版本</a>
+          <Magnet
+            padding={70}
+            magnetStrength={6}
+            disabled={noMotion}
+            wrapperClassName="hero-download-magnet"
+            data-magnet="download"
+          >
+            <a className="landing-cta landing-cta-primary" href={DOWNLOAD_URL} data-primary-action>下载 macOS 版本</a>
+          </Magnet>
         </div>
       </motion.div>
     </section>
