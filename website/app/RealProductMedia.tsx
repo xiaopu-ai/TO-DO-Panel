@@ -39,7 +39,7 @@ export default function RealProductMedia({
       ) : (
         // The product capture is a real file-backed screenshot. It must never be replaced with drawn UI.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={media.src} alt={alt} onError={handleError} />
+        <img src={media.src} alt={alt} loading="lazy" decoding="async" onError={handleError} />
       )}
     </div>
   );

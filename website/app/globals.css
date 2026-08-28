@@ -230,7 +230,7 @@ button, input, textarea, select { font: inherit; }
 .tab-card header span { color: var(--tab-accent); font: 500 12px/1 "Kanit", sans-serif; letter-spacing: 0.14em; }
 .tab-card header h3 { margin: 8px 0 0; font-size: clamp(25px, 2.7vw, 42px); letter-spacing: -0.045em; }
 .tab-card header p { margin: 10px 0 0; color: var(--muted); font-size: 14px; line-height: 1.65; }
-.tab-capture { width: 100%; aspect-ratio: 1240 / 616; border: 1px solid var(--line); border-radius: clamp(20px, 3vw, 42px); }
+.tab-capture { width: 100%; aspect-ratio: 990 / 640; border: 1px solid var(--line); border-radius: clamp(20px, 3vw, 42px); }
 .tab-capture img, .tab-capture video { object-fit: contain; }
 .tab-accent-red { --tab-accent: #ff665f; }
 .tab-accent-amber { --tab-accent: #ffad4d; }
@@ -260,8 +260,12 @@ button, input, textarea, select { font: inherit; }
   .landing-cta { min-height: 48px; padding-inline: 20px; }
 }
 
+@media (max-height: 960px) and (min-width: 881px) {
+  .tab-stack { width: min(980px, 100%); }
+}
+
 @media (max-height: 800px) and (min-width: 881px) {
-  .tab-stack { width: min(1050px, 100%); }
+  .tab-stack { width: min(880px, 100%); }
   .tab-stack-stage { min-height: 680px; }
   .tab-card { padding: 20px 28px; }
   .tab-card header { grid-template-columns: 110px 1fr; gap: 24px; margin-bottom: 18px; }

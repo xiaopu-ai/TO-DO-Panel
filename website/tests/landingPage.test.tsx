@@ -50,8 +50,24 @@ test("hero renders the approved photographic composition with one real panel tog
 
 test("tab stack renders six ordered cards with one full real-capture surface each", async () => {
   assert.ok(existsSync(moduleUrl), "LandingPage.tsx must render the approved landing experience");
+  const { TAB_ITEMS } = await import("../app/landingContent.ts");
   const { default: LandingPage } = await import(moduleUrl.href);
   const html = renderToStaticMarkup(createElement(LandingPage));
+  const tabStack = html.slice(html.indexOf('data-section="tab-stack"'), html.indexOf('data-section="ending"'));
+
+  assert.deepEqual(
+    TAB_ITEMS.map((item) => item.capture),
+    [
+      "/tab-captures/todo.gif",
+      "/tab-captures/clipboard.gif",
+      "/tab-captures/notes.gif",
+      "/tab-captures/links.gif",
+      "/tab-captures/recordings.gif",
+      "/tab-captures/credentials.gif",
+    ],
+  );
+  assert.ok(TAB_ITEMS.every((item) => item.captureKind === "image"));
+  assert.ok(TAB_ITEMS.every((item) => existsSync(new URL(`../public${item.capture}`, import.meta.url))));
 
   assert.deepEqual(
     [...html.matchAll(/data-tab-id="([^"]+)"/g)].map((match) => match[1]),
@@ -65,7 +81,12 @@ test("tab stack renders six ordered cards with one full real-capture surface eac
   assert.doesNotMatch(html, /VIEW TAB|查看功能|tab-detail/);
   assert.match(html, /一个TAB解决一种高频需求/);
   assert.doesNotMatch(html, /一页解决一种高频动作。继续滚动，六个工作空间依次展开。/);
-  assert.equal((html.match(/全桌面循环视频待接入/g) || []).length, 6);
+  assert.doesNotMatch(tabStack, /全桌面循环视频待接入/);
+  assert.equal((tabStack.match(/loading="lazy"/g) || []).length, 6);
+
+  const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(styles, /\.tab-capture\s*\{[^}]*aspect-ratio:\s*990\s*\/\s*640/);
+  assert.match(styles, /@media \(max-height: 800px\)[\s\S]*?\.tab-stack\s*\{\s*width:\s*min\(880px, 100%\)/);
 });
 
 test("second screen uses six real feature captures without the home panel", async () => {

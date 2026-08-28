@@ -46,10 +46,10 @@ export const CAPABILITIES = [
 ] as const;
 
 export const TAB_ITEMS: TabItem[] = [
-  { id: "todo", eyebrow: "PLAN THE DAY", title: "待办", description: "四个可改名工作流，按截止时间排序，并在到期前一小时提醒。", capture: "", captureKind: "video", accent: "red" },
-  { id: "clipboard", eyebrow: "CAPTURE FAST", title: "剪贴", description: "按需启用的本机剪贴历史，支持文本、图片、收藏与快速粘贴。", capture: "", captureKind: "video", accent: "amber" },
-  { id: "notes", eyebrow: "THINK IN TEXT", title: "笔记", description: "首页随手写，保存后进入资料库继续编辑、搜索与重命名。", capture: "", captureKind: "video", accent: "green" },
-  { id: "links", eyebrow: "SAVE THE WEB", title: "链接", description: "粘贴公开网址，自动补全标题、图标和分组。", capture: "", captureKind: "video", accent: "blue" },
-  { id: "recordings", eyebrow: "RECORD THE MOMENT", title: "录制", description: "主动点击才启用麦克风，本地保存并可选实时转写。", capture: "", captureKind: "video", accent: "rose" },
-  { id: "credentials", eyebrow: "KEEP IT SAFE", title: "密钥", description: "账号、密码与 API Key 由 macOS 安全存储加密。", capture: "", captureKind: "video", accent: "violet" },
+  { id: "todo", eyebrow: "PLAN THE DAY", title: "待办", description: "四个可改名工作流，按截止时间排序，并在到期前一小时提醒。", capture: "/tab-captures/todo.gif", captureKind: "image", accent: "red" },
+  { id: "clipboard", eyebrow: "CAPTURE FAST", title: "剪贴", description: "按需启用的本机剪贴历史，支持文本、图片、收藏与快速粘贴。", capture: "/tab-captures/clipboard.gif", captureKind: "image", accent: "amber" },
+  { id: "notes", eyebrow: "THINK IN TEXT", title: "笔记", description: "首页随手写，保存后进入资料库继续编辑、搜索与重命名。", capture: "/tab-captures/notes.gif", captureKind: "image", accent: "green" },
+  { id: "links", eyebrow: "SAVE THE WEB", title: "链接", description: "粘贴公开网址，自动补全标题、图标和分组。", capture: "/tab-captures/links.gif", captureKind: "image", accent: "blue" },
+  { id: "recordings", eyebrow: "RECORD THE MOMENT", title: "录制", description: "主动点击才启用麦克风，本地保存并可选实时转写。", capture: "/tab-captures/recordings.gif", captureKind: "image", accent: "rose" },
+  { id: "credentials", eyebrow: "KEEP IT SAFE", title: "密钥", description: "账号、密码与 API Key 由 macOS 安全存储加密。", capture: "/tab-captures/credentials.gif", captureKind: "image", accent: "violet" },
 ];
