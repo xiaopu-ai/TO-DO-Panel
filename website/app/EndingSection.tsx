@@ -2,6 +2,7 @@
 
 import { motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
 import { useRef } from "react";
+import { assetPath } from "./assetPath.mjs";
 import Prism from "./reactbits/Prism/Prism";
 
 export default function EndingSection() {
@@ -38,7 +39,7 @@ export default function EndingSection() {
         >
           {/* This is the real collapsed-state capture from the running product. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/hero/panel-collapsed.png" alt="TO-DO Panel 真实折叠态" />
+          <img src={assetPath("/hero/panel-collapsed.png")} alt="TO-DO Panel 真实折叠态" />
         </motion.div>
 
         <motion.div className="ending-copy">

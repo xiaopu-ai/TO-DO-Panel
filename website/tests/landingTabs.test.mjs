@@ -33,3 +33,16 @@ test("the outgoing card moves down and fully clears before later cards advance",
     scale: 1,
   });
 });
+
+test("only the visible handoff pair keeps animated media mounted", async () => {
+  const { shouldLoadTabMedia } = await import(moduleUrl.href);
+
+  assert.deepEqual(
+    Array.from({ length: 6 }, (_, index) => shouldLoadTabMedia(0.3, index, 6, false)),
+    [false, true, true, false, false, false],
+  );
+  assert.deepEqual(
+    Array.from({ length: 6 }, (_, index) => shouldLoadTabMedia(0.3, index, 6, true)),
+    [true, true, true, true, true, true],
+  );
+});

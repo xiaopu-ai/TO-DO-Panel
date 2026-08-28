@@ -60,8 +60,8 @@ button, input, textarea, select { font: inherit; }
 .hero-screen-layer { z-index: 2; pointer-events: none; }
 .hero-scene-foreground { z-index: 4; pointer-events: none; }
 .hero-scene-foreground > img {
-  -webkit-mask: url("/hero/mac-foreground-mask.svg") center / 100% 100% no-repeat;
-  mask: url("/hero/mac-foreground-mask.svg") center / 100% 100% no-repeat;
+  -webkit-mask: var(--hero-mask-image) center / 100% 100% no-repeat;
+  mask: var(--hero-mask-image) center / 100% 100% no-repeat;
 }
 
 .hero-nav { position: absolute; top: 28px; right: clamp(24px, 3.5vw, 58px); left: clamp(24px, 3.5vw, 58px); z-index: 7; display: flex; align-items: center; justify-content: space-between; }
@@ -175,6 +175,7 @@ button, input, textarea, select { font: inherit; }
 .real-media-missing { display: grid; width: 100%; height: 100%; min-height: 150px; place-items: center; align-content: center; gap: 7px; background: radial-gradient(circle at 50% 40%, rgba(215, 226, 234, 0.055), transparent 36%), #101012; color: var(--muted); text-align: center; }
 .real-media-missing span { font: 500 11px/1 "Kanit", sans-serif; letter-spacing: 0.16em; }
 .real-media-missing small { color: var(--dim); font-size: 11px; }
+.real-media-deferred { width: 100%; height: 100%; background: #0a0a0b; }
 
 .marquee-section { position: relative; display: grid; min-width: 0; overflow: hidden; gap: 12px; padding: 120px 0 92px; }
 .marquee-section > div { width: 100vw; min-width: 0; }

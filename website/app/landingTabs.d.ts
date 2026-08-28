@@ -6,3 +6,4 @@ export type TabCardVisualState = {
 };
 
 export function tabCardVisualState(progress: number, index: number, count: number): TabCardVisualState;
+export function shouldLoadTabMedia(progress: number, index: number, count: number, reducedMotion?: boolean): boolean;

@@ -1,8 +1,15 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import { assetPath } from "./assetPath.mjs";
 import { DOWNLOAD_URL, NAV_ITEMS } from "./landingContent";
+import { LATEST_RELEASE_API_URL, selectMacDownloadUrl } from "./landingDownload.mjs";
 import EchoText from "./reactbits/EchoText/EchoText";
 import Magnet from "./reactbits/Magnet/Magnet";
 import {
@@ -17,6 +24,7 @@ export default function HeroSection() {
   const reducedMotion = useReducedMotion();
   const [panelState, setPanelState] = useState<HeroPanelState>(INITIAL_HERO_PANEL_STATE);
   const [entranceComplete, setEntranceComplete] = useState(false);
+  const [downloadPending, setDownloadPending] = useState(false);
   const expanded = panelState === "expanded";
 
   useEffect(() => {
@@ -28,7 +36,30 @@ export default function HeroSection() {
     setPanelState((current) => nextHeroPanelState(current, entranceComplete));
   };
 
+  const startDownload = async (event: ReactMouseEvent<HTMLAnchorElement>) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    if (downloadPending) return;
+
+    setDownloadPending(true);
+    try {
+      const response = await fetch(LATEST_RELEASE_API_URL, {
+        headers: { Accept: "application/vnd.github+json" },
+      });
+      if (!response.ok) throw new Error(`GitHub release request failed: ${response.status}`);
+      const downloadUrl = selectMacDownloadUrl(await response.json());
+      window.location.assign(downloadUrl ?? DOWNLOAD_URL);
+    } catch {
+      window.location.assign(DOWNLOAD_URL);
+    } finally {
+      setDownloadPending(false);
+    }
+  };
+
   const noMotion = reducedMotion === true;
+  const heroMaskStyle = {
+    "--hero-mask-image": `url("${assetPath("/hero/mac-foreground-mask.svg")}")`,
+  } as CSSProperties;
 
   return (
     <section className={`hero-section hero-photographic${entranceComplete ? " is-ready" : ""}`} data-section="hero" id="top">
@@ -40,7 +71,7 @@ export default function HeroSection() {
         aria-hidden="true"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/hero/mac-scene-hq.png" alt="" />
+        <img src={assetPath("/hero/mac-scene-hq.png")} alt="" />
       </motion.div>
 
       <motion.h1
@@ -67,7 +98,7 @@ export default function HeroSection() {
       >
         <div className="hero-screen">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="hero-screen-wallpaper" src="/hero/mac-wallpaper-v2.png" alt="Mac 屏幕山脉壁纸" />
+          <img className="hero-screen-wallpaper" src={assetPath("/hero/mac-wallpaper-v2.png")} alt="Mac 屏幕山脉壁纸" />
           <motion.div
             className="hero-panel-reveal"
             initial={noMotion ? false : { opacity: 0, clipPath: "inset(0 0 100% 0 round 18px)" }}
@@ -79,9 +110,9 @@ export default function HeroSection() {
             >
               {/* Product UI is shown only through real screenshots from the running app. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="hero-panel-image hero-panel-image-expanded" src="/product-captures/home.png" alt="TO-DO Panel 真实首页展开态" />
+              <img className="hero-panel-image hero-panel-image-expanded" src={assetPath("/product-captures/home.png")} alt="TO-DO Panel 真实首页展开态" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className="hero-panel-image hero-panel-image-collapsed" src="/hero/panel-collapsed.png" alt="TO-DO Panel 真实折叠态" />
+              <img className="hero-panel-image hero-panel-image-collapsed" src={assetPath("/hero/panel-collapsed.png")} alt="TO-DO Panel 真实折叠态" />
               <button
                 className="hero-panel-trigger"
                 type="button"
@@ -97,6 +128,7 @@ export default function HeroSection() {
 
       <motion.div
         className="hero-scene-artboard hero-scene-foreground"
+        style={heroMaskStyle}
         initial={noMotion ? false : { opacity: 0, scale: 1.025 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
@@ -104,7 +136,7 @@ export default function HeroSection() {
       >
         {/* Reuses original photo pixels through a mask; no foreground is generated. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/hero/mac-scene-hq.png" alt="" />
+        <img src={assetPath("/hero/mac-scene-hq.png")} alt="" />
       </motion.div>
 
       <motion.nav
@@ -116,7 +148,7 @@ export default function HeroSection() {
       >
         <a className="brand-lockup" href="#top">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/favicon.png" alt="" width="34" height="34" />
+          <img src={assetPath("/favicon.png")} alt="" width="34" height="34" />
           <span>TO-DO PANEL</span>
         </a>
         <div className="hero-nav-links">
@@ -149,7 +181,16 @@ export default function HeroSection() {
             wrapperClassName="hero-download-magnet"
             data-magnet="download"
           >
-            <a className="landing-cta landing-cta-primary" href={DOWNLOAD_URL} data-primary-action>下载 macOS 版本</a>
+            <a
+              className="landing-cta landing-cta-primary"
+              href={DOWNLOAD_URL}
+              aria-busy={downloadPending}
+              data-primary-action
+              data-direct-download
+              onClick={startDownload}
+            >
+              下载 macOS 版本
+            </a>
           </Magnet>
         </div>
       </motion.div>

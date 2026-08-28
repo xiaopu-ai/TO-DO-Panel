@@ -1,12 +1,12 @@
 "use client";
 
-import { motion, type MotionValue, useReducedMotion, useScroll, useTransform } from "framer-motion";
-import { type CSSProperties, useRef } from "react";
+import { motion, type MotionValue, useMotionValueEvent, useReducedMotion, useScroll, useTransform } from "framer-motion";
+import { type CSSProperties, useRef, useState } from "react";
 import RealProductMedia from "./RealProductMedia";
 import { TAB_ITEMS, type TabItem } from "./landingContent";
-import { tabCardVisualState } from "./landingTabs.mjs";
+import { shouldLoadTabMedia, tabCardVisualState } from "./landingTabs.mjs";
 
-function TabCard({ item, index, progress, reducedMotion }: { item: TabItem; index: number; progress: MotionValue<number>; reducedMotion: boolean }) {
+function TabCard({ item, index, progress, reducedMotion, loadMedia }: { item: TabItem; index: number; progress: MotionValue<number>; reducedMotion: boolean; loadMedia: boolean }) {
   const y = useTransform(progress, (value) => `${tabCardVisualState(value, index, TAB_ITEMS.length).yPercent}%`);
   const opacity = useTransform(progress, (value) => tabCardVisualState(value, index, TAB_ITEMS.length).opacity);
   const scale = useTransform(progress, (value) => tabCardVisualState(value, index, TAB_ITEMS.length).scale);
@@ -22,6 +22,7 @@ function TabCard({ item, index, progress, reducedMotion }: { item: TabItem; inde
           alt={`${item.title}全桌面真实操作录屏`}
           className="tab-capture"
           fullCapture
+          deferred={!loadMedia}
           missingLabel="全桌面循环视频待接入"
         />
       </motion.article>
@@ -33,12 +34,22 @@ export default function TabStack() {
   const stackRef = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion() === true;
   const { scrollYProgress } = useScroll({ target: stackRef, offset: ["start start", "end end"] });
+  const [mediaProgress, setMediaProgress] = useState(0);
+
+  useMotionValueEvent(scrollYProgress, "change", setMediaProgress);
 
   return (
     <div className={`tab-stack${reducedMotion ? " is-reduced-motion" : ""}`} ref={stackRef}>
       <div className="tab-stack-stage">
         {TAB_ITEMS.map((item, index) => (
-          <TabCard item={item} index={index} progress={scrollYProgress} reducedMotion={reducedMotion} key={item.id} />
+          <TabCard
+            item={item}
+            index={index}
+            progress={scrollYProgress}
+            reducedMotion={reducedMotion}
+            loadMedia={shouldLoadTabMedia(mediaProgress, index, TAB_ITEMS.length, reducedMotion)}
+            key={item.id}
+          />
         ))}
       </div>
     </div>

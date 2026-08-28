@@ -12,6 +12,7 @@ type Props = {
   className?: string;
   fullCapture?: boolean;
   missingLabel?: string;
+  deferred?: boolean;
 };
 
 export default function RealProductMedia({
@@ -22,6 +23,7 @@ export default function RealProductMedia({
   className = "",
   fullCapture = false,
   missingLabel = "真实截图 / 录屏待接入",
+  deferred = false,
 }: Props) {
   const spec = { src, fallbackSrc, kind };
   const [media, setMedia] = useState(() => initialMediaState(spec));
@@ -29,7 +31,9 @@ export default function RealProductMedia({
 
   return (
     <div className={`real-product-media ${className}`} data-full-capture={fullCapture ? "" : undefined}>
-      {media.missing ? (
+      {deferred ? (
+        <div className="real-media-deferred" data-deferred-media aria-hidden="true" />
+      ) : media.missing ? (
         <div className="real-media-missing" role="img" aria-label={`${alt}，真实素材待接入`}>
           <span>REAL PRODUCT CAPTURE</span>
           <small>{missingLabel}</small>

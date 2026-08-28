@@ -16,6 +16,7 @@ test("landing page renders the approved section order and one hero CTA", async (
     ["hero", "marquee", "story", "capabilities", "tabs-intro", "tab-stack", "ending"],
   );
   assert.equal((html.match(/data-primary-action=/g) || []).length, 1);
+  assert.equal((html.match(/data-direct-download=/g) || []).length, 1);
   assert.equal((html.match(/data-secondary-action=/g) || []).length, 0);
   assert.equal((html.match(/data-nav-github=/g) || []).length, 1);
   assert.doesNotMatch(html, /data-section="privacy"/);
@@ -82,7 +83,8 @@ test("tab stack renders six ordered cards with one full real-capture surface eac
   assert.match(html, /一个TAB解决一种高频需求/);
   assert.doesNotMatch(html, /一页解决一种高频动作。继续滚动，六个工作空间依次展开。/);
   assert.doesNotMatch(tabStack, /全桌面循环视频待接入/);
-  assert.equal((tabStack.match(/loading="lazy"/g) || []).length, 6);
+  assert.equal((tabStack.match(/loading="lazy"/g) || []).length, 2);
+  assert.equal((tabStack.match(/data-deferred-media=/g) || []).length, 4);
 
   const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(styles, /\.tab-capture\s*\{[^}]*aspect-ratio:\s*990\s*\/\s*640/);
