@@ -722,6 +722,20 @@
   const llmBaseUrl = document.getElementById('llm-base-url');
   const llmModel = document.getElementById('llm-model');
   const transcriptionSettingsNote = document.getElementById('transcription-settings-note');
+  const settingsApiConfigure = document.getElementById('settings-api-configure');
+  const settingsTranscriptionStatus = document.getElementById('settings-transcription-status');
+  const settingsLlmStatus = document.getElementById('settings-llm-status');
+  const settingsFeatureList = document.getElementById('settings-feature-list');
+  const settingsMirrorPreview = document.getElementById('settings-mirror-preview');
+  const settingsMirrorChoose = document.getElementById('settings-mirror-choose');
+  const settingsShortcutValue = document.getElementById('settings-shortcut-value');
+  const settingsShortcutChange = document.getElementById('settings-shortcut-change');
+  const settingsWorkspaceKind = document.getElementById('settings-workspace-kind');
+  const settingsWorkspacePath = document.getElementById('settings-workspace-path');
+  const settingsWorkspaceOpen = document.getElementById('settings-workspace-open');
+  const settingsWorkspaceChoose = document.getElementById('settings-workspace-choose');
+  const settingsAutoLaunch = document.getElementById('settings-auto-launch');
+  const settingsInlineNote = document.getElementById('settings-inline-note');
 
   let recordings = loadJson(RECORDINGS_KEY, []).map(Domain.createRecording).filter(Boolean);
   let selectedRecordingId = recordings[0] && recordings[0].id;
@@ -754,6 +768,8 @@
     llmBaseUrl: 'https://api.deepseek.com',
     llmModel: 'deepseek-v4-flash',
   };
+  let settingsAppSettings = null;
+  let settingsWorkspace = null;
   let transcriptionStatus = 'idle';
   let transcriptionStartPromise = null;
   let transcriptionAudioContext = null;
@@ -893,6 +909,63 @@
     if (llmModel) llmModel.value = transcriptionConfig.llmModel || 'deepseek-v4-flash';
   }
 
+  function setSettingsNote(message, error = false) {
+    if (!settingsInlineNote) return;
+    settingsInlineNote.textContent = message || '';
+    settingsInlineNote.classList.toggle('error', error);
+  }
+
+  function applySettingsMirrorCover(dataUrl) {
+    if (settingsMirrorPreview && typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+      settingsMirrorPreview.src = dataUrl;
+    }
+  }
+
+  function renderSettingsPanel() {
+    const summary = Domain.settingsSummary({
+      appSettings: settingsAppSettings,
+      workspace: settingsWorkspace,
+      transcription: transcriptionConfig,
+    });
+    if (settingsTranscriptionStatus) {
+      settingsTranscriptionStatus.textContent = summary.transcription.label;
+      settingsTranscriptionStatus.dataset.state = summary.transcription.state;
+    }
+    if (settingsLlmStatus) {
+      settingsLlmStatus.textContent = summary.llm.label;
+      settingsLlmStatus.dataset.state = summary.llm.state;
+    }
+    if (settingsShortcutValue) settingsShortcutValue.textContent = summary.shortcut;
+    if (settingsWorkspaceKind) settingsWorkspaceKind.textContent = summary.workspaceLabel;
+    if (settingsWorkspacePath) {
+      settingsWorkspacePath.textContent = summary.workspacePath || '默认数据目录';
+      settingsWorkspacePath.title = summary.workspacePath || '';
+    }
+    if (settingsAutoLaunch) settingsAutoLaunch.checked = summary.autoLaunch;
+    settingsFeatureList?.querySelectorAll('input[data-settings-feature]').forEach((input) => {
+      input.checked = settingsAppSettings?.features?.[input.dataset.settingsFeature] !== false;
+    });
+  }
+
+  async function refreshSettingsPanel() {
+    if (!window.notchAPI) return;
+    const [appSettings, workspace, config, mirrorImage] = await Promise.all([
+      window.notchAPI.getAppSettings?.().catch(() => null),
+      window.notchAPI.getWorkspace?.().catch(() => null),
+      window.notchAPI.getTranscriptionConfig?.().catch(() => null),
+      window.notchAPI.getMirrorImage?.().catch(() => null),
+    ]);
+    if (appSettings) settingsAppSettings = appSettings;
+    if (workspace) settingsWorkspace = workspace;
+    if (config) {
+      transcriptionConfig = config;
+      updateTranscriptionConfigUi();
+      updateRecordingUi();
+    }
+    applySettingsMirrorCover(mirrorImage);
+    renderSettingsPanel();
+  }
+
   async function loadTranscriptionConfig() {
     if (!window.notchAPI || typeof window.notchAPI.getTranscriptionConfig !== 'function') return;
     try {
@@ -901,6 +974,7 @@
     } catch (error) {}
     updateTranscriptionConfigUi();
     updateRecordingUi();
+    renderSettingsPanel();
   }
 
   function openTranscriptionSettings() {
@@ -983,6 +1057,7 @@
       transcriptionStartPromise = startCloudTranscription();
     }
     updateRecordingUi();
+    renderSettingsPanel();
   }
 
   function persistRecordings() {
@@ -1506,6 +1581,7 @@
   if (recordStop) recordStop.addEventListener('click', stopRecording);
   if (recordingNew) recordingNew.addEventListener('click', startRecording);
   if (recordingConfigure) recordingConfigure.addEventListener('click', openTranscriptionSettings);
+  if (settingsApiConfigure) settingsApiConfigure.addEventListener('click', openTranscriptionSettings);
   if (transcriptionSettingsClose) transcriptionSettingsClose.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsCancel) transcriptionSettingsCancel.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsSave) transcriptionSettingsSave.addEventListener('click', saveTranscriptionSettings);
@@ -1530,6 +1606,68 @@
       openTranscriptionSettings();
     });
   }
+  settingsFeatureList?.addEventListener('change', async (event) => {
+    const input = event.target.closest('input[data-settings-feature]');
+    if (!input || !window.notchAPI?.setFeature) return;
+    input.disabled = true;
+    const result = await window.notchAPI.setFeature(input.dataset.settingsFeature, input.checked)
+      .catch(() => ({ ok: false }));
+    input.disabled = false;
+    if (!result?.ok) {
+      input.checked = !input.checked;
+      setSettingsNote('功能显示设置保存失败，请重试。', true);
+      return;
+    }
+    settingsAppSettings = result.settings || settingsAppSettings;
+    renderSettingsPanel();
+    setSettingsNote('显示功能已更新。');
+  });
+  settingsMirrorChoose?.addEventListener('click', async () => {
+    if (!window.notchAPI?.chooseMirrorImage) return;
+    settingsMirrorChoose.disabled = true;
+    const result = await window.notchAPI.chooseMirrorImage().catch(() => ({ ok: false }));
+    settingsMirrorChoose.disabled = false;
+    if (result?.canceled) return;
+    if (!result?.ok) {
+      setSettingsNote('镜子配图替换失败。', true);
+      return;
+    }
+    applySettingsMirrorCover(result.dataUrl);
+    setSettingsNote('首页镜子配图已更新。');
+  });
+  settingsShortcutChange?.addEventListener('click', () => {
+    document.dispatchEvent(new CustomEvent('notch:record-shortcut'));
+  });
+  settingsWorkspaceOpen?.addEventListener('click', () => {
+    window.notchAPI?.openWorkspace?.().catch(() => setSettingsNote('无法打开数据文件夹。', true));
+  });
+  settingsWorkspaceChoose?.addEventListener('click', async () => {
+    const changed = await window.notchAPI?.chooseWorkspace?.().catch(() => false);
+    if (!changed) return;
+    settingsWorkspace = await window.notchAPI?.getWorkspace?.().catch(() => settingsWorkspace);
+    renderSettingsPanel();
+    setSettingsNote('数据文件夹已更新。');
+  });
+  settingsAutoLaunch?.addEventListener('change', async () => {
+    if (!window.notchAPI?.setAutoLaunch) return;
+    settingsAutoLaunch.disabled = true;
+    const result = await window.notchAPI.setAutoLaunch(settingsAutoLaunch.checked).catch(() => ({ ok: false }));
+    settingsAutoLaunch.disabled = false;
+    if (!result?.ok) {
+      settingsAutoLaunch.checked = !settingsAutoLaunch.checked;
+      setSettingsNote('开机启动设置失败。', true);
+      return;
+    }
+    settingsAutoLaunch.checked = result.autoLaunch === true;
+    if (settingsAppSettings) settingsAppSettings.autoLaunch = result.autoLaunch === true;
+    setSettingsNote(result.autoLaunch ? '已开启开机自动启动。' : '已关闭开机自动启动。');
+  });
+  window.notchAPI?.onAppSettingsChanged?.((settings) => {
+    settingsAppSettings = settings;
+    renderSettingsPanel();
+  });
+  window.notchAPI?.onWorkspaceChanged?.(() => refreshSettingsPanel());
+  window.notchAPI?.onMirrorImageChanged?.(applySettingsMirrorCover);
 
   async function loadRecordingAudio(recording, container) {
     if (!window.notchAPI || !recording.audioPath) return;
@@ -2012,6 +2150,7 @@
     clearWindowDragVisuals();
     workspaceTab = event.detail && event.detail.tab || 'home';
     if (workspaceTab === 'home') refreshWindows();
+    if (workspaceTab === 'settings') refreshSettingsPanel();
   });
   document.addEventListener('notch:modechange', (event) => {
     clearWindowDragVisuals();
@@ -2401,6 +2540,7 @@
   renderWindows();
   updateRecordingUi();
   loadTranscriptionConfig();
+  refreshSettingsPanel();
   refreshMusicStatus();
   loadCredentials();
 

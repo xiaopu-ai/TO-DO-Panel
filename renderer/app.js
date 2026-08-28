@@ -931,13 +931,15 @@ shortcutRecorder?.addEventListener('keydown', async (event) => {
 });
 
 shortcutRecorderCancel?.addEventListener('click', closeShortcutRecorder);
-window.notchAPI?.onRecordShortcut?.(() => {
+function openShortcutRecorder() {
   if (!isExpanded) setMode(true);
   shortcutRecorderActive = true;
   shortcutRecorder.hidden = false;
   shortcutRecorderValue.textContent = '等待输入…';
   requestAnimationFrame(() => shortcutRecorder.focus({ preventScroll: true }));
-});
+}
+window.notchAPI?.onRecordShortcut?.(openShortcutRecorder);
+document.addEventListener('notch:record-shortcut', openShortcutRecorder);
 
 if (collapseBtn) {
   collapseBtn.addEventListener('click', (e) => {

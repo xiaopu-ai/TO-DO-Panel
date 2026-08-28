@@ -35,6 +35,7 @@ const {
   filterCredentials,
   credentialRowAction,
   visiblePanelTabs,
+  settingsSummary,
   normalizeNoteArchive,
   filterNotes,
   updateNoteInArchive,
@@ -386,6 +387,25 @@ test('settings stays at the far right when optional tabs are hidden', () => {
     clip: false,
     settings: false,
   }), ['home', 'settings']);
+});
+
+test('settings summary combines safe API status with local device settings', () => {
+  assert.equal(typeof settingsSummary, 'function', 'settingsSummary must exist');
+  assert.deepEqual(settingsSummary({
+    appSettings: { shortcut: 'Command+Shift+P', autoLaunch: true },
+    workspace: { path: '/Users/test/Panel', portable: true },
+    transcription: { configured: true, llmConfigured: false },
+  }), {
+    shortcut: 'Command+Shift+P',
+    autoLaunch: true,
+    workspacePath: '/Users/test/Panel',
+    workspaceLabel: '自定义文件夹',
+    transcription: { label: '已安全保存', state: 'saved' },
+    llm: { label: '未配置', state: 'empty' },
+  });
+  assert.doesNotMatch(JSON.stringify(settingsSummary({
+    transcription: { configured: true, apiKey: 'api-secret' },
+  })), /api-secret/);
 });
 
 test('saved notes preserve cleared content and keep recently updated notes first', () => {

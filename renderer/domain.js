@@ -469,6 +469,20 @@
     };
   }
 
+  function settingsSummary(input = {}) {
+    const appSettings = input.appSettings && typeof input.appSettings === 'object' ? input.appSettings : {};
+    const workspace = input.workspace && typeof input.workspace === 'object' ? input.workspace : {};
+    const statuses = apiCredentialStatuses(input.transcription);
+    return {
+      shortcut: String(appSettings.shortcut || 'Space'),
+      autoLaunch: appSettings.autoLaunch === true,
+      workspacePath: String(workspace.path || ''),
+      workspaceLabel: workspace.portable ? '自定义文件夹' : '默认文件夹',
+      transcription: statuses.transcription,
+      llm: statuses.llm,
+    };
+  }
+
   function currentMonthDeadline(parts, now = new Date()) {
     const base = now instanceof Date ? now : new Date(now);
     if (!Number.isFinite(base.getTime())) return null;
@@ -731,6 +745,7 @@
     updateNoteTitle,
     applyGeneratedNoteTitle,
     apiCredentialStatuses,
+    settingsSummary,
     currentMonthDeadline,
     defaultTodoDeadline,
     todoTimeBattery,
