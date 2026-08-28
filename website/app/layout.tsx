@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 const title = "TO-DO Panel — 把 Mac 刘海变成随手工作台";
-const description = "常驻 macOS 刘海的本地工作台：待办、链接、录音、当前窗口、常用应用与可选 AI 完成提醒。";
+const description = "常驻 macOS 刘海的本地工作台：首页、待办、笔记、链接、录制、密钥与可选剪贴板，数据留在当前 Mac。";
 
 export const metadata: Metadata = {
   title,

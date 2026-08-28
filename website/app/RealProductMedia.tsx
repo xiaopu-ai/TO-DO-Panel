@@ -1,0 +1,45 @@
+"use client";
+
+import { useState } from "react";
+import { initialMediaState, nextMediaState } from "./landingMedia.mjs";
+import type { MediaKind } from "./landingContent";
+
+type Props = {
+  src: string;
+  fallbackSrc?: string;
+  kind?: MediaKind;
+  alt: string;
+  className?: string;
+  fullCapture?: boolean;
+};
+
+export default function RealProductMedia({
+  src,
+  fallbackSrc = "",
+  kind = "image",
+  alt,
+  className = "",
+  fullCapture = false,
+}: Props) {
+  const spec = { src, fallbackSrc, kind };
+  const [media, setMedia] = useState(() => initialMediaState(spec));
+  const handleError = () => setMedia((current) => nextMediaState(current, spec));
+
+  return (
+    <div className={`real-product-media ${className}`} data-full-capture={fullCapture ? "" : undefined}>
+      {media.missing ? (
+        <div className="real-media-missing" role="img" aria-label={`${alt}，真实素材待接入`}>
+          <span>REAL PRODUCT CAPTURE</span>
+          <small>真实截图 / 录屏待接入</small>
+        </div>
+      ) : media.kind === "video" ? (
+        <video src={media.src} muted loop playsInline autoPlay aria-label={alt} onError={handleError} />
+      ) : (
+        // The product capture is a real file-backed screenshot. It must never be replaced with drawn UI.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={media.src} alt={alt} onError={handleError} />
+      )}
+    </div>
+  );
+}
+
