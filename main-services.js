@@ -272,6 +272,14 @@ function clipboardServicePolicy(features) {
   };
 }
 
+const CONFIGURABLE_FEATURES = new Set(['todo', 'notes', 'links', 'recordings', 'credentials', 'clip']);
+
+function updateFeaturePreference(features, featureId, enabled) {
+  if (!CONFIGURABLE_FEATURES.has(featureId) || typeof enabled !== 'boolean') return null;
+  const source = features && typeof features === 'object' && !Array.isArray(features) ? features : {};
+  return { ...source, [featureId]: enabled, home: true };
+}
+
 // 汽水音乐没有「控制 / 播放」菜单，辅助功能树也读不出窗口与菜单项名，
 // 所以只能往应用内发按键。Space(49) 是播放/暂停切换键，play 与 pause 共用它。
 // 原实现里 play 用的是 Cmd+Right——那和 next 完全同一个键，
@@ -339,6 +347,7 @@ module.exports = {
   parseSmartMaterialMetadata,
   selectTranscriptionSettings,
   clipboardServicePolicy,
+  updateFeaturePreference,
   sodaShortcutSpec,
   controlSodaMusic,
 };

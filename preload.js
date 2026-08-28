@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('notchAPI', {
   onToggleShortcut: (cb) => subscribe('shortcut:toggle-panel', () => cb()),
   getHoverSpaceStatus: () => ipcRenderer.invoke('shortcut:hover-space-status'),
   getAppSettings: () => ipcRenderer.invoke('settings:get'),
+  setFeature: (featureId, enabled) => ipcRenderer.invoke('settings:set-feature', { featureId, enabled }),
+  setAutoLaunch: (enabled) => ipcRenderer.invoke('settings:set-auto-launch', enabled === true),
   setPanelShortcut: (accelerator) => ipcRenderer.invoke('settings:set-shortcut', accelerator),
   onAppSettingsChanged: (cb) => subscribe('settings:changed', (event, settings) => cb(settings)),
   onRecordShortcut: (cb) => subscribe('app:record-shortcut', () => cb()),
@@ -66,6 +68,7 @@ contextBridge.exposeInMainWorld('notchAPI', {
   onOpenClip: (cb) => subscribe('app:open-clip', () => cb()),
   onOpenApiSettings: (cb) => subscribe('app:open-api-settings', () => cb()),
   getMirrorImage: () => ipcRenderer.invoke('mirror:get-image'),
+  chooseMirrorImage: () => ipcRenderer.invoke('mirror:choose-image'),
   onMirrorImageChanged: (cb) => subscribe('mirror:image-changed', (event, dataUrl) => cb(dataUrl)),
   onTaskNotification: (cb) =>
     subscribe('task-notification:show', (event, notification) => cb(notification)),

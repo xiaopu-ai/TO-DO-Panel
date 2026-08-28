@@ -357,6 +357,27 @@
     ));
   }
 
+  function credentialRowAction(options = {}) {
+    if (options.requestedAction === 'delete') {
+      return { type: 'delete', label: '删除', ariaLabel: '删除密钥' };
+    }
+    if (options.copyField === 'account' || options.copyField === 'password') {
+      return { type: 'copy', field: options.copyField };
+    }
+    if (options.rowBody && !options.shiftKey) return { type: 'edit' };
+    return { type: 'select' };
+  }
+
+  function visiblePanelTabs(allTabs, features) {
+    const tabs = Array.isArray(allTabs) ? allTabs : [];
+    const state = features && typeof features === 'object' && !Array.isArray(features) ? features : {};
+    const visible = tabs.filter((name) => (
+      name !== 'settings' && (name === 'home' || state[name] !== false)
+    ));
+    if (tabs.includes('settings')) visible.push('settings');
+    return visible;
+  }
+
   function normalizeNoteArchive(value) {
     if (!Array.isArray(value)) return [];
     return value
@@ -448,15 +469,58 @@
     };
   }
 
-  function currentMonthDeadline(parts, now = new Date()) {
-    const base = now instanceof Date ? now : new Date(now);
-    if (!Number.isFinite(base.getTime())) return null;
+  function settingsSummary(input = {}) {
+    const appSettings = input.appSettings && typeof input.appSettings === 'object' ? input.appSettings : {};
+    const workspace = input.workspace && typeof input.workspace === 'object' ? input.workspace : {};
+    const statuses = apiCredentialStatuses(input.transcription);
+    return {
+      shortcut: String(appSettings.shortcut || 'Space'),
+      autoLaunch: appSettings.autoLaunch === true,
+      workspacePath: String(workspace.path || ''),
+      workspaceLabel: workspace.portable ? '自定义文件夹' : '默认文件夹',
+      transcription: statuses.transcription,
+      llm: statuses.llm,
+    };
+  }
+
+  function calendarDeadline(parts) {
+    const year = Math.round(Number(parts && parts.year));
+    const month = Math.round(Number(parts && parts.month));
     const day = Math.round(Number(parts && parts.day));
     const hour = Math.round(Number(parts && parts.hour));
     const minute = Math.round(Number(parts && parts.minute));
-    const daysInMonth = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
-    if (day < 1 || day > daysInMonth || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-    return new Date(base.getFullYear(), base.getMonth(), day, hour, minute, 0, 0).toISOString();
+    if (!Number.isInteger(year) || year < 1 || year > 9999 || month < 0 || month > 11
+      || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    const deadline = new Date(year, month, day, hour, minute, 0, 0);
+    if (deadline.getFullYear() !== year || deadline.getMonth() !== month || deadline.getDate() !== day) return null;
+    return deadline.toISOString();
+  }
+
+  function shiftCalendarMonth(value, offset) {
+    const year = Math.round(Number(value && value.year));
+    const month = Math.round(Number(value && value.month));
+    const step = Math.round(Number(offset));
+    if (!Number.isInteger(year) || !Number.isInteger(month) || month < 0 || month > 11 || !Number.isInteger(step)) return null;
+    const shifted = new Date(year, month + step, 1, 12, 0, 0, 0);
+    return { year: shifted.getFullYear(), month: shifted.getMonth() };
+  }
+
+  function currentMonthDeadline(parts, now = new Date()) {
+    const base = now instanceof Date ? now : new Date(now);
+    if (!Number.isFinite(base.getTime())) return null;
+    return calendarDeadline({
+      ...parts,
+      year: base.getFullYear(),
+      month: base.getMonth(),
+    });
+  }
+
+  function defaultTodoDeadline(now = new Date()) {
+    const base = now instanceof Date ? new Date(now.getTime()) : new Date(now);
+    if (!Number.isFinite(base.getTime())) return null;
+    const deadline = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 30, 0, 0);
+    if (deadline.getTime() <= base.getTime()) deadline.setDate(deadline.getDate() + 1);
+    return deadline.toISOString();
   }
 
   function todoTimeBattery(todo, now = Date.now()) {
@@ -694,13 +758,19 @@
     updateTodo,
     sortTodosForDisplay,
     filterCredentials,
+    credentialRowAction,
+    visiblePanelTabs,
     normalizeNoteArchive,
     filterNotes,
     updateNoteInArchive,
     updateNoteTitle,
     applyGeneratedNoteTitle,
     apiCredentialStatuses,
+    settingsSummary,
     currentMonthDeadline,
+    calendarDeadline,
+    shiftCalendarMonth,
+    defaultTodoDeadline,
     todoTimeBattery,
     updateRangeSelection,
     normalizeHomeLayout,

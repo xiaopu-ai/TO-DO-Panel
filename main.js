@@ -34,6 +34,7 @@ const {
   extractFaviconHref,
   parseSmartMaterialMetadata,
   clipboardServicePolicy,
+  updateFeaturePreference,
   controlSodaMusic,
   sodaShortcutSpec,
   selectTranscriptionSettings,
@@ -173,6 +174,7 @@ const TAB_SIZES = {
   links: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   recordings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   credentials: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
+  settings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
 };
 // 与渲染层结构常量对应：panel padding-top(--s-2 8) + 顶栏(--topbar-h 40)
 // + panels margin-top(--s-3 12) + panel padding-bottom(--s-4 16)。内容顶到屏幕最上沿，不留菜单栏带。
@@ -1031,11 +1033,12 @@ function isAutoLaunchEnabled() {
 }
 
 function setAutoLaunch(enabled) {
-  if (process.platform !== 'darwin') return;
+  if (process.platform !== 'darwin') return false;
   try {
     app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: false });
+    return isAutoLaunchEnabled() === enabled;
   } catch (e) {
-    // ignore
+    return false;
   }
 }
 
@@ -1081,6 +1084,10 @@ function readAppSettings() {
     features: { ...DEFAULT_FEATURES, ...(stored.features || {}), home: true },
     shortcut: isValidPanelShortcut(stored.shortcut) ? stored.shortcut : 'Space',
   };
+}
+
+function publicAppSettings() {
+  return { ...readAppSettings(), autoLaunch: isAutoLaunchEnabled() };
 }
 
 function saveAppSettings(settings) {
@@ -1191,7 +1198,7 @@ function applyAppSettings() {
     saveAppSettings(settings);
     setPanelShortcut('Space');
   }
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('settings:changed', settings);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('settings:changed', publicAppSettings());
 }
 
 function openRendererPanel(channel) {
@@ -1228,7 +1235,7 @@ async function chooseMirrorImage() {
     filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'heic'] }],
   });
   const selected = !result.canceled && result.filePaths && result.filePaths[0];
-  if (!selected) return;
+  if (!selected) return { ok: true, canceled: true };
   try {
     const image = nativeImage.createFromPath(selected);
     if (image.isEmpty()) throw new Error('invalid_image');
@@ -1239,8 +1246,10 @@ async function chooseMirrorImage() {
     if (dataUrl && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('mirror:image-changed', dataUrl);
     }
+    return { ok: true, canceled: false, dataUrl };
   } catch (error) {
     await dialog.showMessageBox({ type: 'error', title: '无法替换配图', message: '请选择一张有效且尺寸适中的图片。' });
+    return { ok: false, error: 'invalid_image' };
   }
 }
 
@@ -1347,14 +1356,32 @@ ipcMain.handle('window:begin-collapse', () => {
   beginNativeCollapse();
 });
 
-ipcMain.handle('settings:get', () => readAppSettings());
+ipcMain.handle('settings:get', () => publicAppSettings());
+ipcMain.handle('settings:set-feature', (event, payload) => {
+  const current = readAppSettings();
+  const features = updateFeaturePreference(current.features, payload && payload.featureId, payload && payload.enabled);
+  if (!features) return { ok: false, error: 'invalid_feature' };
+  const next = { ...current, features };
+  if (!saveAppSettings(next)) return { ok: false, error: 'save_failed' };
+  applyAppSettings();
+  refreshTrayMenu();
+  return { ok: true, settings: publicAppSettings() };
+});
+ipcMain.handle('settings:set-auto-launch', (event, enabled) => {
+  if (typeof enabled !== 'boolean') return { ok: false, error: 'invalid' };
+  if (!setAutoLaunch(enabled)) return { ok: false, error: 'save_failed', autoLaunch: isAutoLaunchEnabled() };
+  const settings = publicAppSettings();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('settings:changed', settings);
+  refreshTrayMenu();
+  return { ok: true, autoLaunch: settings.autoLaunch };
+});
 ipcMain.handle('settings:set-shortcut', (event, accelerator) => {
   if (!isValidPanelShortcut(accelerator)) return { ok: false, error: 'invalid' };
   if (!setPanelShortcut(accelerator)) return { ok: false, error: 'occupied' };
   const next = readAppSettings();
   next.shortcut = accelerator;
   if (!saveAppSettings(next)) return { ok: false, error: 'save_failed' };
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('settings:changed', next);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('settings:changed', publicAppSettings());
   refreshTrayMenu();
   return { ok: true, shortcut: accelerator };
 });
@@ -2156,6 +2183,7 @@ async function rememberPasteTarget() {
 }
 
 ipcMain.handle('mirror:get-image', () => mirrorImageDataUrl());
+ipcMain.handle('mirror:choose-image', () => chooseMirrorImage());
 
 function getCredentialsVaultPath() {
   return path.join(app.getPath('userData'), CREDENTIALS_VAULT_FILE);

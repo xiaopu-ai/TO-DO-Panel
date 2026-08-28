@@ -702,6 +702,7 @@
   const recordPause = document.getElementById('record-pause');
   const recordStop = document.getElementById('record-stop');
   const recordingNew = document.getElementById('recording-new');
+  const recordingConfigure = document.getElementById('recording-configure');
   const recordingList = document.getElementById('recording-list');
   const recordingDetail = document.getElementById('recording-detail');
   const recordingCount = document.getElementById('recording-count');
@@ -721,6 +722,20 @@
   const llmBaseUrl = document.getElementById('llm-base-url');
   const llmModel = document.getElementById('llm-model');
   const transcriptionSettingsNote = document.getElementById('transcription-settings-note');
+  const settingsApiConfigure = document.getElementById('settings-api-configure');
+  const settingsTranscriptionStatus = document.getElementById('settings-transcription-status');
+  const settingsLlmStatus = document.getElementById('settings-llm-status');
+  const settingsFeatureList = document.getElementById('settings-feature-list');
+  const settingsMirrorPreview = document.getElementById('settings-mirror-preview');
+  const settingsMirrorChoose = document.getElementById('settings-mirror-choose');
+  const settingsShortcutValue = document.getElementById('settings-shortcut-value');
+  const settingsShortcutChange = document.getElementById('settings-shortcut-change');
+  const settingsWorkspaceKind = document.getElementById('settings-workspace-kind');
+  const settingsWorkspacePath = document.getElementById('settings-workspace-path');
+  const settingsWorkspaceOpen = document.getElementById('settings-workspace-open');
+  const settingsWorkspaceChoose = document.getElementById('settings-workspace-choose');
+  const settingsAutoLaunch = document.getElementById('settings-auto-launch');
+  const settingsInlineNote = document.getElementById('settings-inline-note');
 
   let recordings = loadJson(RECORDINGS_KEY, []).map(Domain.createRecording).filter(Boolean);
   let selectedRecordingId = recordings[0] && recordings[0].id;
@@ -741,6 +756,7 @@
   let recordingTimer = null;
   let recordingStopDurationMs = 0;
   let recordingCaptureIssue = '';
+  let recordingDraftId = '';
   let currentAudioUrl = '';
   let transcriptionConfig = {
     configured: false,
@@ -752,6 +768,8 @@
     llmBaseUrl: 'https://api.deepseek.com',
     llmModel: 'deepseek-v4-flash',
   };
+  let settingsAppSettings = null;
+  let settingsWorkspace = null;
   let transcriptionStatus = 'idle';
   let transcriptionStartPromise = null;
   let transcriptionAudioContext = null;
@@ -891,6 +909,63 @@
     if (llmModel) llmModel.value = transcriptionConfig.llmModel || 'deepseek-v4-flash';
   }
 
+  function setSettingsNote(message, error = false) {
+    if (!settingsInlineNote) return;
+    settingsInlineNote.textContent = message || '';
+    settingsInlineNote.classList.toggle('error', error);
+  }
+
+  function applySettingsMirrorCover(dataUrl) {
+    if (settingsMirrorPreview && typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+      settingsMirrorPreview.src = dataUrl;
+    }
+  }
+
+  function renderSettingsPanel() {
+    const summary = Domain.settingsSummary({
+      appSettings: settingsAppSettings,
+      workspace: settingsWorkspace,
+      transcription: transcriptionConfig,
+    });
+    if (settingsTranscriptionStatus) {
+      settingsTranscriptionStatus.textContent = summary.transcription.label;
+      settingsTranscriptionStatus.dataset.state = summary.transcription.state;
+    }
+    if (settingsLlmStatus) {
+      settingsLlmStatus.textContent = summary.llm.label;
+      settingsLlmStatus.dataset.state = summary.llm.state;
+    }
+    if (settingsShortcutValue) settingsShortcutValue.textContent = summary.shortcut;
+    if (settingsWorkspaceKind) settingsWorkspaceKind.textContent = summary.workspaceLabel;
+    if (settingsWorkspacePath) {
+      settingsWorkspacePath.textContent = summary.workspacePath || '默认数据目录';
+      settingsWorkspacePath.title = summary.workspacePath || '';
+    }
+    if (settingsAutoLaunch) settingsAutoLaunch.checked = summary.autoLaunch;
+    settingsFeatureList?.querySelectorAll('input[data-settings-feature]').forEach((input) => {
+      input.checked = settingsAppSettings?.features?.[input.dataset.settingsFeature] !== false;
+    });
+  }
+
+  async function refreshSettingsPanel() {
+    if (!window.notchAPI) return;
+    const [appSettings, workspace, config, mirrorImage] = await Promise.all([
+      window.notchAPI.getAppSettings?.().catch(() => null),
+      window.notchAPI.getWorkspace?.().catch(() => null),
+      window.notchAPI.getTranscriptionConfig?.().catch(() => null),
+      window.notchAPI.getMirrorImage?.().catch(() => null),
+    ]);
+    if (appSettings) settingsAppSettings = appSettings;
+    if (workspace) settingsWorkspace = workspace;
+    if (config) {
+      transcriptionConfig = config;
+      updateTranscriptionConfigUi();
+      updateRecordingUi();
+    }
+    applySettingsMirrorCover(mirrorImage);
+    renderSettingsPanel();
+  }
+
   async function loadTranscriptionConfig() {
     if (!window.notchAPI || typeof window.notchAPI.getTranscriptionConfig !== 'function') return;
     try {
@@ -899,6 +974,7 @@
     } catch (error) {}
     updateTranscriptionConfigUi();
     updateRecordingUi();
+    renderSettingsPanel();
   }
 
   function openTranscriptionSettings() {
@@ -971,11 +1047,21 @@
     setTimeout(() => {
       if (transcriptionSettingsSave) transcriptionSettingsSave.textContent = '保存';
     }, 1200);
+    if (
+      transcriptionConfig.configured
+      && ['recording', 'paused'].includes(recordingStatus)
+      && !transcriptionStartPromise
+    ) {
+      stopSpeechRecognition();
+      transcriptionStatus = 'idle';
+      transcriptionStartPromise = startCloudTranscription();
+    }
     updateRecordingUi();
+    renderSettingsPanel();
   }
 
   function persistRecordings() {
-    saveJson(RECORDINGS_KEY, recordings);
+    saveJson(RECORDINGS_KEY, recordings.filter((recording) => !recording.isDraft));
   }
 
   function currentDuration() {
@@ -986,6 +1072,87 @@
       pausedTotalMs,
       now: Date.now(),
     });
+  }
+
+  function activeRecordingDraft() {
+    return recordingDraftId && recordings.find((recording) => recording.id === recordingDraftId) || null;
+  }
+
+  function currentRecordingText() {
+    return `${recordingTranscript} ${interimTranscript}`.trim();
+  }
+
+  function currentRecordingFeedback() {
+    if (recordingCaptureIssue) return recordingCaptureIssue;
+    if (recordingStatus === 'saving') return '正在保存录音…';
+    if (transcriptionConfig.asrNeedsReentry) return '转写密钥已失效 · 请重新配置 API Key';
+    if (transcriptionStatus === 'browser-error') return '未配置转写 API · 音频仍在录制';
+    if (transcriptionStatus === 'error') return '转写连接失败 · 音频仍在录制';
+    if (transcriptionStatus === 'connecting') return '正在连接转写服务';
+    if (recordingStatus === 'paused') return '录音已暂停';
+    if (!transcriptionConfig.configured && !currentRecordingText()) return '未配置转写 API · 音频仍会保存在本机';
+    return '正在录音';
+  }
+
+  function beginRecordingDraft() {
+    recordingDraftId = uid('recording');
+    const draft = {
+      ...Domain.createRecording({
+        id: recordingDraftId,
+        createdAt: recordingStartedAt,
+        durationMs: 0,
+        transcript: '',
+      }),
+      isDraft: true,
+    };
+    recordings.unshift(draft);
+    selectedRecordingId = draft.id;
+    recordingSelectionAnchor = draft.id;
+    renderRecordings();
+  }
+
+  function discardRecordingDraft() {
+    if (!recordingDraftId) return;
+    recordings = recordings.filter((recording) => recording.id !== recordingDraftId);
+    recordingSelection.delete(recordingDraftId);
+    selectedRecordingId = recordings[0]?.id || '';
+    recordingSelectionAnchor = selectedRecordingId || null;
+    recordingDraftId = '';
+    renderRecordings();
+  }
+
+  function syncRecordingDraftUi() {
+    const draft = activeRecordingDraft();
+    if (!draft) return;
+    const durationMs = recordingStopDurationMs || currentDuration();
+    const text = currentRecordingText();
+    draft.durationMs = durationMs;
+    draft.transcript = recordingTranscript;
+    const row = recordingList?.querySelector(`.recording-item[data-id="${CSS.escape(draft.id)}"]`);
+    const preview = row?.querySelector('[data-recording-preview]');
+    const meta = row?.querySelector('[data-recording-meta]');
+    if (preview) preview.textContent = text || currentRecordingFeedback();
+    if (meta) meta.textContent = `${recordingStatus === 'saving' ? '保存中' : recordingStatus === 'paused' ? '已暂停' : '录音中'} · ${formatClock(durationMs)}`;
+    if (selectedRecordingId !== draft.id) return;
+    const detailState = recordingDetail?.querySelector('[data-recording-live-state]');
+    const detailDot = recordingDetail?.querySelector('[data-recording-live-dot]');
+    const detailTime = recordingDetail?.querySelector('[data-recording-live-time]');
+    const detailTranscript = recordingDetail?.querySelector('[data-recording-live-transcript]');
+    const detailFeedback = recordingDetail?.querySelector('[data-recording-live-feedback]');
+    const detailConfigure = recordingDetail?.querySelector('[data-action="configure-transcription"]');
+    const detailPause = recordingDetail?.querySelector('.recording-live-pause');
+    const detailStop = recordingDetail?.querySelector('.recording-live-stop');
+    if (detailState) detailState.textContent = recordingStatus === 'saving' ? '正在保存' : recordingStatus === 'paused' ? '已暂停' : '正在录音';
+    if (detailDot) detailDot.dataset.state = recordingStatus;
+    if (detailTime) detailTime.textContent = formatClock(durationMs);
+    if (detailTranscript && detailTranscript.value !== text) detailTranscript.value = text;
+    if (detailFeedback) detailFeedback.textContent = text ? '转写内容会随录音实时更新' : currentRecordingFeedback();
+    if (detailConfigure) detailConfigure.hidden = transcriptionConfig.configured && !transcriptionConfig.asrNeedsReentry;
+    if (detailPause) {
+      detailPause.textContent = recordingStatus === 'paused' ? '继续' : '暂停';
+      detailPause.disabled = recordingStatus === 'saving';
+    }
+    if (detailStop) detailStop.disabled = recordingStatus === 'saving';
   }
 
   function stopTranscriptionAudioPipeline() {
@@ -1131,26 +1298,16 @@
       recordingNew.setAttribute('aria-label', active ? '录音进行中' : '开始录音');
     }
     if (liveTranscript && active) {
-      const text = `${recordingTranscript} ${interimTranscript}`.trim();
+      const text = currentRecordingText();
       // asrNeedsReentry = 密文还在但当前应用解不开它。safeStorage 的密钥存在钥匙串里、
       // ACL 绑代码签名，所以开发版存的 Key 装成 DMG 后就读不出来（ad-hoc 签名每次打包
       // 都会换 cdhash，也是同样的结果）。这种情况下录音正常、只有转写不工作，
       // 原来只在设置面板里提示一行，录音的人看不到，表现就是「能录但不转写」。
-      const fallback = recordingCaptureIssue
-        || (transcriptionConfig.asrNeedsReentry
-          ? '转写密钥已失效 · 请到设置重填 API Key'
-          : transcriptionStatus === 'browser-error'
-            ? '转写需 API · 音频仍在录制'
-            : transcriptionStatus === 'error'
-              ? '转写连接失败 · 音频仍在录制'
-              : transcriptionStatus === 'connecting'
-                ? '正在连接转写服务'
-                : !transcriptionConfig.configured && !text
-                  ? '正在录音 · 等待本机转写'
-                  : '');
+      const fallback = currentRecordingFeedback();
       liveTranscript.textContent = text || fallback;
       liveTranscript.hidden = !(text || fallback);
     }
+    syncRecordingDraftUi();
   }
 
   function stopSpeechRecognition() {
@@ -1164,7 +1321,12 @@
 
   function startSpeechRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition || speechRecognitionBlocked || recordingStatus !== 'recording') return;
+    if (!SpeechRecognition) {
+      transcriptionStatus = 'browser-error';
+      updateRecordingUi();
+      return;
+    }
+    if (speechRecognitionBlocked || recordingStatus !== 'recording') return;
     const recognition = new SpeechRecognition();
     recognition.lang = 'zh-CN';
     recognition.continuous = true;
@@ -1223,6 +1385,7 @@
     if (!blob || blob.size === 0) {
       recordingStatus = 'idle';
       recordingCaptureIssue = '';
+      discardRecordingDraft();
       if (liveTranscript) {
         liveTranscript.textContent = '录音为空 · 请检查麦克风输入';
         liveTranscript.hidden = false;
@@ -1240,15 +1403,19 @@
       saved = null;
     }
     if (saved && saved.ok) {
+      const draft = activeRecordingDraft();
       const recording = Domain.createRecording({
-        id: uid('recording'),
-        createdAt: Date.now(),
+        id: draft?.id || uid('recording'),
+        createdAt: draft?.createdAt || Date.now(),
         durationMs,
         transcript: recordingTranscript,
         audioPath: saved.audioPath,
         mimeType: saved.mimeType || blob.type,
       });
-      recordings.unshift(recording);
+      const draftIndex = recordings.findIndex((item) => item.id === recording.id);
+      if (draftIndex >= 0) recordings.splice(draftIndex, 1, recording);
+      else recordings.unshift(recording);
+      recordingDraftId = '';
       selectedRecordingId = recording.id;
       persistRecordings();
       renderRecordings();
@@ -1268,9 +1435,12 @@
           : '录音已保存 · 请配置转写 API');
         liveTranscript.hidden = false;
       }
-    } else if (liveTranscript) {
-      liveTranscript.textContent = '录音保存失败，请检查本机存储权限';
-      liveTranscript.hidden = false;
+    } else {
+      discardRecordingDraft();
+      if (liveTranscript) {
+        liveTranscript.textContent = '录音保存失败，请检查本机存储权限';
+        liveTranscript.hidden = false;
+      }
     }
     recordingStatus = 'idle';
     recordingStartedAt = 0;
@@ -1346,6 +1516,7 @@
       transcriptionStatus = 'idle';
       transcriptionStartPromise = null;
       transcriptionFinishPromise = null;
+      beginRecordingDraft();
       if (transcriptionConfig.configured) {
         transcriptionStartPromise = startCloudTranscription();
       } else {
@@ -1358,6 +1529,7 @@
       stopMediaTracks();
       recordingStatus = 'idle';
       recordingCaptureIssue = '';
+      discardRecordingDraft();
       if (liveTranscript) {
         liveTranscript.textContent = '无法开始录音 · 请检查麦克风权限';
         liveTranscript.hidden = false;
@@ -1399,6 +1571,7 @@
     } catch (error) {
       stopMediaTracks();
       recordingStatus = 'idle';
+      discardRecordingDraft();
       updateRecordingUi();
     }
   }
@@ -1407,6 +1580,8 @@
   if (recordPause) recordPause.addEventListener('click', togglePauseRecording);
   if (recordStop) recordStop.addEventListener('click', stopRecording);
   if (recordingNew) recordingNew.addEventListener('click', startRecording);
+  if (recordingConfigure) recordingConfigure.addEventListener('click', openTranscriptionSettings);
+  if (settingsApiConfigure) settingsApiConfigure.addEventListener('click', openTranscriptionSettings);
   if (transcriptionSettingsClose) transcriptionSettingsClose.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsCancel) transcriptionSettingsCancel.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsSave) transcriptionSettingsSave.addEventListener('click', saveTranscriptionSettings);
@@ -1431,6 +1606,68 @@
       openTranscriptionSettings();
     });
   }
+  settingsFeatureList?.addEventListener('change', async (event) => {
+    const input = event.target.closest('input[data-settings-feature]');
+    if (!input || !window.notchAPI?.setFeature) return;
+    input.disabled = true;
+    const result = await window.notchAPI.setFeature(input.dataset.settingsFeature, input.checked)
+      .catch(() => ({ ok: false }));
+    input.disabled = false;
+    if (!result?.ok) {
+      input.checked = !input.checked;
+      setSettingsNote('功能显示设置保存失败，请重试。', true);
+      return;
+    }
+    settingsAppSettings = result.settings || settingsAppSettings;
+    renderSettingsPanel();
+    setSettingsNote('显示功能已更新。');
+  });
+  settingsMirrorChoose?.addEventListener('click', async () => {
+    if (!window.notchAPI?.chooseMirrorImage) return;
+    settingsMirrorChoose.disabled = true;
+    const result = await window.notchAPI.chooseMirrorImage().catch(() => ({ ok: false }));
+    settingsMirrorChoose.disabled = false;
+    if (result?.canceled) return;
+    if (!result?.ok) {
+      setSettingsNote('镜子配图替换失败。', true);
+      return;
+    }
+    applySettingsMirrorCover(result.dataUrl);
+    setSettingsNote('首页镜子配图已更新。');
+  });
+  settingsShortcutChange?.addEventListener('click', () => {
+    document.dispatchEvent(new CustomEvent('notch:record-shortcut'));
+  });
+  settingsWorkspaceOpen?.addEventListener('click', () => {
+    window.notchAPI?.openWorkspace?.().catch(() => setSettingsNote('无法打开数据文件夹。', true));
+  });
+  settingsWorkspaceChoose?.addEventListener('click', async () => {
+    const changed = await window.notchAPI?.chooseWorkspace?.().catch(() => false);
+    if (!changed) return;
+    settingsWorkspace = await window.notchAPI?.getWorkspace?.().catch(() => settingsWorkspace);
+    renderSettingsPanel();
+    setSettingsNote('数据文件夹已更新。');
+  });
+  settingsAutoLaunch?.addEventListener('change', async () => {
+    if (!window.notchAPI?.setAutoLaunch) return;
+    settingsAutoLaunch.disabled = true;
+    const result = await window.notchAPI.setAutoLaunch(settingsAutoLaunch.checked).catch(() => ({ ok: false }));
+    settingsAutoLaunch.disabled = false;
+    if (!result?.ok) {
+      settingsAutoLaunch.checked = !settingsAutoLaunch.checked;
+      setSettingsNote('开机启动设置失败。', true);
+      return;
+    }
+    settingsAutoLaunch.checked = result.autoLaunch === true;
+    if (settingsAppSettings) settingsAppSettings.autoLaunch = result.autoLaunch === true;
+    setSettingsNote(result.autoLaunch ? '已开启开机自动启动。' : '已关闭开机自动启动。');
+  });
+  window.notchAPI?.onAppSettingsChanged?.((settings) => {
+    settingsAppSettings = settings;
+    renderSettingsPanel();
+  });
+  window.notchAPI?.onWorkspaceChanged?.(() => refreshSettingsPanel());
+  window.notchAPI?.onMirrorImageChanged?.(applySettingsMirrorCover);
 
   async function loadRecordingAudio(recording, container) {
     if (!window.notchAPI || !recording.audioPath) return;
@@ -1457,6 +1694,70 @@
       empty.className = 'recording-detail-empty';
       empty.textContent = '完成一次录音后，音频和转写文本会保存在这里。';
       recordingDetail.appendChild(empty);
+      return;
+    }
+    if (recording.isDraft) {
+      const liveHeader = document.createElement('header');
+      liveHeader.className = 'recording-live-head';
+      const liveState = document.createElement('div');
+      liveState.className = 'recording-live-state';
+      const liveDot = document.createElement('span');
+      liveDot.className = 'recording-state-dot';
+      liveDot.dataset.recordingLiveDot = '';
+      liveDot.dataset.state = recordingStatus;
+      const liveLabel = document.createElement('strong');
+      liveLabel.dataset.recordingLiveState = '';
+      const liveTime = document.createElement('time');
+      liveTime.dataset.recordingLiveTime = '';
+      liveState.append(liveDot, liveLabel);
+      liveHeader.append(liveState, liveTime);
+
+      const liveAudio = document.createElement('div');
+      liveAudio.className = 'recording-live-audio';
+      const liveAudioTitle = document.createElement('strong');
+      liveAudioTitle.textContent = '音频正在本机录制';
+      const liveAudioHint = document.createElement('span');
+      liveAudioHint.textContent = '结束后会自动保存并出现播放器';
+      const liveControls = document.createElement('div');
+      liveControls.className = 'recording-live-controls';
+      const pause = document.createElement('button');
+      pause.type = 'button';
+      pause.className = 'workspace-button compact recording-live-pause';
+      pause.textContent = recordingStatus === 'paused' ? '继续' : '暂停';
+      pause.addEventListener('click', togglePauseRecording);
+      const stop = document.createElement('button');
+      stop.type = 'button';
+      stop.className = 'workspace-button compact primary recording-live-stop';
+      stop.textContent = '结束并保存';
+      stop.addEventListener('click', stopRecording);
+      liveControls.append(pause, stop);
+      liveAudio.append(liveAudioTitle, liveAudioHint, liveControls);
+
+      const transcriptHead = document.createElement('div');
+      transcriptHead.className = 'recording-transcript-head';
+      const transcriptLabel = document.createElement('span');
+      transcriptLabel.className = 'tile-label';
+      transcriptLabel.textContent = '实时转写';
+      const configure = document.createElement('button');
+      configure.type = 'button';
+      configure.className = 'workspace-button compact recording-live-configure';
+      configure.dataset.action = 'configure-transcription';
+      configure.textContent = '配置 API';
+      configure.addEventListener('click', openTranscriptionSettings);
+      transcriptHead.append(transcriptLabel, configure);
+
+      const transcript = document.createElement('textarea');
+      transcript.className = 'recording-transcript-editor recording-live-transcript';
+      transcript.readOnly = true;
+      transcript.dataset.recordingLiveTranscript = '';
+      transcript.placeholder = '开始说话后，转写内容会出现在这里。';
+      transcript.setAttribute('aria-label', '实时转写文本');
+      const feedback = document.createElement('p');
+      feedback.className = 'recording-live-feedback';
+      feedback.dataset.recordingLiveFeedback = '';
+      feedback.setAttribute('aria-live', 'polite');
+      recordingDetail.append(liveHeader, liveAudio, transcriptHead, transcript, feedback);
+      syncRecordingDraftUi();
       return;
     }
     const header = document.createElement('header');
@@ -1558,7 +1859,7 @@
     }
     recordings.forEach((recording) => {
       const row = document.createElement('div');
-      row.className = `recording-item${recording.id === selectedRecordingId ? ' active' : ''}${recordingSelection.has(recording.id) ? ' multi-selected' : ''}`;
+      row.className = `recording-item${recording.id === selectedRecordingId ? ' active' : ''}${recordingSelection.has(recording.id) ? ' multi-selected' : ''}${recording.isDraft ? ' is-live' : ''}`;
       row.dataset.id = recording.id;
       const button = document.createElement('button');
       button.type = 'button';
@@ -1567,13 +1868,20 @@
       const title = document.createElement('strong');
       title.textContent = recording.title;
       const preview = document.createElement('span');
-      preview.textContent = recording.transcript || '仅音频 · 暂无转写';
+      preview.dataset.recordingPreview = '';
+      preview.textContent = recording.isDraft ? (currentRecordingText() || currentRecordingFeedback()) : (recording.transcript || '仅音频 · 暂无转写');
       const meta = document.createElement('time');
-      meta.textContent = `${formatShortDate(recording.createdAt)} · ${formatClock(recording.durationMs)}`;
+      meta.dataset.recordingMeta = '';
+      meta.textContent = recording.isDraft
+        ? `${recordingStatus === 'saving' ? '保存中' : recordingStatus === 'paused' ? '已暂停' : '录音中'} · ${formatClock(recording.durationMs)}`
+        : `${formatShortDate(recording.createdAt)} · ${formatClock(recording.durationMs)}`;
       button.append(title, preview, meta);
-      const remove = createIconButton('delete-recording-item', `删除录音：${recording.title}`, DELETE_ICON, true);
-      remove.classList.add('recording-item-delete');
-      row.append(button, remove);
+      row.append(button);
+      if (!recording.isDraft) {
+        const remove = createIconButton('delete-recording-item', `删除录音：${recording.title}`, DELETE_ICON, true);
+        remove.classList.add('recording-item-delete');
+        row.append(remove);
+      }
       recordingList.appendChild(row);
     });
   }
@@ -1596,10 +1904,11 @@
       }
       const item = event.target.closest('.recording-item[data-id]');
       if (!item) return;
-      if (event.shiftKey) {
+      const targetRecording = recordings.find((recording) => recording.id === item.dataset.id);
+      if (event.shiftKey && targetRecording && !targetRecording.isDraft) {
         event.preventDefault();
         const result = Domain.updateRangeSelection(
-          recordings.map((recording) => recording.id),
+          recordings.filter((recording) => !recording.isDraft).map((recording) => recording.id),
           [...recordingSelection],
           item.dataset.id,
           recordingSelectionAnchor,
@@ -1618,13 +1927,15 @@
 
   recordingBulkDelete?.addEventListener('click', async () => {
     if (!recordingSelection.size) return;
-    const targets = recordings.filter((recording) => recordingSelection.has(recording.id));
+    const targets = recordings.filter((recording) => !recording.isDraft && recordingSelection.has(recording.id));
+    if (!targets.length) return;
     if (window.notchAPI) {
       await Promise.all(targets.map((recording) => recording.audioPath
         ? window.notchAPI.deleteRecording(recording.audioPath).catch(() => false)
         : Promise.resolve(true)));
     }
-    recordings = recordings.filter((recording) => !recordingSelection.has(recording.id));
+    const targetIds = new Set(targets.map((recording) => recording.id));
+    recordings = recordings.filter((recording) => !targetIds.has(recording.id));
     recordingSelection.clear();
     selectedRecordingId = recordings[0] && recordings[0].id;
     recordingSelectionAnchor = selectedRecordingId || null;
@@ -1839,6 +2150,7 @@
     clearWindowDragVisuals();
     workspaceTab = event.detail && event.detail.tab || 'home';
     if (workspaceTab === 'home') refreshWindows();
+    if (workspaceTab === 'settings') refreshSettingsPanel();
   });
   document.addEventListener('notch:modechange', (event) => {
     clearWindowDragVisuals();
@@ -2022,11 +2334,13 @@
       passwordCopy.dataset.credentialCopy = 'password';
       passwordCopy.textContent = '密码';
       passwordCopy.setAttribute('aria-label', '复制密码');
-      const edit = document.createElement('button');
-      edit.type = 'button';
-      edit.dataset.credentialEdit = 'true';
-      edit.textContent = '修改';
-      actions.append(accountCopy, passwordCopy, edit);
+      const deleteAction = Domain.credentialRowAction({ requestedAction: 'delete' });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.dataset.credentialDelete = 'true';
+      remove.textContent = deleteAction.label;
+      remove.setAttribute('aria-label', deleteAction.ariaLabel);
+      actions.append(accountCopy, passwordCopy, remove);
       row.append(copy, actions);
       credentialList.appendChild(row);
     });
@@ -2104,12 +2418,42 @@
     }
     if (row.classList.contains('editing')) return;
     const copyField = event.target.closest('[data-credential-copy]')?.dataset.credentialCopy;
-    if (copyField) {
-      const copied = await window.notchAPI.copyCredential(row.dataset.id, copyField).catch(() => false);
+    const action = Domain.credentialRowAction({
+      requestedAction: event.target.closest('[data-credential-delete]') ? 'delete' : '',
+      copyField,
+      rowBody: Boolean(event.target.closest('.credential-copy')),
+      shiftKey: event.shiftKey,
+    });
+    if (action.type === 'delete') {
+      const deleteButton = event.target.closest('[data-credential-delete]');
+      if (deleteButton) deleteButton.disabled = true;
+      const result = await window.notchAPI.deleteCredentials([row.dataset.id]).catch(() => ({ ok: false }));
+      if (!result?.ok) {
+        if (deleteButton) deleteButton.disabled = false;
+        if (credentialsNote) {
+          credentialsNote.textContent = '删除失败，请稍后重试。';
+          credentialsNote.classList.add('error');
+        }
+        return;
+      }
+      credentialSelection.delete(row.dataset.id);
+      if (editingCredentialId === row.dataset.id) {
+        editingCredentialId = '';
+        editingCredential = null;
+      }
+      await loadCredentials();
+      if (credentialsNote) {
+        credentialsNote.textContent = '密钥已删除。';
+        credentialsNote.classList.remove('error');
+      }
+      return;
+    }
+    if (action.type === 'copy') {
+      const copied = await window.notchAPI.copyCredential(row.dataset.id, action.field).catch(() => false);
       if (credentialsNote) credentialsNote.textContent = copied ? `${copyField === 'password' ? '密码' : '账号'}已复制` : '复制失败';
       return;
     }
-    if (event.target.closest('[data-credential-edit]') || (!event.shiftKey && event.target.closest('.credential-copy'))) {
+    if (action.type === 'edit') {
       const originRect = row.getBoundingClientRect();
       const result = await window.notchAPI.getCredential(row.dataset.id).catch(() => ({ ok: false }));
       if (!result || !result.ok || !result.item) return;
@@ -2196,6 +2540,7 @@
   renderWindows();
   updateRecordingUi();
   loadTranscriptionConfig();
+  refreshSettingsPanel();
   refreshMusicStatus();
   loadCredentials();
 

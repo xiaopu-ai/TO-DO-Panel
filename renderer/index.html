@@ -77,6 +77,13 @@
               </svg>
               <span class="tab-label">密钥</span>
             </button>
+            <button class="tab" id="tab-button-settings" type="button" data-tab="settings" role="tab" aria-controls="tab-settings" aria-selected="false" tabindex="-1">
+              <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.17.38.48.7.86.88.34.16.7.22 1.06.2H21v4h-.09a1.7 1.7 0 0 0-1.51.92Z" />
+              </svg>
+              <span class="tab-label">设置</span>
+            </button>
             <span class="tab-indicator" id="tab-indicator" aria-hidden="true"></span>
           </div>
 
@@ -342,7 +349,10 @@
               <aside class="recording-library">
                 <div class="recording-library-head">
                   <div><span class="tile-label">录音资料库</span><strong id="recording-count">0 条</strong></div>
-                  <button class="workspace-button compact" id="recording-new" type="button">录音</button>
+                  <div class="recording-library-actions">
+                    <button class="workspace-button compact" id="recording-configure" type="button">API 配置</button>
+                    <button class="workspace-button compact primary" id="recording-new" type="button">录音</button>
+                  </div>
                   <button class="bulk-delete" id="recording-bulk-delete" type="button" hidden>删除</button>
                 </div>
                 <div class="recording-list" id="recording-list"></div>
@@ -390,10 +400,82 @@
               </section>
             </div>
           </section>
+
+          <section id="tab-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-settings" aria-hidden="true" inert>
+            <div class="settings-page" id="settings-page" aria-label="TO-DO Panel 设置">
+              <div class="settings-column settings-column-primary">
+                <section class="tile settings-card settings-api-card">
+                  <div class="settings-card-heading">
+                    <div><span class="tile-label">智能能力</span><strong>API 配置</strong></div>
+                    <button class="workspace-button compact" id="settings-api-configure" type="button">配置或替换</button>
+                  </div>
+                  <div class="settings-status-list">
+                    <div><span>通义百炼实时转写</span><small id="settings-transcription-status" data-state="empty">未配置</small></div>
+                    <div><span>DeepSeek 智能命名</span><small id="settings-llm-status" data-state="empty">未配置</small></div>
+                  </div>
+                  <p>密钥由 macOS 安全存储加密，面板不会读取或回显已保存的明文。</p>
+                </section>
+
+                <section class="tile settings-card settings-features-card">
+                  <div class="settings-card-heading">
+                    <div><span class="tile-label">工作区</span><strong>显示功能</strong></div>
+                    <small>首页与设置始终显示</small>
+                  </div>
+                  <div class="settings-feature-grid" id="settings-feature-list">
+                    <label><span><b>待办</b><small>四象限任务</small></span><input type="checkbox" data-settings-feature="todo" aria-label="显示待办" /><i aria-hidden="true"></i></label>
+                    <label><span><b>笔记</b><small>随笔与资料库</small></span><input type="checkbox" data-settings-feature="notes" aria-label="显示笔记" /><i aria-hidden="true"></i></label>
+                    <label><span><b>链接</b><small>收藏与分组</small></span><input type="checkbox" data-settings-feature="links" aria-label="显示链接" /><i aria-hidden="true"></i></label>
+                    <label><span><b>录制</b><small>录音与转写</small></span><input type="checkbox" data-settings-feature="recordings" aria-label="显示录制" /><i aria-hidden="true"></i></label>
+                    <label><span><b>密钥</b><small>本机安全存储</small></span><input type="checkbox" data-settings-feature="credentials" aria-label="显示密钥" /><i aria-hidden="true"></i></label>
+                    <label><span><b>剪贴板</b><small>默认关闭</small></span><input type="checkbox" data-settings-feature="clip" aria-label="显示剪贴板" /><i aria-hidden="true"></i></label>
+                  </div>
+                </section>
+              </div>
+
+              <div class="settings-column settings-column-secondary">
+                <section class="tile settings-card settings-mirror-card">
+                  <img id="settings-mirror-preview" src="assets/mirror-portrait.jpg" alt="当前首页镜子配图" draggable="false" />
+                  <div>
+                    <span class="tile-label">首页镜子</span>
+                    <strong>封面图片</strong>
+                    <p>支持 PNG、JPG、WebP 与 HEIC，替换后首页立即同步。</p>
+                    <button class="workspace-button compact" id="settings-mirror-choose" type="button">选择图片…</button>
+                  </div>
+                </section>
+
+                <section class="tile settings-card settings-device-card">
+                  <div class="settings-card-heading">
+                    <div><span class="tile-label">这台 Mac</span><strong>本机与唤出</strong></div>
+                  </div>
+                  <div class="settings-device-row">
+                    <div><span>唤出快捷键</span><strong id="settings-shortcut-value">Space</strong></div>
+                    <button id="settings-shortcut-change" type="button">重新设置</button>
+                  </div>
+                  <div class="settings-device-row settings-workspace-row">
+                    <div><span>数据文件夹 · <em id="settings-workspace-kind">默认文件夹</em></span><strong id="settings-workspace-path">读取中…</strong></div>
+                    <span class="settings-device-actions">
+                      <button id="settings-workspace-open" type="button">在访达打开</button>
+                      <button id="settings-workspace-choose" type="button">更换…</button>
+                    </span>
+                  </div>
+                  <label class="settings-device-row settings-auto-launch-row">
+                    <div><span>开机自动启动</span><strong>登录后自动运行 TO-DO Panel</strong></div>
+                    <input id="settings-auto-launch" type="checkbox" aria-label="开机自动启动" />
+                    <i aria-hidden="true"></i>
+                  </label>
+                  <p class="settings-inline-note" id="settings-inline-note" role="status" aria-live="polite"></p>
+                </section>
+              </div>
+            </div>
+          </section>
         </div>
         <div class="todo-date-popover" id="todo-date-popover" hidden>
           <section class="todo-editor-card" role="group" aria-label="截止日期与时间">
-            <header><span id="todo-editor-month"></span></header>
+            <header class="todo-calendar-head">
+              <button id="todo-calendar-previous" type="button" aria-label="上个月">‹</button>
+              <span id="todo-editor-month"></span>
+              <button id="todo-calendar-next" type="button" aria-label="下个月">›</button>
+            </header>
             <div class="todo-calendar-week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
             <div class="todo-calendar-grid" id="todo-calendar-grid"></div>
             <div class="todo-time-row"><span>截止时间</span><select id="todo-editor-hour" aria-label="小时"></select><b>:</b><select id="todo-editor-minute" aria-label="分钟"></select></div>

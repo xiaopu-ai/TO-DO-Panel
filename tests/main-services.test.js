@@ -13,6 +13,7 @@ const {
   parseSmartLinkMetadata,
   parseSmartMaterialMetadata,
   clipboardServicePolicy,
+  updateFeaturePreference,
   controlSodaMusic,
   sodaShortcutSpec,
   selectTranscriptionSettings,
@@ -199,6 +200,19 @@ test('clipboard polling follows the feature switch and never reserves a global s
   for (const input of [{ clip: true }, { clip: false }, {}, undefined]) {
     assert.equal(clipboardServicePolicy(input).registerGlobalShortcut, false);
   }
+});
+
+test('feature preferences only update configurable tabs and keep permanent tabs enabled', () => {
+  assert.equal(typeof updateFeaturePreference, 'function', 'updateFeaturePreference must exist');
+  assert.deepEqual(updateFeaturePreference({ todo: true, clip: false }, 'clip', true), {
+    todo: true,
+    clip: true,
+    home: true,
+  });
+  assert.equal(updateFeaturePreference({ todo: true }, 'home', false), null);
+  assert.equal(updateFeaturePreference({ todo: true }, 'settings', false), null);
+  assert.equal(updateFeaturePreference({ todo: true }, 'unknown', false), null);
+  assert.equal(updateFeaturePreference({ todo: true }, 'todo', 'false'), null);
 });
 
 test('first Soda Music play launches the app and starts its restored song', async () => {

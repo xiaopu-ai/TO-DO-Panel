@@ -17,6 +17,9 @@ const {
   createTodo,
   updateTodo,
   currentMonthDeadline,
+  calendarDeadline,
+  shiftCalendarMonth,
+  defaultTodoDeadline,
   normalizeTodoCategoryNames,
   normalizeHomeWidgetSizes,
   packHomeWidgetLayout,
@@ -32,6 +35,9 @@ const {
   moveLinkToGroup,
   moveLinkToPosition,
   filterCredentials,
+  credentialRowAction,
+  visiblePanelTabs,
+  settingsSummary,
   normalizeNoteArchive,
   filterNotes,
   updateNoteInArchive,
@@ -314,6 +320,53 @@ test('todo editor updates text and deadline while keeping completion state', () 
   ), null);
 });
 
+test('todo calendar month navigation crosses year boundaries in both directions', () => {
+  assert.equal(typeof shiftCalendarMonth, 'function', 'shiftCalendarMonth must exist');
+  assert.deepEqual(shiftCalendarMonth({ year: 2026, month: 11 }, 1), { year: 2027, month: 0 });
+  assert.deepEqual(shiftCalendarMonth({ year: 2027, month: 0 }, -1), { year: 2026, month: 11 });
+});
+
+test('todo deadline uses the calendar month being viewed instead of the current month', () => {
+  assert.equal(typeof calendarDeadline, 'function', 'calendarDeadline must exist');
+  const deadline = new Date(calendarDeadline({
+    year: 2027,
+    month: 0,
+    day: 2,
+    hour: 23,
+    minute: 30,
+  }));
+  assert.deepEqual([
+    deadline.getFullYear(),
+    deadline.getMonth(),
+    deadline.getDate(),
+    deadline.getHours(),
+    deadline.getMinutes(),
+  ], [2027, 0, 2, 23, 30]);
+  assert.equal(calendarDeadline({ year: 2027, month: 1, day: 29, hour: 23, minute: 30 }), null);
+});
+
+test('default todo deadline follows the current local day across midnight and month boundaries', () => {
+  const daytime = new Date(2026, 7, 28, 9, 15, 0, 0);
+  const sameDayDeadline = new Date(defaultTodoDeadline(daytime));
+  assert.deepEqual([
+    sameDayDeadline.getFullYear(),
+    sameDayDeadline.getMonth(),
+    sameDayDeadline.getDate(),
+    sameDayDeadline.getHours(),
+    sameDayDeadline.getMinutes(),
+  ], [2026, 7, 28, 23, 30]);
+
+  const afterCutoff = new Date(2026, 7, 31, 23, 31, 0, 0);
+  const nextDayDeadline = new Date(defaultTodoDeadline(afterCutoff));
+  assert.deepEqual([
+    nextDayDeadline.getFullYear(),
+    nextDayDeadline.getMonth(),
+    nextDayDeadline.getDate(),
+    nextDayDeadline.getHours(),
+    nextDayDeadline.getMinutes(),
+  ], [2026, 8, 1, 23, 30]);
+});
+
 test('todos sort unfinished by DDL and creation time with completed items last', () => {
   const rows = sortTodosForDisplay([
     { id: 'done', done: true, deadline: '2026-08-20T00:00:00.000Z', createdAt: 1 },
@@ -332,6 +385,54 @@ test('credential search matches service or account without exposing passwords', 
   assert.deepEqual(filterCredentials(rows, 'GITHUB').map((row) => row.id), ['github']);
   assert.deepEqual(filterCredentials(rows, 'example').map((row) => row.id), ['github']);
   assert.deepEqual(filterCredentials(rows, '').map((row) => row.id), ['github', 'feishu']);
+});
+
+test('credential row routes its trailing action to delete while its body still opens editing', () => {
+  assert.equal(typeof credentialRowAction, 'function', 'credentialRowAction must exist');
+  assert.deepEqual(credentialRowAction({ requestedAction: 'delete' }), {
+    type: 'delete',
+    label: '删除',
+    ariaLabel: '删除密钥',
+  });
+  assert.deepEqual(credentialRowAction({ copyField: 'account' }), { type: 'copy', field: 'account' });
+  assert.deepEqual(credentialRowAction({ rowBody: true }), { type: 'edit' });
+  assert.deepEqual(credentialRowAction({ rowBody: true, shiftKey: true }), { type: 'select' });
+});
+
+test('settings stays at the far right when optional tabs are hidden', () => {
+  assert.equal(typeof visiblePanelTabs, 'function', 'visiblePanelTabs must exist');
+  const tabs = ['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'];
+  assert.deepEqual(visiblePanelTabs(tabs, { todo: false, clip: true }), [
+    'home', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings',
+  ]);
+  assert.deepEqual(visiblePanelTabs(tabs, {
+    todo: false,
+    notes: false,
+    links: false,
+    recordings: false,
+    credentials: false,
+    clip: false,
+    settings: false,
+  }), ['home', 'settings']);
+});
+
+test('settings summary combines safe API status with local device settings', () => {
+  assert.equal(typeof settingsSummary, 'function', 'settingsSummary must exist');
+  assert.deepEqual(settingsSummary({
+    appSettings: { shortcut: 'Command+Shift+P', autoLaunch: true },
+    workspace: { path: '/Users/test/Panel', portable: true },
+    transcription: { configured: true, llmConfigured: false },
+  }), {
+    shortcut: 'Command+Shift+P',
+    autoLaunch: true,
+    workspacePath: '/Users/test/Panel',
+    workspaceLabel: '自定义文件夹',
+    transcription: { label: '已安全保存', state: 'saved' },
+    llm: { label: '未配置', state: 'empty' },
+  });
+  assert.doesNotMatch(JSON.stringify(settingsSummary({
+    transcription: { configured: true, apiKey: 'api-secret' },
+  })), /api-secret/);
 });
 
 test('saved notes preserve cleared content and keep recently updated notes first', () => {

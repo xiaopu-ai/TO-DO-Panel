@@ -712,7 +712,7 @@ if (window.notchAPI && typeof window.notchAPI.onMetricsChanged === 'function') {
 
 // ============ Tab 切换 ============
 const TAB_KEY = 'notch-active-tab';
-const ALL_TABS = ['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip'];
+const ALL_TABS = ['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'];
 let TABS = ALL_TABS.filter((name) => name !== 'clip');
 let tabButtons = Array.from(document.querySelectorAll('.tab:not([hidden])'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
@@ -722,13 +722,15 @@ const collapseBtn = document.getElementById('collapse-btn');
 let activeTab = 'home';
 
 function applyFeatureSettings(settings) {
-  const features = { home: true, ...(settings && settings.features || {}) };
+  const features = { ...(settings && settings.features || {}), home: true, settings: true };
   document.querySelectorAll('.tab[data-tab]').forEach((button) => {
-    const enabled = button.dataset.tab === 'home' || features[button.dataset.tab] !== false;
+    const enabled = button.dataset.tab === 'home'
+      || button.dataset.tab === 'settings'
+      || features[button.dataset.tab] !== false;
     button.hidden = !enabled;
     button.setAttribute('aria-hidden', String(!enabled));
   });
-  TABS = ALL_TABS.filter((name) => name === 'home' || features[name] !== false);
+  TABS = window.NotchDomain.visiblePanelTabs(ALL_TABS, features);
   tabButtons = Array.from(document.querySelectorAll('.tab:not([hidden])'));
   tabButtons.forEach((button) => button.classList.remove('tab-split-start'));
   document.getElementById('tabs')?.classList.toggle('is-split', tabButtons.length > 4);
@@ -929,13 +931,15 @@ shortcutRecorder?.addEventListener('keydown', async (event) => {
 });
 
 shortcutRecorderCancel?.addEventListener('click', closeShortcutRecorder);
-window.notchAPI?.onRecordShortcut?.(() => {
+function openShortcutRecorder() {
   if (!isExpanded) setMode(true);
   shortcutRecorderActive = true;
   shortcutRecorder.hidden = false;
   shortcutRecorderValue.textContent = '等待输入…';
   requestAnimationFrame(() => shortcutRecorder.focus({ preventScroll: true }));
-});
+}
+window.notchAPI?.onRecordShortcut?.(openShortcutRecorder);
+document.addEventListener('notch:record-shortcut', openShortcutRecorder);
 
 if (collapseBtn) {
   collapseBtn.addEventListener('click', (e) => {
@@ -988,11 +992,15 @@ applyTodoCategoryNames();
 
 const todoEditorBackdrop = document.getElementById('todo-date-popover');
 const todoEditorMonth = document.getElementById('todo-editor-month');
+const todoCalendarPrevious = document.getElementById('todo-calendar-previous');
+const todoCalendarNext = document.getElementById('todo-calendar-next');
 const todoCalendarGrid = document.getElementById('todo-calendar-grid');
 const todoEditorHour = document.getElementById('todo-editor-hour');
 const todoEditorMinute = document.getElementById('todo-editor-minute');
 const todoEditorError = document.getElementById('todo-editor-error');
 let todoEditorContext = null;
+let todoEditorYear = new Date().getFullYear();
+let todoEditorMonthIndex = new Date().getMonth();
 let todoEditorDay = new Date().getDate();
 
 function fillTodoTimeOptions() {
@@ -1007,8 +1015,9 @@ function fillTodoTimeOptions() {
 function renderTodoCalendar() {
   if (!todoCalendarGrid) return;
   const now = new Date();
-  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const firstWeekday = (new Date(now.getFullYear(), now.getMonth(), 1).getDay() + 6) % 7;
+  const days = new Date(todoEditorYear, todoEditorMonthIndex + 1, 0).getDate();
+  const firstWeekday = (new Date(todoEditorYear, todoEditorMonthIndex, 1).getDay() + 6) % 7;
+  if (todoEditorMonth) todoEditorMonth.textContent = `${todoEditorYear}年 ${todoEditorMonthIndex + 1}月`;
   todoCalendarGrid.replaceChildren();
   for (let index = 0; index < firstWeekday; index += 1) todoCalendarGrid.append(document.createElement('span'));
   for (let day = 1; day <= days; day += 1) {
@@ -1017,7 +1026,9 @@ function renderTodoCalendar() {
     button.textContent = String(day);
     button.dataset.day = String(day);
     button.className = day === todoEditorDay ? 'selected' : '';
-    if (day === now.getDate()) button.classList.add('today');
+    if (todoEditorYear === now.getFullYear() && todoEditorMonthIndex === now.getMonth() && day === now.getDate()) {
+      button.classList.add('today');
+    }
     todoCalendarGrid.append(button);
   }
 }
@@ -1032,14 +1043,16 @@ function closeTodoEditor() {
 }
 
 function selectedTodoDeadline() {
-  return window.NotchDomain.currentMonthDeadline({
+  return window.NotchDomain.calendarDeadline({
+    year: todoEditorYear,
+    month: todoEditorMonthIndex,
     day: todoEditorDay,
     hour: todoEditorHour?.value,
     minute: todoEditorMinute?.value,
   });
 }
 
-function applyTodoEditorSelection() {
+function applyTodoEditorSelection(markManual = true) {
   if (!todoEditorContext) return false;
   const deadline = selectedTodoDeadline();
   if (!deadline || Date.parse(deadline) <= Date.now()) {
@@ -1057,6 +1070,7 @@ function applyTodoEditorSelection() {
     const trigger = document.querySelector(`.todo-deadline-trigger[data-deadline-priority="${priority}"]`);
     if (!trigger) return false;
     trigger.dataset.deadline = deadline;
+    trigger.dataset.deadlineSource = markManual ? 'manual' : (trigger.dataset.deadlineSource || 'default');
     trigger.querySelector('span').textContent = new Intl.DateTimeFormat('zh-CN', {
       day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
     }).format(new Date(deadline));
@@ -1071,14 +1085,16 @@ function openTodoEditor(priority, item = null, anchor = null) {
   const addInput = document.querySelector(`.add-row input[data-priority="${priority}"]`);
   const trigger = document.querySelector(`.todo-deadline-trigger[data-deadline-priority="${priority}"]`);
   const candidate = item && item.deadline ? new Date(item.deadline) : trigger?.dataset.deadline ? new Date(trigger.dataset.deadline) : null;
-  const sameMonth = candidate && candidate.getFullYear() === now.getFullYear() && candidate.getMonth() === now.getMonth();
+  const selectedDate = candidate && Number.isFinite(candidate.getTime())
+    ? candidate
+    : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 30, 0, 0);
   todoEditorContext = { priority, id: item && item.id || '', mode: item ? 'edit' : 'add' };
-  todoEditorDay = sameMonth ? candidate.getDate() : now.getDate();
+  todoEditorYear = selectedDate.getFullYear();
+  todoEditorMonthIndex = selectedDate.getMonth();
+  todoEditorDay = selectedDate.getDate();
   fillTodoTimeOptions();
-  if (todoEditorMonth) todoEditorMonth.textContent = `${now.getFullYear()}年 ${now.getMonth() + 1}月`;
-  const defaultTime = sameMonth ? candidate : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 30, 0, 0);
-  if (todoEditorHour) todoEditorHour.value = String(defaultTime.getHours());
-  if (todoEditorMinute) todoEditorMinute.value = String(Math.floor(defaultTime.getMinutes() / 5) * 5);
+  if (todoEditorHour) todoEditorHour.value = String(selectedDate.getHours());
+  if (todoEditorMinute) todoEditorMinute.value = String(Math.floor(selectedDate.getMinutes() / 5) * 5);
   if (todoEditorError) todoEditorError.textContent = '';
   renderTodoCalendar();
   if (todoEditorBackdrop) {
@@ -1093,7 +1109,7 @@ function openTodoEditor(priority, item = null, anchor = null) {
     todoEditorBackdrop.style.right = '12px';
     todoEditorBackdrop.style.bottom = '58px';
   }
-  applyTodoEditorSelection();
+  applyTodoEditorSelection(false);
 }
 
 todoCalendarGrid?.addEventListener('click', (event) => {
@@ -1101,10 +1117,25 @@ todoCalendarGrid?.addEventListener('click', (event) => {
   if (!button) return;
   todoEditorDay = Number(button.dataset.day);
   renderTodoCalendar();
-  applyTodoEditorSelection();
+  applyTodoEditorSelection(true);
 });
-todoEditorHour?.addEventListener('change', applyTodoEditorSelection);
-todoEditorMinute?.addEventListener('change', applyTodoEditorSelection);
+function moveTodoCalendar(offset) {
+  const shifted = window.NotchDomain.shiftCalendarMonth({
+    year: todoEditorYear,
+    month: todoEditorMonthIndex,
+  }, offset);
+  if (!shifted) return;
+  todoEditorYear = shifted.year;
+  todoEditorMonthIndex = shifted.month;
+  todoEditorDay = Math.min(todoEditorDay, new Date(todoEditorYear, todoEditorMonthIndex + 1, 0).getDate());
+  if (todoEditorError) todoEditorError.textContent = '';
+  renderTodoCalendar();
+}
+
+todoCalendarPrevious?.addEventListener('click', () => moveTodoCalendar(-1));
+todoCalendarNext?.addEventListener('click', () => moveTodoCalendar(1));
+todoEditorHour?.addEventListener('change', () => applyTodoEditorSelection(true));
+todoEditorMinute?.addEventListener('change', () => applyTodoEditorSelection(true));
 
 document.addEventListener('pointerdown', (event) => {
   if (todoEditorBackdrop?.hidden) return;
@@ -1112,26 +1143,23 @@ document.addEventListener('pointerdown', (event) => {
   closeTodoEditor();
 }, true);
 
-function defaultTodoDeadline() {
-  const now = new Date();
-  let day = now.getDate();
-  let value = window.NotchDomain.currentMonthDeadline({ day, hour: 23, minute: 30 });
-  if (value && Date.parse(value) <= Date.now()) {
-    const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    if (day < days) value = window.NotchDomain.currentMonthDeadline({ day: day + 1, hour: 23, minute: 30 });
-  }
-  return value && Date.parse(value) > Date.now() ? value : '';
-}
-
-function applyDefaultTodoDeadline(trigger) {
-  if (!trigger || trigger.dataset.deadline) return;
-  const deadline = defaultTodoDeadline();
+function applyDefaultTodoDeadline(trigger, now = new Date()) {
+  if (!trigger || (trigger.dataset.deadline && trigger.dataset.deadlineSource !== 'default')) return;
+  const deadline = window.NotchDomain.defaultTodoDeadline(now);
   if (!deadline) return;
   trigger.dataset.deadline = deadline;
+  trigger.dataset.deadlineSource = 'default';
   trigger.querySelector('span').textContent = new Intl.DateTimeFormat('zh-CN', {
     day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date(deadline));
   trigger.classList.add('selected');
+}
+
+function refreshDefaultTodoDeadlines(now = new Date()) {
+  document.querySelectorAll('.todo-deadline-trigger[data-deadline-priority]').forEach((trigger) => {
+    if (trigger.dataset.deadlineSource === 'manual') return;
+    applyDefaultTodoDeadline(trigger, now);
+  });
 }
 
 PRIORITIES.forEach((priority) => {
@@ -1155,6 +1183,7 @@ PRIORITIES.forEach((priority) => {
     }
     input.value = '';
     delete deadlineInput.dataset.deadline;
+    delete deadlineInput.dataset.deadlineSource;
     applyDefaultTodoDeadline(deadlineInput);
     deadlineInput.classList.remove('invalid');
     input.focus({ preventScroll: true });
@@ -1249,6 +1278,7 @@ const clockDateEl = document.getElementById('clock-date');
 const clockHEl = document.getElementById('clock-h');
 const clockMEl = document.getElementById('clock-m');
 const clockSsEl = document.getElementById('clock-ss');
+let todoDefaultRefreshKey = '';
 
 function pad2(n) {
   return n < 10 ? '0' + n : String(n);
@@ -1265,6 +1295,11 @@ function tickClock() {
   if (clockDateEl) {
     const dateStr = `${WEEKDAYS[now.getDay()]} · ${now.getMonth() + 1}/${now.getDate()}`;
     if (clockDateEl.textContent !== dateStr) clockDateEl.textContent = dateStr;
+  }
+  const refreshKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours() > 23 || (now.getHours() === 23 && now.getMinutes() >= 30)}`;
+  if (refreshKey !== todoDefaultRefreshKey) {
+    todoDefaultRefreshKey = refreshKey;
+    refreshDefaultTodoDeadlines(now);
   }
 }
 
