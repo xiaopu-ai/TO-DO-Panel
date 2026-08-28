@@ -17,6 +17,8 @@ const {
   createTodo,
   updateTodo,
   currentMonthDeadline,
+  calendarDeadline,
+  shiftCalendarMonth,
   defaultTodoDeadline,
   normalizeTodoCategoryNames,
   normalizeHomeWidgetSizes,
@@ -316,6 +318,31 @@ test('todo editor updates text and deadline while keeping completion state', () 
     { day: 32, hour: 14, minute: 30 },
     new Date(2026, 7, 1, 0, 0, 0, 0),
   ), null);
+});
+
+test('todo calendar month navigation crosses year boundaries in both directions', () => {
+  assert.equal(typeof shiftCalendarMonth, 'function', 'shiftCalendarMonth must exist');
+  assert.deepEqual(shiftCalendarMonth({ year: 2026, month: 11 }, 1), { year: 2027, month: 0 });
+  assert.deepEqual(shiftCalendarMonth({ year: 2027, month: 0 }, -1), { year: 2026, month: 11 });
+});
+
+test('todo deadline uses the calendar month being viewed instead of the current month', () => {
+  assert.equal(typeof calendarDeadline, 'function', 'calendarDeadline must exist');
+  const deadline = new Date(calendarDeadline({
+    year: 2027,
+    month: 0,
+    day: 2,
+    hour: 23,
+    minute: 30,
+  }));
+  assert.deepEqual([
+    deadline.getFullYear(),
+    deadline.getMonth(),
+    deadline.getDate(),
+    deadline.getHours(),
+    deadline.getMinutes(),
+  ], [2027, 0, 2, 23, 30]);
+  assert.equal(calendarDeadline({ year: 2027, month: 1, day: 29, hour: 23, minute: 30 }), null);
 });
 
 test('default todo deadline follows the current local day across midnight and month boundaries', () => {

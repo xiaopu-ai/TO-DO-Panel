@@ -483,15 +483,36 @@
     };
   }
 
-  function currentMonthDeadline(parts, now = new Date()) {
-    const base = now instanceof Date ? now : new Date(now);
-    if (!Number.isFinite(base.getTime())) return null;
+  function calendarDeadline(parts) {
+    const year = Math.round(Number(parts && parts.year));
+    const month = Math.round(Number(parts && parts.month));
     const day = Math.round(Number(parts && parts.day));
     const hour = Math.round(Number(parts && parts.hour));
     const minute = Math.round(Number(parts && parts.minute));
-    const daysInMonth = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
-    if (day < 1 || day > daysInMonth || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-    return new Date(base.getFullYear(), base.getMonth(), day, hour, minute, 0, 0).toISOString();
+    if (!Number.isInteger(year) || year < 1 || year > 9999 || month < 0 || month > 11
+      || day < 1 || day > 31 || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    const deadline = new Date(year, month, day, hour, minute, 0, 0);
+    if (deadline.getFullYear() !== year || deadline.getMonth() !== month || deadline.getDate() !== day) return null;
+    return deadline.toISOString();
+  }
+
+  function shiftCalendarMonth(value, offset) {
+    const year = Math.round(Number(value && value.year));
+    const month = Math.round(Number(value && value.month));
+    const step = Math.round(Number(offset));
+    if (!Number.isInteger(year) || !Number.isInteger(month) || month < 0 || month > 11 || !Number.isInteger(step)) return null;
+    const shifted = new Date(year, month + step, 1, 12, 0, 0, 0);
+    return { year: shifted.getFullYear(), month: shifted.getMonth() };
+  }
+
+  function currentMonthDeadline(parts, now = new Date()) {
+    const base = now instanceof Date ? now : new Date(now);
+    if (!Number.isFinite(base.getTime())) return null;
+    return calendarDeadline({
+      ...parts,
+      year: base.getFullYear(),
+      month: base.getMonth(),
+    });
   }
 
   function defaultTodoDeadline(now = new Date()) {
@@ -747,6 +768,8 @@
     apiCredentialStatuses,
     settingsSummary,
     currentMonthDeadline,
+    calendarDeadline,
+    shiftCalendarMonth,
     defaultTodoDeadline,
     todoTimeBattery,
     updateRangeSelection,

@@ -471,7 +471,11 @@
         </div>
         <div class="todo-date-popover" id="todo-date-popover" hidden>
           <section class="todo-editor-card" role="group" aria-label="截止日期与时间">
-            <header><span id="todo-editor-month"></span></header>
+            <header class="todo-calendar-head">
+              <button id="todo-calendar-previous" type="button" aria-label="上个月">‹</button>
+              <span id="todo-editor-month"></span>
+              <button id="todo-calendar-next" type="button" aria-label="下个月">›</button>
+            </header>
             <div class="todo-calendar-week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
             <div class="todo-calendar-grid" id="todo-calendar-grid"></div>
             <div class="todo-time-row"><span>截止时间</span><select id="todo-editor-hour" aria-label="小时"></select><b>:</b><select id="todo-editor-minute" aria-label="分钟"></select></div>

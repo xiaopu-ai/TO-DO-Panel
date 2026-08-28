@@ -84,6 +84,53 @@ async function main() {
       workspace: true,
       autoLaunch: true,
     });
+
+    const todoCalendarNavigation = await window.webContents.executeJavaScript(`
+      new Promise((resolve) => {
+        document.getElementById('tab-button-todo').click();
+        const trigger = document.querySelector('.todo-deadline-trigger[data-deadline-priority="P0"]');
+        trigger.click();
+        const previous = document.getElementById('todo-calendar-previous');
+        const next = document.getElementById('todo-calendar-next');
+        if (!previous || !next) {
+          resolve({ controls: false });
+          return;
+        }
+        const base = new Date();
+        const popover = document.getElementById('todo-date-popover');
+        const previousRect = previous.getBoundingClientRect();
+        const nextRect = next.getBoundingClientRect();
+        const clicksToJanuary = 12 - base.getMonth();
+        for (let index = 0; index < clicksToJanuary; index += 1) next.click();
+        const expectedYear = base.getFullYear() + 1;
+        const januaryLabel = document.getElementById('todo-editor-month').textContent.trim();
+        const day = [...document.querySelectorAll('#todo-calendar-grid [data-day]')]
+          .find((button) => button.dataset.day === '2');
+        day.click();
+        const selected = new Date(trigger.dataset.deadline);
+        previous.click();
+        resolve({
+          controls: true,
+          popoverVisible: !popover.hidden && getComputedStyle(popover).display !== 'none',
+          controlsUsable: [previousRect.width, previousRect.height, nextRect.width, nextRect.height]
+            .every((size) => size >= 18),
+          januaryLabel,
+          decemberLabel: document.getElementById('todo-editor-month').textContent.trim(),
+          selected: [selected.getFullYear(), selected.getMonth(), selected.getDate()],
+          expectedYear,
+        });
+      })
+    `);
+
+    assert.deepEqual(todoCalendarNavigation, {
+      controls: true,
+      popoverVisible: true,
+      controlsUsable: true,
+      januaryLabel: `${new Date().getFullYear() + 1}年 1月`,
+      decemberLabel: `${new Date().getFullYear()}年 12月`,
+      selected: [new Date().getFullYear() + 1, 0, 2],
+      expectedYear: new Date().getFullYear() + 1,
+    });
   } finally {
     window.destroy();
   }

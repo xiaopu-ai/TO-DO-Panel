@@ -992,11 +992,15 @@ applyTodoCategoryNames();
 
 const todoEditorBackdrop = document.getElementById('todo-date-popover');
 const todoEditorMonth = document.getElementById('todo-editor-month');
+const todoCalendarPrevious = document.getElementById('todo-calendar-previous');
+const todoCalendarNext = document.getElementById('todo-calendar-next');
 const todoCalendarGrid = document.getElementById('todo-calendar-grid');
 const todoEditorHour = document.getElementById('todo-editor-hour');
 const todoEditorMinute = document.getElementById('todo-editor-minute');
 const todoEditorError = document.getElementById('todo-editor-error');
 let todoEditorContext = null;
+let todoEditorYear = new Date().getFullYear();
+let todoEditorMonthIndex = new Date().getMonth();
 let todoEditorDay = new Date().getDate();
 
 function fillTodoTimeOptions() {
@@ -1011,8 +1015,9 @@ function fillTodoTimeOptions() {
 function renderTodoCalendar() {
   if (!todoCalendarGrid) return;
   const now = new Date();
-  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const firstWeekday = (new Date(now.getFullYear(), now.getMonth(), 1).getDay() + 6) % 7;
+  const days = new Date(todoEditorYear, todoEditorMonthIndex + 1, 0).getDate();
+  const firstWeekday = (new Date(todoEditorYear, todoEditorMonthIndex, 1).getDay() + 6) % 7;
+  if (todoEditorMonth) todoEditorMonth.textContent = `${todoEditorYear}年 ${todoEditorMonthIndex + 1}月`;
   todoCalendarGrid.replaceChildren();
   for (let index = 0; index < firstWeekday; index += 1) todoCalendarGrid.append(document.createElement('span'));
   for (let day = 1; day <= days; day += 1) {
@@ -1021,7 +1026,9 @@ function renderTodoCalendar() {
     button.textContent = String(day);
     button.dataset.day = String(day);
     button.className = day === todoEditorDay ? 'selected' : '';
-    if (day === now.getDate()) button.classList.add('today');
+    if (todoEditorYear === now.getFullYear() && todoEditorMonthIndex === now.getMonth() && day === now.getDate()) {
+      button.classList.add('today');
+    }
     todoCalendarGrid.append(button);
   }
 }
@@ -1036,7 +1043,9 @@ function closeTodoEditor() {
 }
 
 function selectedTodoDeadline() {
-  return window.NotchDomain.currentMonthDeadline({
+  return window.NotchDomain.calendarDeadline({
+    year: todoEditorYear,
+    month: todoEditorMonthIndex,
     day: todoEditorDay,
     hour: todoEditorHour?.value,
     minute: todoEditorMinute?.value,
@@ -1076,14 +1085,16 @@ function openTodoEditor(priority, item = null, anchor = null) {
   const addInput = document.querySelector(`.add-row input[data-priority="${priority}"]`);
   const trigger = document.querySelector(`.todo-deadline-trigger[data-deadline-priority="${priority}"]`);
   const candidate = item && item.deadline ? new Date(item.deadline) : trigger?.dataset.deadline ? new Date(trigger.dataset.deadline) : null;
-  const sameMonth = candidate && candidate.getFullYear() === now.getFullYear() && candidate.getMonth() === now.getMonth();
+  const selectedDate = candidate && Number.isFinite(candidate.getTime())
+    ? candidate
+    : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 30, 0, 0);
   todoEditorContext = { priority, id: item && item.id || '', mode: item ? 'edit' : 'add' };
-  todoEditorDay = sameMonth ? candidate.getDate() : now.getDate();
+  todoEditorYear = selectedDate.getFullYear();
+  todoEditorMonthIndex = selectedDate.getMonth();
+  todoEditorDay = selectedDate.getDate();
   fillTodoTimeOptions();
-  if (todoEditorMonth) todoEditorMonth.textContent = `${now.getFullYear()}年 ${now.getMonth() + 1}月`;
-  const defaultTime = sameMonth ? candidate : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 30, 0, 0);
-  if (todoEditorHour) todoEditorHour.value = String(defaultTime.getHours());
-  if (todoEditorMinute) todoEditorMinute.value = String(Math.floor(defaultTime.getMinutes() / 5) * 5);
+  if (todoEditorHour) todoEditorHour.value = String(selectedDate.getHours());
+  if (todoEditorMinute) todoEditorMinute.value = String(Math.floor(selectedDate.getMinutes() / 5) * 5);
   if (todoEditorError) todoEditorError.textContent = '';
   renderTodoCalendar();
   if (todoEditorBackdrop) {
@@ -1108,6 +1119,21 @@ todoCalendarGrid?.addEventListener('click', (event) => {
   renderTodoCalendar();
   applyTodoEditorSelection(true);
 });
+function moveTodoCalendar(offset) {
+  const shifted = window.NotchDomain.shiftCalendarMonth({
+    year: todoEditorYear,
+    month: todoEditorMonthIndex,
+  }, offset);
+  if (!shifted) return;
+  todoEditorYear = shifted.year;
+  todoEditorMonthIndex = shifted.month;
+  todoEditorDay = Math.min(todoEditorDay, new Date(todoEditorYear, todoEditorMonthIndex + 1, 0).getDate());
+  if (todoEditorError) todoEditorError.textContent = '';
+  renderTodoCalendar();
+}
+
+todoCalendarPrevious?.addEventListener('click', () => moveTodoCalendar(-1));
+todoCalendarNext?.addEventListener('click', () => moveTodoCalendar(1));
 todoEditorHour?.addEventListener('change', () => applyTodoEditorSelection(true));
 todoEditorMinute?.addEventListener('change', () => applyTodoEditorSelection(true));
 

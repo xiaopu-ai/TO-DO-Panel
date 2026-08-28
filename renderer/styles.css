@@ -3697,6 +3697,20 @@ body {
   background: #151519;
 }
 .todo-date-popover .todo-editor-card header { margin-bottom: 10px; }
+.todo-date-popover .todo-calendar-head { display: grid; grid-template-columns: 24px 1fr 24px; align-items: center; gap: 4px; }
+.todo-date-popover .todo-calendar-head span { text-align: center; }
+.todo-date-popover .todo-calendar-head button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255,255,255,.055);
+  color: var(--text-2);
+  font: 16px/1 var(--font);
+  cursor: pointer;
+}
+.todo-date-popover .todo-calendar-head button:hover { background: rgba(255,255,255,.1); color: var(--text-1); }
 .todo-date-popover .todo-calendar-week,
 .todo-date-popover .todo-calendar-grid { gap: 2px; }
 .todo-date-popover .todo-calendar-grid { min-height: 148px; }
@@ -4805,6 +4819,8 @@ body {
 }
 .quadrant > .todo-date-popover .todo-editor-card::after { display: none; }
 .quadrant > .todo-date-popover .todo-editor-card header { min-height: 15px; margin-bottom: 3px; }
+.quadrant > .todo-date-popover .todo-calendar-head { grid-template-columns: 20px 1fr 20px; gap: 2px; }
+.quadrant > .todo-date-popover .todo-calendar-head button { width: 20px; height: 20px; border-radius: 6px; font-size: 13px; }
 .quadrant > .todo-date-popover .todo-calendar-week { margin-bottom: 1px; font-size: 7px; }
 .quadrant > .todo-date-popover .todo-calendar-grid { min-height: 104px; gap: 1px; }
 .quadrant > .todo-date-popover .todo-calendar-grid button { height: 17px; border-radius: 6px; font-size: 8px; }
