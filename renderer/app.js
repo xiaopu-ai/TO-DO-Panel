@@ -2398,6 +2398,8 @@ if (notePreview) {
 // ============ 首页 · 自适应 Bento 布局（长按换位 + 迷你/小/中/大组件） ============
 const HOME_ORDER_KEY = 'notch-home-order-v3';
 const HOME_SIZES_KEY = 'notch-home-widget-sizes-v2';
+const HOME_HIDDEN_MODULES_KEY = 'notch-home-hidden-modules-v1';
+const HOME_MODULE_REGISTRY = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands'];
 const HOME_ORDER_DEFAULTS = ['music', 'pomodoro', 'windows', 'recorder', 'mirror', 'note', 'commands'];
 const HOME_SIZE_DEFAULTS = {
   music: 'medium',
@@ -2458,8 +2460,28 @@ function loadHomeSizes() {
   }
 }
 
+function loadHiddenHomeModules() {
+  try {
+    const rawText = localStorage.getItem(HOME_HIDDEN_MODULES_KEY);
+    if (rawText === null) return { hiddenIds: [], needsRepair: false };
+    const parsed = JSON.parse(rawText);
+    const hiddenIds = window.NotchDomain.normalizeHiddenHomeModules(parsed, HOME_MODULE_REGISTRY);
+    return {
+      hiddenIds,
+      needsRepair: JSON.stringify(parsed) !== JSON.stringify(hiddenIds),
+    };
+  } catch (error) {
+    return { hiddenIds: [], needsRepair: true };
+  }
+}
+
 let homeOrder = loadHomeOrder();
 let homeSizes = loadHomeSizes();
+const loadedHomeVisibility = loadHiddenHomeModules();
+let hiddenHomeModules = loadedHomeVisibility.hiddenIds;
+let homeVisibilityPersisted = true;
+let homeLayoutReadOnly = false;
+let homeVisibilityAnimation = null;
 
 function saveHomeLayout() {
   try {
@@ -2470,25 +2492,72 @@ function saveHomeLayout() {
   }
 }
 
-function applyHomeLayout(animate = false) {
-  if (!homeBento) return;
-  const firstRects = animate
-    ? new Map(homeTiles.map((tile) => [tile, tile.getBoundingClientRect()]))
-    : null;
+function saveHiddenHomeModules() {
+  try {
+    localStorage.setItem(HOME_HIDDEN_MODULES_KEY, JSON.stringify(hiddenHomeModules));
+    homeVisibilityPersisted = true;
+    return true;
+  } catch (error) {
+    homeVisibilityPersisted = false;
+    return false;
+  }
+}
 
-  const packedLayout = window.NotchDomain.packHomeWidgetLayout(homeOrder, homeSizes, 12, 4);
+if (loadedHomeVisibility.needsRepair) saveHiddenHomeModules();
+
+function resolveValidatedHomeLayout(hiddenIds, order = homeOrder, sizes = homeSizes) {
+  const visibleIds = HOME_MODULE_REGISTRY.filter((id) => !hiddenIds.includes(id));
+  const layout = window.NotchDomain.resolveHomeWidgetLayout(order, sizes, hiddenIds, 12, 4);
+  return window.NotchDomain.validateHomeWidgetLayout(layout, visibleIds, 12, 4)
+    ? layout
+    : null;
+}
+
+function animateCommittedHomeLayout(reason) {
+  homeVisibilityAnimation?.cancel();
+  homeVisibilityAnimation = null;
+  if (!homeBento || reason === 'initial' || reason === 'rollback'
+    || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  homeVisibilityAnimation = homeBento.animate(
+    [{ opacity: reason === 'visibility' ? 0.72 : 0.84 }, { opacity: 1 }],
+    { duration: reason === 'visibility' ? 140 : 180, easing: 'ease-out' }
+  );
+  const currentAnimation = homeVisibilityAnimation;
+  currentAnimation.finished
+    .catch(() => {})
+    .finally(() => {
+      if (homeVisibilityAnimation === currentAnimation) homeVisibilityAnimation = null;
+    });
+}
+
+function applyHomeLayout(layout, { reason = 'initial' } = {}) {
+  if (!homeBento || !layout) throw new Error('A validated homepage layout is required.');
+  const automaticLayout = !homeLayoutReadOnly && hiddenHomeModules.length > 0;
+  homeBento.dataset.layoutMode = homeLayoutReadOnly ? 'safe' : automaticLayout ? 'automatic' : 'preferred';
   homeTiles.forEach((tile) => {
     const moduleId = tile.dataset.homeModule;
     const orderIndex = Math.max(0, homeOrder.indexOf(moduleId));
     const size = homeSizes[moduleId] || HOME_SIZE_DEFAULTS[moduleId];
+    const placement = layout.placements[moduleId];
     tile.style.order = String(orderIndex);
     tile.dataset.widgetSize = size;
     tile.style.setProperty('--bento-index', String(orderIndex));
-    const placement = packedLayout && packedLayout[moduleId];
+    tile.hidden = !placement;
+    tile.setAttribute('aria-hidden', String(!placement));
     if (placement) {
+      tile.dataset.layoutVariant = layout.variants[moduleId];
+      tile.dataset.layoutColumn = String(placement.column);
+      tile.dataset.layoutRow = String(placement.row);
+      tile.dataset.layoutWidth = String(placement.width);
+      tile.dataset.layoutHeight = String(placement.height);
       tile.style.gridColumn = `${placement.column + 1} / span ${placement.width}`;
       tile.style.gridRow = `${placement.row + 1} / span ${placement.height}`;
     } else {
+      delete tile.dataset.layoutVariant;
+      delete tile.dataset.layoutColumn;
+      delete tile.dataset.layoutRow;
+      delete tile.dataset.layoutWidth;
+      delete tile.dataset.layoutHeight;
       tile.style.removeProperty('grid-column');
       tile.style.removeProperty('grid-row');
     }
@@ -2497,28 +2566,12 @@ function applyHomeLayout(animate = false) {
       sizeButton.dataset.currentSize = size;
       sizeButton.setAttribute('aria-label', `${HOME_SIZE_LABELS[size]}组件，点击切换尺寸`);
       sizeButton.title = `组件尺寸：${HOME_SIZE_LABELS[size]}`;
+      sizeButton.hidden = automaticLayout || homeLayoutReadOnly;
+      sizeButton.disabled = automaticLayout || homeLayoutReadOnly;
+      sizeButton.tabIndex = automaticLayout || homeLayoutReadOnly ? -1 : 0;
     }
   });
-
-  if (!animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  homeBento.getBoundingClientRect();
-  homeTiles.forEach((tile) => {
-    const first = firstRects.get(tile);
-    const last = tile.getBoundingClientRect();
-    if (!first || (!first.width && !first.height)) return;
-    const dx = first.left - last.left;
-    const dy = first.top - last.top;
-    const scaleX = first.width / Math.max(1, last.width);
-    const scaleY = first.height / Math.max(1, last.height);
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(scaleX - 1) < 0.01 && Math.abs(scaleY - 1) < 0.01) return;
-    tile.animate(
-      [
-        { transform: `translate(${dx}px, ${dy}px) scale(${scaleX}, ${scaleY})` },
-        { transform: 'translate(0, 0) scale(1, 1)' },
-      ],
-      { duration: 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
-    );
-  });
+  animateCommittedHomeLayout(reason);
 }
 
 function replayHomeMasonryReveal() {
@@ -2539,7 +2592,87 @@ homeTiles.forEach((tile) => {
   tile.appendChild(sizeButton);
 });
 
-applyHomeLayout(false);
+const homeModuleIds = new Set(homeTiles.map((tile) => tile.dataset.homeModule));
+if (homeTiles.length !== HOME_MODULE_REGISTRY.length
+  || homeModuleIds.size !== HOME_MODULE_REGISTRY.length
+  || !HOME_MODULE_REGISTRY.every((id) => homeModuleIds.has(id))) {
+  throw new Error('Homepage module registry does not match the rendered tiles.');
+}
+
+let initialHomeLayout = resolveValidatedHomeLayout(hiddenHomeModules);
+if (!initialHomeLayout) {
+  initialHomeLayout = resolveValidatedHomeLayout([], HOME_ORDER_DEFAULTS, HOME_SIZE_DEFAULTS);
+  homeLayoutReadOnly = true;
+  console.error('Homepage layout validation failed; using read-only defaults.');
+}
+if (!initialHomeLayout) throw new Error('Default homepage layout validation failed.');
+applyHomeLayout(initialHomeLayout, { reason: 'initial' });
+
+function visibilitySnapshot() {
+  const effectiveHiddenIds = homeLayoutReadOnly ? [] : hiddenHomeModules;
+  return {
+    hiddenIds: [...effectiveHiddenIds],
+    visibleIds: HOME_MODULE_REGISTRY.filter((id) => !effectiveHiddenIds.includes(id)),
+    storedHiddenIds: [...hiddenHomeModules],
+    automaticLayout: !homeLayoutReadOnly && hiddenHomeModules.length > 0,
+    readOnly: homeLayoutReadOnly,
+    persisted: homeVisibilityPersisted,
+  };
+}
+
+function setHomeModuleVisible(moduleId, visible) {
+  const current = [...hiddenHomeModules];
+  if (homeLayoutReadOnly) {
+    return { ok: false, changed: false, error: 'layout_read_only', hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
+  const next = window.NotchDomain.updateHomeModuleVisibility(
+    current,
+    HOME_MODULE_REGISTRY,
+    moduleId,
+    visible
+  );
+  if (!next.ok) return { ...next, changed: false, persisted: homeVisibilityPersisted };
+  const changed = JSON.stringify(next.hiddenIds) !== JSON.stringify(current);
+  if (!changed) {
+    return { ok: true, changed: false, hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
+  if (moduleId === 'recorder' && visible === false
+    && window.NotchWorkspace?.isRecordingActive?.()) {
+    return { ok: false, changed: false, error: 'recording_active', hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
+  const layout = resolveValidatedHomeLayout(next.hiddenIds);
+  const currentLayout = resolveValidatedHomeLayout(current);
+  if (!layout || !currentLayout) {
+    return { ok: false, changed: false, error: 'layout_invalid', hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
+  if (moduleId === 'mirror' && visible === false) stopMirror();
+  try {
+    const activeElement = document.activeElement;
+    const changingTile = homeTiles.find((tile) => tile.dataset.homeModule === moduleId);
+    if (visible === false && changingTile?.contains(activeElement)) activeElement.blur();
+    hiddenHomeModules = next.hiddenIds;
+    applyHomeLayout(layout, { reason: 'visibility' });
+  } catch (error) {
+    hiddenHomeModules = current;
+    try { applyHomeLayout(currentLayout, { reason: 'rollback' }); } catch (rollbackError) {}
+    return { ok: false, changed: false, error: 'dom_apply_failed', hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
+  const persisted = saveHiddenHomeModules();
+  const detail = visibilitySnapshot();
+  document.dispatchEvent(new CustomEvent('notch:home-modules-changed', { detail }));
+  return { ok: true, changed: true, hiddenIds: [...hiddenHomeModules], persisted };
+}
+
+window.NotchHome = Object.freeze({
+  getVisibility: visibilitySnapshot,
+  isVisible: (moduleId) => visibilitySnapshot().visibleIds.includes(String(moduleId || '')),
+  setModuleVisible: setHomeModuleVisible,
+});
+
+document.dispatchEvent(new CustomEvent('notch:home-modules-changed', {
+  detail: visibilitySnapshot(),
+}));
+if (homeLayoutReadOnly) document.dispatchEvent(new CustomEvent('notch:home-layout-error'));
 
 if (homeBento) {
   let pendingLongPress = null;
@@ -2547,7 +2680,7 @@ if (homeBento) {
   let suppressHomeClickUntil = 0;
 
   const clearDropTarget = () => {
-    homeTiles.forEach((tile) => tile.classList.remove('layout-drop-target'));
+    homeTiles.filter((tile) => !tile.hidden).forEach((tile) => tile.classList.remove('layout-drop-target'));
   };
 
   const finishHomeDrag = (event, cancelled = false) => {
@@ -2567,9 +2700,15 @@ if (homeBento) {
       const sourceIndex = homeOrder.indexOf(sourceId);
       const targetIndex = homeOrder.indexOf(targetId);
       [homeOrder[sourceIndex], homeOrder[targetIndex]] = [homeOrder[targetIndex], homeOrder[sourceIndex]];
-      applyHomeLayout(true);
-      saveHomeLayout();
-      showStatusToast('首页布局已更新');
+      const layout = resolveValidatedHomeLayout(hiddenHomeModules);
+      if (layout) {
+        applyHomeLayout(layout, { reason: 'reorder' });
+        saveHomeLayout();
+        showStatusToast('首页布局已更新');
+      } else {
+        [homeOrder[sourceIndex], homeOrder[targetIndex]] = [homeOrder[targetIndex], homeOrder[sourceIndex]];
+        showStatusToast('布局未更新，请重试');
+      }
     }
     dragState = null;
     suppressHomeClickUntil = Date.now() + 260;
@@ -2578,7 +2717,7 @@ if (homeBento) {
   homeBento.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 || event.isPrimary === false) return;
     const tile = event.target.closest('[data-home-module]');
-    if (!tile || event.target.closest('button, input, textarea, select, a, audio, [contenteditable]')) return;
+    if (!tile || tile.hidden || event.target.closest('button, input, textarea, select, a, audio, [contenteditable]')) return;
     const startX = event.clientX;
     const startY = event.clientY;
     pendingLongPress = {
@@ -2609,6 +2748,7 @@ if (homeBento) {
     if (!sizeButton) return;
     event.preventDefault();
     event.stopPropagation();
+    if (hiddenHomeModules.length > 0 || homeLayoutReadOnly) return;
     const moduleId = sizeButton.dataset.widgetSizeCycle;
     const sequence = ['mini', 'small', 'medium', 'large'];
     const current = homeSizes[moduleId] || HOME_SIZE_DEFAULTS[moduleId];
@@ -2617,9 +2757,12 @@ if (homeBento) {
       ...homeSizes,
       [moduleId]: requested,
     }, HOME_SIZE_DEFAULTS, moduleId, 48);
-    applyHomeLayout(true);
-    saveHomeLayout();
-    showStatusToast(`${HOME_SIZE_LABELS[homeSizes[moduleId]]}组件 · 其他模块已自适应`);
+    const layout = resolveValidatedHomeLayout(hiddenHomeModules);
+    if (layout) {
+      applyHomeLayout(layout, { reason: 'size' });
+      saveHomeLayout();
+      showStatusToast(`${HOME_SIZE_LABELS[homeSizes[moduleId]]}组件 · 其他模块已自适应`);
+    }
   });
 
   homeBento.addEventListener('pointermove', (event) => {
@@ -2643,7 +2786,7 @@ if (homeBento) {
     const hovered = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-home-module]');
     tile.classList.remove('hit-test-off');
     clearDropTarget();
-    dragState.target = hovered && hovered !== tile && homeBento.contains(hovered) ? hovered : null;
+    dragState.target = hovered && !hovered.hidden && hovered !== tile && homeBento.contains(hovered) ? hovered : null;
     dragState.target?.classList.add('layout-drop-target');
   });
 

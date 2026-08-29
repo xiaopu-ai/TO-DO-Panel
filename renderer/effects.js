@@ -309,6 +309,7 @@
     let start = performance.now();
     let lastDraw = 0;
     let disposed = false;
+    let effectEnabled = true;
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const width = Math.max(1, Math.round(canvas.clientWidth * dpr));
@@ -328,7 +329,7 @@
       canvas.offsetParent
     );
     const draw = (now, force = false) => {
-      if (disposed) return;
+      if (disposed || !effectEnabled) return;
       const active = force || isActive();
       if (active && (force || now - lastDraw >= 15)) {
         const size = resize();
@@ -337,13 +338,15 @@
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         lastDraw = now;
       }
-      if (!reducedMotion.matches) raf = requestAnimationFrame(draw);
+      raf = !reducedMotion.matches && effectEnabled ? requestAnimationFrame(draw) : 0;
+      canvas.dataset.effectRunning = String(Boolean(raf));
     };
     const restart = () => {
       cancelAnimationFrame(raf);
+      raf = 0;
+      canvas.dataset.effectRunning = 'false';
       start = performance.now();
-      draw(start, true);
-      if (!reducedMotion.matches) raf = requestAnimationFrame(draw);
+      if (effectEnabled) draw(start, true);
     };
 
     const onPointerMove = (event) => {
@@ -359,16 +362,27 @@
     container.addEventListener('pointerleave', onPointerLeave);
     reducedMotion.addEventListener('change', restart);
     const resizeObserver = new ResizeObserver(() => {
-      requestAnimationFrame(() => draw(performance.now(), true));
+      if (effectEnabled) restart();
     });
     resizeObserver.observe(canvas);
     restart();
 
     return {
-      redraw: () => draw(performance.now(), true),
+      redraw: () => { if (effectEnabled) restart(); },
+      setEnabled(enabled) {
+        const next = enabled === true;
+        if (next === effectEnabled) return;
+        effectEnabled = next;
+        cancelAnimationFrame(raf);
+        raf = 0;
+        canvas.dataset.effectRunning = 'false';
+        if (effectEnabled) restart();
+      },
       destroy() {
         disposed = true;
         cancelAnimationFrame(raf);
+        raf = 0;
+        canvas.dataset.effectRunning = 'false';
         container.removeEventListener('pointermove', onPointerMove);
         container.removeEventListener('pointerleave', onPointerLeave);
         reducedMotion.removeEventListener('change', restart);
@@ -409,6 +423,11 @@
     }
   );
   if (musicEffect) effectInstances.push(musicEffect);
+  const syncHomeEffectVisibility = (event) => {
+    const visibleIds = event.detail?.visibleIds;
+    if (Array.isArray(visibleIds)) musicEffect?.setEnabled(visibleIds.includes('music'));
+  };
+  document.addEventListener('notch:home-modules-changed', syncHomeEffectVisibility);
 
   const LINE_LISTS = [
     ['#tab-todo .todo-list', '.todo-item'],
@@ -502,6 +521,7 @@
     refreshLists: decorateLineLists,
   };
   window.addEventListener('pagehide', () => {
+    document.removeEventListener('notch:home-modules-changed', syncHomeEffectVisibility);
     listObserver.disconnect();
     cancelAnimationFrame(lineAnimation);
     effectInstances.forEach((effect) => effect.destroy());

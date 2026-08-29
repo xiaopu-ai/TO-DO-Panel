@@ -726,6 +726,7 @@
   const settingsTranscriptionStatus = document.getElementById('settings-transcription-status');
   const settingsLlmStatus = document.getElementById('settings-llm-status');
   const settingsFeatureList = document.getElementById('settings-feature-list');
+  const settingsHomeModuleList = document.getElementById('settings-home-module-list');
   const settingsMirrorPreview = document.getElementById('settings-mirror-preview');
   const settingsMirrorChoose = document.getElementById('settings-mirror-choose');
   const settingsShortcutValue = document.getElementById('settings-shortcut-value');
@@ -784,6 +785,10 @@
   let strandsFrame = null;
   let strandsSamples = null;
   let strandsLevel = 0;
+
+  function isRecordingActive() {
+    return ['recording', 'paused', 'saving'].includes(recordingStatus);
+  }
 
   function stopRecordingStrands() {
     if (strandsFrame) cancelAnimationFrame(strandsFrame);
@@ -945,6 +950,30 @@
     settingsFeatureList?.querySelectorAll('input[data-settings-feature]').forEach((input) => {
       input.checked = settingsAppSettings?.features?.[input.dataset.settingsFeature] !== false;
     });
+    renderHomeModuleSettings();
+  }
+
+  function renderHomeModuleSettings() {
+    const state = window.NotchHome?.getVisibility?.();
+    const hidden = new Set(state?.hiddenIds || []);
+    const recordingActive = window.NotchWorkspace?.isRecordingActive?.() ?? isRecordingActive();
+    settingsHomeModuleList?.querySelectorAll('input[data-settings-home-module]').forEach((input) => {
+      const moduleId = input.dataset.settingsHomeModule;
+      input.checked = !hidden.has(moduleId);
+      input.disabled = state?.readOnly === true
+        || (moduleId === 'recorder' && recordingActive && input.checked);
+    });
+    const recorderNote = settingsHomeModuleList?.querySelector('[data-home-module-setting-note="recorder"]');
+    if (recorderNote) recorderNote.textContent = recordingActive ? '录音进行中' : '录音与转写';
+    const status = document.getElementById('settings-home-module-status');
+    if (status) {
+      status.textContent = state?.readOnly
+        ? '安全模式 · 暂不可修改'
+        : state?.persisted === false
+          ? '仅当前会话 · 未能保存'
+          : '隐藏后自动填充 · 至少保留一个';
+      status.dataset.state = state?.readOnly || state?.persisted === false ? 'warning' : 'saved';
+    }
   }
 
   async function refreshSettingsPanel() {
@@ -1272,7 +1301,7 @@
   }
 
   function updateRecordingUi() {
-    const active = ['recording', 'paused', 'saving'].includes(recordingStatus);
+    const recordingActive = isRecordingActive();
     if (homeRecorder) homeRecorder.dataset.state = recordingStatus;
     if (recordingDot) recordingDot.dataset.state = recordingStatus;
     if (recordingStateLabel) {
@@ -1284,8 +1313,8 @@
             ? '正在保存'
             : '快速录音';
     }
-    if (recordingTime) recordingTime.textContent = formatClock(active ? currentDuration() : 0);
-    if (recordStart) recordStart.disabled = active;
+    if (recordingTime) recordingTime.textContent = formatClock(recordingActive ? currentDuration() : 0);
+    if (recordStart) recordStart.disabled = recordingActive;
     if (recordPause) {
       recordPause.disabled = !['recording', 'paused'].includes(recordingStatus);
       recordPause.setAttribute('aria-label', recordingStatus === 'paused' ? '继续录音' : '暂停录音');
@@ -1293,11 +1322,11 @@
     }
     if (recordStop) recordStop.disabled = !['recording', 'paused'].includes(recordingStatus);
     if (recordingNew) {
-      recordingNew.disabled = active;
-      recordingNew.textContent = active ? '录制' : '录音';
-      recordingNew.setAttribute('aria-label', active ? '录音进行中' : '开始录音');
+      recordingNew.disabled = recordingActive;
+      recordingNew.textContent = recordingActive ? '录制' : '录音';
+      recordingNew.setAttribute('aria-label', recordingActive ? '录音进行中' : '开始录音');
     }
-    if (liveTranscript && active) {
+    if (liveTranscript && recordingActive) {
       const text = currentRecordingText();
       // asrNeedsReentry = 密文还在但当前应用解不开它。safeStorage 的密钥存在钥匙串里、
       // ACL 绑代码签名，所以开发版存的 Key 装成 DMG 后就读不出来（ad-hoc 签名每次打包
@@ -1308,6 +1337,10 @@
       liveTranscript.hidden = !(text || fallback);
     }
     syncRecordingDraftUi();
+    renderHomeModuleSettings();
+    document.dispatchEvent(new CustomEvent('notch:recording-state-changed', {
+      detail: { active: recordingActive },
+    }));
   }
 
   function stopSpeechRecognition() {
@@ -1621,6 +1654,36 @@
     settingsAppSettings = result.settings || settingsAppSettings;
     renderSettingsPanel();
     setSettingsNote('显示功能已更新。');
+  });
+  settingsHomeModuleList?.addEventListener('change', async (event) => {
+    const input = event.target.closest('input[data-settings-home-module]');
+    if (!input || !window.NotchHome?.setModuleVisible) return;
+    input.disabled = true;
+    const result = await window.NotchHome.setModuleVisible(
+      input.dataset.settingsHomeModule,
+      input.checked
+    );
+    renderHomeModuleSettings();
+    if (!result?.ok) {
+      const message = result?.error === 'at_least_one_required'
+        ? '首页至少保留一个组件'
+        : result?.error === 'recording_active'
+          ? '录音进行中，暂时不能隐藏快速录音'
+          : result?.error === 'layout_read_only'
+            ? '首页布局已进入安全模式，本次会话不能修改组件'
+            : result?.error === 'layout_invalid'
+              ? '新布局校验失败，原布局已保留'
+              : result?.error === 'dom_apply_failed'
+                ? '布局应用失败，原布局已恢复'
+                : '首页组件设置未更新';
+      if (typeof showStatusToast === 'function') showStatusToast(message);
+      return;
+    }
+    if (result.changed === false) return;
+    const message = result.persisted === false
+      ? '布局已更新，仅当前会话生效，设置未能保存'
+      : input.checked ? '首页组件已恢复' : '首页组件已隐藏';
+    if (typeof showStatusToast === 'function') showStatusToast(message);
   });
   settingsMirrorChoose?.addEventListener('click', async () => {
     if (!window.notchAPI?.chooseMirrorImage) return;
@@ -1952,6 +2015,7 @@
   let windowsLoading = false;
   let workspaceTab = document.querySelector('.tab.active')?.dataset.tab || 'home';
   let workspaceExpanded = document.getElementById('app')?.classList.contains('expanded') || false;
+  let homeWindowsVisible = window.NotchHome?.isVisible?.('windows') !== false;
   let windowDrag = null;
   let suppressWindowClickUntil = 0;
 
@@ -2056,6 +2120,7 @@
   }
 
   async function refreshWindows(force = false) {
+    if (!window.NotchHome?.isVisible?.('windows')) return;
     if (windowsLoading || !window.notchAPI || (!force && (!workspaceExpanded || workspaceTab !== 'home'))) return;
     windowsLoading = true;
     renderWindows();
@@ -2157,6 +2222,16 @@
     workspaceExpanded = !!(event.detail && event.detail.expanded);
     if (workspaceExpanded && workspaceTab === 'home') refreshWindows();
   });
+  document.addEventListener('notch:home-modules-changed', (event) => {
+    const nextVisible = Array.isArray(event.detail?.visibleIds)
+      ? event.detail.visibleIds.includes('windows')
+      : window.NotchHome?.isVisible?.('windows') !== false;
+    const restored = !homeWindowsVisible && nextVisible;
+    homeWindowsVisible = nextVisible;
+    renderHomeModuleSettings();
+    if (restored && workspaceExpanded && workspaceTab === 'home') refreshWindows(true);
+  });
+  document.addEventListener('notch:recording-state-changed', renderHomeModuleSettings);
 
   // ============ 本地汽水音乐 ============
   const homeMusic = document.getElementById('home-music');
@@ -2547,5 +2622,6 @@
   window.NotchWorkspace = {
     refreshWindows,
     startRecording,
+    isRecordingActive,
   };
 })();
