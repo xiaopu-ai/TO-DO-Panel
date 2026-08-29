@@ -4,7 +4,7 @@
 
 **Goal:** Allow users to hide and restore any homepage widget while every non-empty widget combination still fills the complete `12 × 4` Bento grid without overlap, deformation, or lost data.
 
-**Architecture:** Keep visibility as a new renderer-local preference, independent from the existing order and preferred-size state. Pure functions in `renderer/domain.js` validate visibility and resolve one of seven finite, gapless templates; `renderer/app.js` owns persistence, DOM layout, transitions, and mirror cleanup; `renderer/workspace.js` owns the Settings controls and recording-state guard. No main-process IPC is added.
+**Architecture:** Keep visibility as a new renderer-local preference, independent from the existing order and preferred-size state. Pure functions in `renderer/domain.js` validate visibility, resolve one of seven finite templates, and prove exact grid coverage before any DOM write. `renderer/app.js` commits visibility as a synchronous transaction and owns persistence, atomic DOM layout, animation cancellation, and Mirror cleanup. `renderer/workspace.js` owns Settings, recording-state guards, and background-service lifecycle. No main-process IPC is added.
 
 **Tech Stack:** Electron 33, native HTML/CSS/JavaScript, Node test runner, LocalStorage.
 
@@ -18,9 +18,12 @@
 - Keep all seven widget IDs stable: `music`, `pomodoro`, `recorder`, `windows`, `mirror`, `note`, `commands`.
 - At least one homepage widget must remain visible.
 - Hiding a widget must not erase its data, preferred size, or position in the saved order.
-- Never use `transform: scale()` for a widget whose rectangle changes. Position-only animation may use `translate`; size changes use opacity only.
+- Never use `transform: scale()` for a widget whose rectangle changes. Visibility changes update geometry immediately and only fade in the final layout; they never translate old cards through one another.
 - Never leave the camera running after Mirror is hidden, and never allow Recorder to be hidden while recording, paused, or saving.
 - A successful layout must cover each of the 48 logical cells exactly once. Partial layout results must never be applied to the DOM.
+- When any widget is hidden, the homepage is in automatic-fill mode and all widget-size controls are hidden and unfocusable. Only the seven-visible state allows preferred-size changes.
+- Visibility validation, candidate layout validation, resource release, in-memory commit, and DOM commit happen before the first asynchronous yield.
+- Hiding Music stops its WebGL RAF; hiding Current Windows stops periodic scans; hiding Pomodoro does not stop its timer or completion notification.
 - Do not modify clipboard, updater, recording compatibility, or window animation behavior in this feature.
 - Do not run `npm run build`, package, sign, or publish as part of this plan.
 
@@ -38,15 +41,7 @@
 
 - [ ] **Step 1: Import the new functions in the domain test**
 
-Add both exports to the destructuring block at the top of `tests/domain.test.js`:
-
-```js
-const {
-  // existing imports remain
-  normalizeHiddenHomeModules,
-  updateHomeModuleVisibility,
-} = domain;
-```
+Add `normalizeHiddenHomeModules` and `updateHomeModuleVisibility` to the existing `domain` destructuring block at the top of `tests/domain.test.js`; keep the current imports unchanged.
 
 - [ ] **Step 2: Write failing normalization and last-widget tests**
 
@@ -151,18 +146,13 @@ git commit -m "test: define homepage widget visibility state"
 
 **Interfaces:**
 - Produces: `resolveHomeWidgetLayout(order, sizes, hiddenIds, columns = 12, rows = 4)` returning `{ visibleOrder, placements, variants }` or `null`.
+- Produces: `validateHomeWidgetLayout(layout, visibleIds, columns = 12, rows = 4)` returning a Boolean exact-cover verdict.
 - Produces: `layoutVariantForPlacement(placement)` returning `mini`, `compact`, `wide`, `tall`, or `full`.
 - Consumes: existing `packHomeWidgetLayout(order, sizes, columns, rows)` for the seven-visible case.
 
 - [ ] **Step 1: Add the new resolver imports**
 
-```js
-const {
-  // existing imports remain
-  resolveHomeWidgetLayout,
-  layoutVariantForPlacement,
-} = domain;
-```
+Add `resolveHomeWidgetLayout`, `validateHomeWidgetLayout`, and `layoutVariantForPlacement` to the existing `domain` destructuring block in `tests/domain.test.js`.
 
 - [ ] **Step 2: Write a reusable exact-cover assertion**
 
@@ -171,6 +161,7 @@ Add the helper below to `tests/domain.test.js`:
 ```js
 function assertExactHomeCover(layout, expectedIds) {
   assert.ok(layout);
+  assert.equal(validateHomeWidgetLayout(layout, expectedIds, 12, 4), true);
   assert.deepEqual(Object.keys(layout.placements).sort(), [...expectedIds].sort());
   const cells = Array(48).fill(0);
   Object.entries(layout.placements).forEach(([id, item]) => {
@@ -227,6 +218,31 @@ test('layout variants reflect actual rectangles instead of saved preferences', (
   assert.equal(layoutVariantForPlacement({ width: 4, height: 4 }), 'tall');
   assert.equal(layoutVariantForPlacement({ width: 12, height: 4 }), 'full');
 });
+
+test('home layout validation rejects every incomplete or unsafe shape', () => {
+  const valid = resolveHomeWidgetLayout(
+    ['music', 'windows'],
+    { music: 'large', windows: 'large' },
+    [],
+    12,
+    4
+  );
+  assert.equal(validateHomeWidgetLayout(valid, ['music', 'windows'], 12, 4), true);
+  assert.equal(validateHomeWidgetLayout(null, ['music'], 12, 4), false);
+  assert.equal(validateHomeWidgetLayout({ placements: {} }, ['music'], 12, 4), false);
+  assert.equal(validateHomeWidgetLayout({
+    placements: { music: { column: 0, row: 0, width: 12, height: 3 } },
+  }, ['music'], 12, 4), false);
+  assert.equal(validateHomeWidgetLayout({
+    placements: { music: { column: 0, row: 0, width: 12.5, height: 4 } },
+  }, ['music'], 12, 4), false);
+  assert.equal(validateHomeWidgetLayout({
+    placements: {
+      music: { column: 0, row: 0, width: 8, height: 4 },
+      windows: { column: 6, row: 0, width: 6, height: 4 },
+    },
+  }, ['music', 'windows'], 12, 4), false);
+});
 ```
 
 - [ ] **Step 4: Run the focused tests and confirm RED**
@@ -234,10 +250,10 @@ test('layout variants reflect actual rectangles instead of saved preferences', (
 Run:
 
 ```bash
-node --test --test-name-pattern='every non-empty homepage|five-widget layout|layout variants' tests/domain.test.js
+node --test --test-name-pattern='every non-empty homepage|five-widget layout|layout variants|home layout validation' tests/domain.test.js
 ```
 
-Expected: FAIL because the resolver and variant function are absent.
+Expected: FAIL because the resolver, exact-cover validator, and variant function are absent.
 
 - [ ] **Step 5: Implement the seven finite templates**
 
@@ -316,7 +332,40 @@ The returned shape must be:
 }
 ```
 
-Export `resolveHomeWidgetLayout` and `layoutVariantForPlacement`.
+Add `validateHomeWidgetLayout()` as a separate pure guard. It must reject a result unless:
+
+1. `placements` is an object whose unique keys exactly equal the unique `visibleIds` set.
+2. `column`, `row`, `width`, and `height` are integers; widths and heights are positive.
+3. Every rectangle is inside `columns × rows`.
+4. Marking every occupied logical cell never increments a cell above one.
+5. Every one of the `columns * rows` cells ends at exactly one.
+
+```js
+function validateHomeWidgetLayout(layout, visibleIds, columns = 12, rows = 4) {
+  if (!layout || !layout.placements || columns < 1 || rows < 1) return false;
+  const expected = [...new Set(Array.isArray(visibleIds) ? visibleIds.map(String) : [])].sort();
+  const entries = Object.entries(layout.placements);
+  if (!expected.length || entries.length !== expected.length) return false;
+  if (JSON.stringify(entries.map(([id]) => id).sort()) !== JSON.stringify(expected)) return false;
+  const cells = Array(columns * rows).fill(0);
+  for (const [, item] of entries) {
+    const values = [item?.column, item?.row, item?.width, item?.height];
+    if (!values.every(Number.isInteger) || item.width < 1 || item.height < 1) return false;
+    if (item.column < 0 || item.row < 0
+      || item.column + item.width > columns || item.row + item.height > rows) return false;
+    for (let row = item.row; row < item.row + item.height; row += 1) {
+      for (let column = item.column; column < item.column + item.width; column += 1) {
+        const index = row * columns + column;
+        cells[index] += 1;
+        if (cells[index] > 1) return false;
+      }
+    }
+  }
+  return cells.every((count) => count === 1);
+}
+```
+
+Export `resolveHomeWidgetLayout`, `validateHomeWidgetLayout`, and `layoutVariantForPlacement`.
 
 - [ ] **Step 6: Verify all homepage domain tests and commit**
 
@@ -336,27 +385,30 @@ git add renderer/domain.js tests/domain.test.js
 git commit -m "feat: resolve gapless homepage widget layouts"
 ```
 
-### Task 3: Renderer persistence, complete DOM application, and safe transitions
+### Task 3: Atomic renderer state, persistence, and lifecycle events
 
 **Files:**
 - Modify: `renderer/app.js`
 - Modify: `tests/renderer-structure.test.js`
 
 **Interfaces:**
-- Consumes: the four new `NotchDomain` functions.
-- Produces: `window.NotchHome.getVisibility()`.
-- Produces: `window.NotchHome.setModuleVisible(moduleId, visible)` returning a Promise of `{ ok, hiddenIds, persisted, error? }`.
-- Produces: `notch:home-modules-changed` with `{ hiddenIds, visibleIds }`.
+- Consumes: all homepage visibility, resolver, validator, and variant functions from `NotchDomain`.
+- Produces: `window.NotchHome.getVisibility()` and `window.NotchHome.isVisible(moduleId)`.
+- Produces: `window.NotchHome.setModuleVisible(moduleId, visible)` returning `{ ok, changed, hiddenIds, persisted, error? }` without yielding before state commit.
+- Produces: `notch:home-modules-changed` with copied `{ hiddenIds, visibleIds, automaticLayout }` arrays/state.
+- Produces: `notch:home-layout-error` when initialization must enter the read-only safe fallback.
 
 - [ ] **Step 1: Write a failing renderer contract test**
 
 Append to `tests/renderer-structure.test.js`:
 
 ```js
-test('homepage visibility has one renderer-owned storage key and public settings bridge', () => {
+test('homepage visibility has one storage key, exact validation, and lifecycle events', () => {
   assert.match(appJs, /notch-home-hidden-modules-v1/);
+  assert.match(appJs, /validateHomeWidgetLayout/);
   assert.match(appJs, /window\.NotchHome\s*=/);
   assert.match(appJs, /notch:home-modules-changed/);
+  assert.match(appJs, /notch:home-layout-error/);
   assert.match(appJs, /stopMirror\(\)/);
 });
 ```
@@ -369,7 +421,7 @@ Run:
 node --test --test-name-pattern='homepage visibility has' tests/renderer-structure.test.js
 ```
 
-Expected: FAIL because the storage key and renderer bridge are absent.
+Expected: FAIL because the storage key, validator call, bridge, and lifecycle events are absent.
 
 - [ ] **Step 3: Load and save the visibility preference without touching existing keys**
 
@@ -377,168 +429,234 @@ Near `HOME_ORDER_KEY` and `HOME_SIZES_KEY` in `renderer/app.js`, add:
 
 ```js
 const HOME_HIDDEN_MODULES_KEY = 'notch-home-hidden-modules-v1';
+const HOME_MODULE_REGISTRY = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands'];
 
 function loadHiddenHomeModules() {
+  let rawText = null;
   try {
-    return window.NotchDomain.normalizeHiddenHomeModules(
-      JSON.parse(localStorage.getItem(HOME_HIDDEN_MODULES_KEY) || 'null'),
-      HOME_ORDER_DEFAULTS
-    );
+    rawText = localStorage.getItem(HOME_HIDDEN_MODULES_KEY);
+    if (rawText === null) return { hiddenIds: [], needsRepair: false };
+    const parsed = JSON.parse(rawText);
+    const hiddenIds = window.NotchDomain.normalizeHiddenHomeModules(parsed, HOME_MODULE_REGISTRY);
+    return {
+      hiddenIds,
+      needsRepair: JSON.stringify(parsed) !== JSON.stringify(hiddenIds),
+    };
   } catch (error) {
-    return [];
+    return { hiddenIds: [], needsRepair: true };
   }
 }
 
-let hiddenHomeModules = loadHiddenHomeModules();
+const loadedHomeVisibility = loadHiddenHomeModules();
+let hiddenHomeModules = loadedHomeVisibility.hiddenIds;
+let homeVisibilityPersisted = true;
+let homeLayoutReadOnly = false;
 
 function saveHiddenHomeModules() {
   try {
     localStorage.setItem(HOME_HIDDEN_MODULES_KEY, JSON.stringify(hiddenHomeModules));
+    homeVisibilityPersisted = true;
     return true;
   } catch (error) {
+    homeVisibilityPersisted = false;
     return false;
   }
 }
+
+if (loadedHomeVisibility.needsRepair) saveHiddenHomeModules();
 ```
 
-Do not add the key manually to workspace export/import logic: `collectLocalStorageSnapshot()` already captures LocalStorage generically.
+Use the fixed registry only for validation and stable serialization. Continue using `homeOrder` for visual placement and five-widget tie-breaking. Do not add the key manually to workspace export/import logic: `collectLocalStorageSnapshot()` already captures LocalStorage generically.
 
-- [ ] **Step 4: Replace direct packing with atomic layout resolution**
+- [ ] **Step 4: Split candidate resolution from DOM application**
 
-Refactor `applyHomeLayout()` to call:
-
-```js
-const resolved = window.NotchDomain.resolveHomeWidgetLayout(
-  homeOrder,
-  homeSizes,
-  hiddenHomeModules,
-  12,
-  4
-);
-```
-
-Before writing any tile styles, verify that `resolved` exists and that its placement IDs exactly equal its visible IDs. If validation fails, log one error, restore `hiddenHomeModules = []`, resolve once more with the default full set, and only then write the DOM.
-
-For every tile, apply all state in the same synchronous loop:
+Add a resolver wrapper that never writes DOM:
 
 ```js
-const placement = resolved.placements[moduleId];
-tile.hidden = !placement;
-tile.setAttribute('aria-hidden', placement ? 'false' : 'true');
-if (!placement) return;
-tile.dataset.layoutVariant = resolved.variants[moduleId];
-tile.dataset.layoutColumn = String(placement.column);
-tile.dataset.layoutRow = String(placement.row);
-tile.dataset.layoutWidth = String(placement.width);
-tile.dataset.layoutHeight = String(placement.height);
-tile.style.gridColumn = `${placement.column + 1} / span ${placement.width}`;
-tile.style.gridRow = `${placement.row + 1} / span ${placement.height}`;
-```
-
-Keep `data-widget-size` and the size button label derived from `homeSizes`; never overwrite the preference with `data-layout-variant`.
-
-- [ ] **Step 5: Replace scale FLIP with position-only and opacity transitions**
-
-Capture rectangles only for currently visible tiles. After the new layout is applied:
-
-```js
-const sizeChanged = Math.abs(first.width - last.width) >= 0.5
-  || Math.abs(first.height - last.height) >= 0.5;
-if (sizeChanged) {
-  tile.animate([{ opacity: 0 }, { opacity: 1 }], {
-    duration: 180,
-    easing: 'ease-out',
-  });
-} else if (Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5) {
-  tile.animate([
-    { transform: `translate(${dx}px, ${dy}px)`, opacity: 0.76 },
-    { transform: 'translate(0, 0)', opacity: 1 },
-  ], {
-    duration: 280,
-    easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
-  });
+function resolveValidatedHomeLayout(hiddenIds, order = homeOrder, sizes = homeSizes) {
+  const visibleIds = HOME_MODULE_REGISTRY.filter((id) => !hiddenIds.includes(id));
+  const layout = window.NotchDomain.resolveHomeWidgetLayout(order, sizes, hiddenIds, 12, 4);
+  return window.NotchDomain.validateHomeWidgetLayout(layout, visibleIds, 12, 4)
+    ? layout
+    : null;
 }
 ```
 
-For a tile being hidden, first run a 90ms opacity animation and wait for its `finished` Promise; after the wait, recheck the Recorder guard before committing hidden state. Skip all animations when `prefers-reduced-motion: reduce` matches. Cancel any previous visibility animation on the same tile before starting another switch operation.
+Before the first resolution, assert that the unique `data-home-module` IDs in `homeTiles` exactly equal `HOME_MODULE_REGISTRY`. A missing or duplicate tile makes exact visual coverage impossible, so fail fast instead of entering a misleading safe fallback. Add the same exact-ID assertion to `tests/renderer-structure.test.js`.
 
-Delete the existing `scaleX`, `scaleY`, and `scale(...)` FLIP path from `applyHomeLayout()`.
-
-- [ ] **Step 6: Add the single renderer-owned visibility API**
-
-Implement `setHomeModuleVisible()` in `renderer/app.js`:
+Change `applyHomeLayout()` to accept a prevalidated layout. It must not mutate `hiddenHomeModules` and must never attempt a partial fallback inside the tile loop. For every tile, synchronously apply:
 
 ```js
-async function setHomeModuleVisible(moduleId, visible) {
-  if (moduleId === 'recorder' && visible === false
-    && window.NotchWorkspace?.isRecordingActive?.()) {
-    return {
-      ok: false,
-      error: 'recording_active',
-      hiddenIds: [...hiddenHomeModules],
-      persisted: true,
-    };
+const placement = layout.placements[moduleId];
+tile.hidden = !placement;
+tile.setAttribute('aria-hidden', String(!placement));
+if (placement) {
+  tile.dataset.layoutVariant = layout.variants[moduleId];
+  tile.dataset.layoutColumn = String(placement.column);
+  tile.dataset.layoutRow = String(placement.row);
+  tile.dataset.layoutWidth = String(placement.width);
+  tile.dataset.layoutHeight = String(placement.height);
+  tile.style.gridColumn = `${placement.column + 1} / span ${placement.width}`;
+  tile.style.gridRow = `${placement.row + 1} / span ${placement.height}`;
+} else {
+  delete tile.dataset.layoutVariant;
+  delete tile.dataset.layoutColumn;
+  delete tile.dataset.layoutRow;
+  delete tile.dataset.layoutWidth;
+  delete tile.dataset.layoutHeight;
+  tile.style.removeProperty('grid-column');
+  tile.style.removeProperty('grid-row');
+}
+```
+
+Set `homeBento.dataset.layoutMode` to `automatic` when any module is hidden, `preferred` when all seven are visible, and `safe` during the read-only initialization fallback. Keep `data-widget-size` derived only from `homeSizes`; never write actual template geometry into the saved preference.
+
+- [ ] **Step 5: Add a non-destructive initialization fallback**
+
+On first render, resolve the stored state. If it is invalid, resolve `HOME_ORDER_DEFAULTS`, `HOME_SIZE_DEFAULTS`, and `[]`, set `homeLayoutReadOnly = true`, and render that safe result. Do not modify `hiddenHomeModules`, LocalStorage, order, or size preferences. Dispatch `notch:home-layout-error` and disable homepage visibility switches for this session.
+
+```js
+let initialHomeLayout = resolveValidatedHomeLayout(hiddenHomeModules);
+if (!initialHomeLayout) {
+  initialHomeLayout = resolveValidatedHomeLayout([], HOME_ORDER_DEFAULTS, HOME_SIZE_DEFAULTS);
+  homeLayoutReadOnly = true;
+  console.error('Homepage layout validation failed; using read-only defaults.');
+}
+applyHomeLayout(initialHomeLayout, { reason: 'initial' });
+```
+
+If even the default layout is invalid, throw before touching tile geometry so the defect is visible in tests rather than rendering a corrupt partial grid.
+
+- [ ] **Step 6: Commit visibility synchronously and atomically**
+
+Implement `setHomeModuleVisible()` without `await`, timers, or animation completion before commit:
+
+```js
+function setHomeModuleVisible(moduleId, visible) {
+  const current = [...hiddenHomeModules];
+  if (homeLayoutReadOnly) {
+    return { ok: false, changed: false, error: 'layout_read_only', hiddenIds: current, persisted: homeVisibilityPersisted };
   }
-  const result = window.NotchDomain.updateHomeModuleVisibility(
-    hiddenHomeModules,
-    HOME_ORDER_DEFAULTS,
+  const next = window.NotchDomain.updateHomeModuleVisibility(
+    current,
+    HOME_MODULE_REGISTRY,
     moduleId,
     visible
   );
-  if (!result.ok) return { ...result, persisted: true };
+  if (!next.ok) return { ...next, changed: false, persisted: homeVisibilityPersisted };
+  const changed = JSON.stringify(next.hiddenIds) !== JSON.stringify(current);
+  if (!changed) {
+    return { ok: true, changed: false, hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
+  if (moduleId === 'recorder' && visible === false
+    && window.NotchWorkspace?.isRecordingActive?.()) {
+    return { ok: false, changed: false, error: 'recording_active', hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
 
-  // Run the hide transition here. Recheck recording_active after its await.
-  hiddenHomeModules = result.hiddenIds;
+  const layout = resolveValidatedHomeLayout(next.hiddenIds);
+  if (!layout) {
+    return { ok: false, changed: false, error: 'layout_invalid', hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
+
+  const currentLayout = resolveValidatedHomeLayout(current);
+  if (!currentLayout) {
+    return { ok: false, changed: false, error: 'layout_invalid', hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
   if (moduleId === 'mirror' && visible === false) stopMirror();
-  applyHomeLayout(true);
+  try {
+    hiddenHomeModules = next.hiddenIds;
+    applyHomeLayout(layout, { reason: 'visibility' });
+  } catch (error) {
+    hiddenHomeModules = current;
+    applyHomeLayout(currentLayout, { reason: 'rollback' });
+    return { ok: false, changed: false, error: 'dom_apply_failed', hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
   const persisted = saveHiddenHomeModules();
-  const detail = {
-    hiddenIds: [...hiddenHomeModules],
-    visibleIds: HOME_ORDER_DEFAULTS.filter((id) => !hiddenHomeModules.includes(id)),
-  };
+  const detail = visibilitySnapshot();
   document.dispatchEvent(new CustomEvent('notch:home-modules-changed', { detail }));
-  return { ok: true, hiddenIds: [...hiddenHomeModules], persisted };
+  return { ok: true, changed: true, hiddenIds: [...hiddenHomeModules], persisted };
+}
+```
+
+All mutation occurs before the function returns. A later rapid call therefore reads the new state. An already-satisfied absolute request returns `changed: false` before recording guards, layout work, resource cleanup, persistence, animation, or event dispatch. Candidate failure returns before Mirror cleanup, memory mutation, DOM mutation, persistence, or event dispatch. An unexpected DOM exception restores the previously validated layout and state; a stopped Mirror remains on its static cover instead of silently reacquiring the camera. LocalStorage failure is the sole degraded success: session state remains active and `persisted: false` is returned.
+
+- [ ] **Step 7: Expose copied read-only state and dispatch initial lifecycle state**
+
+```js
+function visibilitySnapshot() {
+  const effectiveHiddenIds = homeLayoutReadOnly ? [] : hiddenHomeModules;
+  return {
+    hiddenIds: [...effectiveHiddenIds],
+    visibleIds: HOME_MODULE_REGISTRY.filter((id) => !effectiveHiddenIds.includes(id)),
+    storedHiddenIds: [...hiddenHomeModules],
+    automaticLayout: !homeLayoutReadOnly && hiddenHomeModules.length > 0,
+    readOnly: homeLayoutReadOnly,
+    persisted: homeVisibilityPersisted,
+  };
 }
 
 window.NotchHome = Object.freeze({
-  getVisibility: () => ({
-    hiddenIds: [...hiddenHomeModules],
-    visibleIds: HOME_ORDER_DEFAULTS.filter((id) => !hiddenHomeModules.includes(id)),
-  }),
+  getVisibility: visibilitySnapshot,
+  isVisible: (moduleId) => visibilitySnapshot().visibleIds.includes(String(moduleId || '')),
   setModuleVisible: setHomeModuleVisible,
 });
+
+document.dispatchEvent(new CustomEvent('notch:home-modules-changed', {
+  detail: visibilitySnapshot(),
+}));
+if (homeLayoutReadOnly) {
+  document.dispatchEvent(new CustomEvent('notch:home-layout-error'));
+}
 ```
 
-If persistence fails, keep the session layout active and return `persisted: false`; the Settings layer will show the warning. Do not clear any widget data.
+The initial event is required because `effects.js` loads before `app.js` and must be able to stop a WebGL loop started before stored visibility was applied.
+In read-only safe mode, `hiddenIds` and `visibleIds` describe the effective all-visible DOM, while `storedHiddenIds` preserves the untouched preference for diagnostics. Settings and lifecycle consumers use only effective IDs, so their state cannot contradict the rendered fallback.
 
-- [ ] **Step 7: Make drag and size controls operate on visible tiles only**
+- [ ] **Step 8: Use a cancelable final-layout fade, never a pre-commit animation**
 
-Update capture, drop-target cleanup, hit testing, and animation loops to skip `tile.hidden === true`. Keep `homeOrder` as all seven IDs, so swapping two visible widgets changes their relative saved positions without deleting hidden IDs. Continue normalizing preferred sizes against the existing 48-cell seven-widget model so restoring a widget always has a valid complete layout.
+For `reason: 'visibility'`, cancel the prior homepage visibility Animation and fade only the already committed final grid:
 
-- [ ] **Step 8: Verify renderer contracts and commit**
+```js
+let homeVisibilityAnimation = null;
+function animateCommittedHomeVisibility() {
+  homeVisibilityAnimation?.cancel();
+  homeVisibilityAnimation = null;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  homeVisibilityAnimation = homeBento.animate(
+    [{ opacity: 0.72 }, { opacity: 1 }],
+    { duration: 140, easing: 'ease-out' }
+  );
+  homeVisibilityAnimation.finished
+    .catch(() => {})
+    .finally(() => { homeVisibilityAnimation = null; });
+}
+```
+
+Do not animate hidden outgoing tiles, do not wait for `finished`, and do not use translate or scale for visibility changes. For existing reorder/size animation, remove `scaleX`, `scaleY`, and layout `scale(...)`; a size change uses opacity only and a pure same-size reorder may use translate.
+
+- [ ] **Step 9: Keep ordering available but disable preferred-size editing in automatic mode**
+
+Update drag capture, drop-target cleanup, hit testing, and animation loops to skip `tile.hidden === true`. Keep all seven IDs in `homeOrder`, so visible swaps preserve hidden entries.
+
+When `hiddenHomeModules.length > 0`, every `[data-widget-size-cycle]` is `hidden`, `disabled`, and `tabIndex = -1`. The click handler must also return before modifying `homeSizes` when automatic mode is active. When all seven return, restore the controls and the exact prior size preferences. This is required to prevent existing 48-cell normalization from modifying a hidden sibling.
+
+- [ ] **Step 10: Verify renderer contracts and commit**
 
 Run:
 
 ```bash
 node --test tests/renderer-structure.test.js
 node --check renderer/app.js
-```
-
-Expected: tests and syntax checks pass; searching the homepage layout function finds no scale FLIP.
-
-Run:
-
-```bash
 rg -n "scaleX|scaleY|translate\([^;]+\) scale" renderer/app.js
 ```
 
-Expected: no match in the homepage layout implementation.
+Expected: renderer tests and syntax pass; no homepage layout-scale FLIP remains.
 
 Commit:
 
 ```bash
 git add renderer/app.js tests/renderer-structure.test.js
-git commit -m "feat: persist and apply homepage widget visibility"
+git commit -m "feat: commit homepage visibility atomically"
 ```
 
 ### Task 4: Settings card, recording guard, and user feedback
@@ -546,6 +664,7 @@ git commit -m "feat: persist and apply homepage widget visibility"
 **Files:**
 - Modify: `renderer/index.html`
 - Modify: `renderer/workspace.js`
+- Modify: `renderer/effects.js`
 - Modify: `tests/renderer-structure.test.js`
 
 **Interfaces:**
@@ -568,6 +687,18 @@ test('settings exposes exactly one switch for every homepage widget', () => {
   assert.match(workspaceJs, /recording_active/);
   assert.match(workspaceJs, /at_least_one_required/);
 });
+
+test('hidden visual widgets stop presentation-only background work', () => {
+  assert.match(effectsJs, /setEnabled/);
+  assert.match(effectsJs, /notch:home-modules-changed/);
+  assert.match(workspaceJs, /NotchHome\?\.isVisible/);
+});
+```
+
+Add `effectsJs` beside the existing source fixtures at the top of the test:
+
+```js
+const effectsJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'effects.js'), 'utf8');
 ```
 
 - [ ] **Step 2: Run the focused test and confirm RED**
@@ -588,7 +719,7 @@ In `renderer/index.html`, add a sibling card after “显示功能”; do not me
 <section class="tile settings-card settings-home-modules-card">
   <div class="settings-card-heading">
     <div><span class="tile-label">首页</span><strong>首页组件</strong></div>
-    <small>至少保留一个</small>
+    <small id="settings-home-module-status">隐藏后自动填充 · 至少保留一个</small>
   </div>
   <div class="settings-home-module-grid" id="settings-home-module-list">
     <label><span><b>音乐</b><small>播放状态与控制</small></span><input type="checkbox" data-settings-home-module="music" aria-label="显示音乐" /><i aria-hidden="true"></i></label>
@@ -634,10 +765,20 @@ function renderHomeModuleSettings() {
   settingsHomeModuleList?.querySelectorAll('input[data-settings-home-module]').forEach((input) => {
     const moduleId = input.dataset.settingsHomeModule;
     input.checked = !hidden.has(moduleId);
-    input.disabled = moduleId === 'recorder' && recordingActive;
+    input.disabled = state?.readOnly === true
+      || (moduleId === 'recorder' && recordingActive && input.checked);
   });
   const recorderNote = settingsHomeModuleList?.querySelector('[data-home-module-setting-note="recorder"]');
   if (recorderNote) recorderNote.textContent = recordingActive ? '录音进行中' : '录音与转写';
+  const status = document.getElementById('settings-home-module-status');
+  if (status) {
+    status.textContent = state?.readOnly
+      ? '安全模式 · 暂不可修改'
+      : state?.persisted === false
+        ? '仅当前会话 · 未能保存'
+        : '隐藏后自动填充 · 至少保留一个';
+    status.dataset.state = state?.readOnly || state?.persisted === false ? 'warning' : 'saved';
+  }
 }
 ```
 
@@ -654,9 +795,9 @@ document.addEventListener('notch:recording-state-changed', renderHomeModuleSetti
 document.addEventListener('notch:home-modules-changed', renderHomeModuleSettings);
 ```
 
-Use the existing `active` local in `updateRecordingUi()` as `recordingActive`, or rename it consistently before dispatching. The event carries no audio data and does not mutate recording state.
+Use the existing `active` local in `updateRecordingUi()` as `recordingActive`, or rename it consistently before dispatching. The event carries no audio data and does not mutate recording state. A hidden Recorder remains restorable during an active recording, and the Recordings tab remains fully usable; only the transition from visible to hidden is blocked.
 
-- [ ] **Step 6: Wire guarded asynchronous switch changes**
+- [ ] **Step 6: Wire guarded switch changes and always resync from source state**
 
 ```js
 settingsHomeModuleList?.addEventListener('change', async (event) => {
@@ -673,12 +814,19 @@ settingsHomeModuleList?.addEventListener('change', async (event) => {
       ? '首页至少保留一个组件'
       : result?.error === 'recording_active'
         ? '录音进行中，暂时不能隐藏快速录音'
-        : '首页组件设置未更新';
+        : result?.error === 'layout_read_only'
+          ? '首页布局已进入安全模式，本次会话不能修改组件'
+          : result?.error === 'layout_invalid'
+            ? '新布局校验失败，原布局已保留'
+            : result?.error === 'dom_apply_failed'
+              ? '布局应用失败，原布局已恢复'
+              : '首页组件设置未更新';
     if (typeof showStatusToast === 'function') showStatusToast(message);
     return;
   }
+  if (result.changed === false) return;
   const message = result.persisted === false
-    ? '布局已更新，但设置未能保存'
+    ? '布局已更新，仅当前会话生效，设置未能保存'
     : input.checked ? '首页组件已恢复' : '首页组件已隐藏';
   if (typeof showStatusToast === 'function') showStatusToast(message);
 });
@@ -686,22 +834,68 @@ settingsHomeModuleList?.addEventListener('change', async (event) => {
 
 Reuse the existing global `showStatusToast()` helper; do not create a second toast DOM node or a second status event protocol.
 
-- [ ] **Step 7: Verify settings contracts and commit**
+- [ ] **Step 7: Stop background presentation work for hidden widgets**
+
+In `renderer/effects.js`, extend the object returned by `createWebglEffect()` with `setEnabled(enabled)`. Disabling must cancel the current RAF and must not request another frame; enabling must start exactly one RAF chain. Listen for `notch:home-modules-changed` and enable the music effect only when `detail.visibleIds` contains `music`.
+
+```js
+setEnabled(enabled) {
+  const next = enabled === true;
+  if (next === effectEnabled) return;
+  effectEnabled = next;
+  cancelAnimationFrame(raf);
+  raf = 0;
+  if (effectEnabled) restart();
+}
+```
+
+The current `restart()` calls `draw(start, true)` and then independently requests another frame even though `draw()` already schedules one, which can create an untracked second RAF chain. Rewrite it so `draw()` is the only scheduling location:
+
+```js
+const draw = (now, force = false) => {
+  if (disposed || !effectEnabled) return;
+  const active = force || isActive();
+  if (active && (force || now - lastDraw >= 15)) {
+    // existing draw body
+  }
+  raf = !reducedMotion.matches && effectEnabled ? requestAnimationFrame(draw) : 0;
+};
+
+const restart = () => {
+  cancelAnimationFrame(raf);
+  raf = 0;
+  start = performance.now();
+  if (effectEnabled) draw(start, true);
+};
+```
+
+`ResizeObserver` and reduced-motion callbacks must go through the same guard and cannot force a draw while disabled. The initial lifecycle event from `app.js` handles a stored hidden Music state even though `effects.js` loads first.
+
+In `renderer/workspace.js`, guard `refreshWindows()` before setting `windowsLoading`:
+
+```js
+if (!window.NotchHome?.isVisible?.('windows')) return;
+```
+
+On `notch:home-modules-changed`, call `refreshWindows(true)` only when Current Windows changed from hidden to visible and Home is expanded/active. The existing 6-second interval continues calling the cheap guard but performs no IPC enumeration while hidden. Do not gate Recordings-tab recording controls on homepage Recorder visibility, and do not stop Pomodoro state when its card is hidden.
+
+- [ ] **Step 8: Verify settings and lifecycle contracts and commit**
 
 Run:
 
 ```bash
 node --test tests/renderer-structure.test.js
 node --check renderer/workspace.js
+node --check renderer/effects.js
 ```
 
-Expected: exactly seven homepage switches are found and both renderer scripts pass syntax checks.
+Expected: exactly seven homepage switches are found; lifecycle guards exist; all renderer scripts pass syntax checks.
 
 Commit:
 
 ```bash
-git add renderer/index.html renderer/workspace.js tests/renderer-structure.test.js
-git commit -m "feat: add homepage widget visibility settings"
+git add renderer/index.html renderer/workspace.js renderer/effects.js tests/renderer-structure.test.js
+git commit -m "feat: add homepage widget settings and lifecycle guards"
 ```
 
 ### Task 5: Responsive widget internals and a scroll-safe Settings layout
@@ -728,6 +922,8 @@ Add an authoritative block after the existing homepage widget-size rules so it w
 .home-bento > [data-home-module] button,
 .home-bento > [data-home-module] input,
 .home-bento > [data-home-module] textarea { flex-shrink: 0; }
+.home-bento[data-layout-mode='automatic'] .widget-size-control,
+.home-bento[data-layout-mode='safe'] .widget-size-control { display: none !important; }
 ```
 
 - [ ] **Step 2: Define geometry by actual layout variant**
@@ -847,10 +1043,27 @@ Inside the `executeJavaScript()` payload, use this helper:
 ```js
 function measureHomepage() {
   const surface = document.getElementById('home-bento').getBoundingClientRect();
+  const protectedSelectors = {
+    music: ['.music-copy', '.music-controls'],
+    pomodoro: ['.pomodoro-readout', '.pomodoro-toggle', '.pomodoro-reset:not([hidden])'],
+    recorder: ['.recorder-head', '.home-transcript:not([hidden])', '.recorder-controls'],
+    windows: ['.tile-head', '.window-list'],
+    mirror: ['.mirror-stage'],
+    note: ['.note-toolbar', '.note-body'],
+    commands: ['.tile-head', '.command-add', '.command-list'],
+  };
   const tiles = [...document.querySelectorAll('#home-bento [data-home-module]')]
     .filter((tile) => !tile.hidden)
     .map((tile) => {
       const rect = tile.getBoundingClientRect();
+      const regions = (protectedSelectors[tile.dataset.homeModule] || [])
+        .map((selector) => tile.querySelector(selector))
+        .filter(Boolean)
+        .map((node) => {
+          const region = node.getBoundingClientRect();
+          return { left: region.left, top: region.top, right: region.right, bottom: region.bottom };
+        })
+        .filter((region) => region.right > region.left && region.bottom > region.top);
       const controlsInside = [...tile.querySelectorAll('button:not([hidden]), input:not([hidden]), textarea:not([hidden]), video:not([hidden]), img:not([hidden])')]
         .every((control) => {
           const child = control.getBoundingClientRect();
@@ -864,6 +1077,7 @@ function measureHomepage() {
         rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
         controlsInside,
         variant: tile.dataset.layoutVariant,
+        regions,
       };
     });
   return {
@@ -873,9 +1087,9 @@ function measureHomepage() {
 }
 ```
 
-- [ ] **Step 2: Exercise representative combinations for counts one through seven**
+- [ ] **Step 2: Exercise counts one through seven at standard and narrow window sizes**
 
-Navigate to Settings, restore all seven switches, then for each `visibleCount` from 7 down to 1 hide the next enabled module through its real checkbox `change` event. Wait two animation frames plus 320ms before measuring.
+Run the same matrix at `1240 × 616` and `1000 × 576`. At each size, navigate to Settings, restore all seven switches, then for each `visibleCount` from 7 down to 1 hide the next enabled module through its real checkbox `change` event. Wait two animation frames plus 180ms before measuring.
 
 For every count, assert in Node:
 
@@ -888,6 +1102,15 @@ measurement.tiles.forEach((tile) => {
   assert.ok(tile.rect.top >= measurement.surface.top - 1);
   assert.ok(tile.rect.bottom <= measurement.surface.bottom + 1);
   assert.ok(['mini', 'compact', 'wide', 'tall', 'full'].includes(tile.variant));
+  for (let left = 0; left < tile.regions.length; left += 1) {
+    for (let right = left + 1; right < tile.regions.length; right += 1) {
+      const a = tile.regions[left];
+      const b = tile.regions[right];
+      const overlaps = a.left < b.right - 1 && a.right > b.left + 1
+        && a.top < b.bottom - 1 && a.bottom > b.top + 1;
+      assert.equal(overlaps, false, `${tile.id} protected content regions overlap`);
+    }
+  }
 });
 for (let left = 0; left < measurement.tiles.length; left += 1) {
   for (let right = left + 1; right < measurement.tiles.length; right += 1) {
@@ -900,7 +1123,7 @@ for (let left = 0; left < measurement.tiles.length; left += 1) {
 }
 ```
 
-Also calculate the logical area from the four layout datasets and assert it totals exactly `48` at every count.
+Also calculate the logical area from the four layout datasets and assert it totals exactly `48` at every count. When fewer than seven tiles are visible, assert every size control is hidden, disabled, and absent from sequential focus; when seven are visible, assert the controls return with their original `data-current-size` values.
 
 - [ ] **Step 3: Verify the final-widget rejection in the real UI**
 
@@ -911,7 +1134,20 @@ With one switch left on, trigger its change to unchecked. Assert that:
 - `localStorage['notch-home-hidden-modules-v1']` still contains only six IDs;
 - the status message contains “至少保留一个”.
 
-- [ ] **Step 4: Verify Recorder locking**
+- [ ] **Step 4: Attack rapid updates and transaction rollback**
+
+Add renderer-level tests for these sequences:
+
+1. Call `setModuleVisible('mirror', false)` and `setModuleVisible('note', false)` in the same JavaScript task. Final hidden state and LocalStorage must contain both IDs.
+2. Call hide, show, hide for the same module without waiting for animations. The final state must be hidden and only one visibility Animation may remain.
+3. Request the current absolute state again. Assert `ok === true`, `changed === false`, and that LocalStorage writes, lifecycle events, resource calls, layout styles, and Animation count do not change. Repeat with an already-hidden Recorder while recording is mocked active; idempotence must win over the recording guard.
+4. Temporarily replace `NotchDomain.resolveHomeWidgetLayout` with a function returning `null`, attempt a switch, then restore it. Assert `error === 'layout_invalid'` and byte-for-byte equality of pre/post hidden state, LocalStorage, visible DOM IDs, and grid style attributes.
+5. Temporarily replace `Storage.prototype.setItem` so it throws only for `notch-home-hidden-modules-v1`. Assert the DOM and session state change, `persisted === false`, the old stored value remains, and both the toast and Settings status explain that the change is session-only. While writes still fail, attempt a last-widget rejection and assert its result remains `persisted === false`. Restore the prototype, perform one valid switch, and assert the complete current state is saved and the persistent warning clears.
+6. Seed storage with unknown IDs, duplicates, a non-array, and all seven IDs across reloads. Assert the normalized safe states match the design and no reload produces an empty homepage.
+7. Focus an interactive child of a widget and hide it through the API. Assert `document.activeElement` is no longer inside the hidden tile and that the hidden tile and its size control are absent from sequential keyboard focus.
+8. Alternate hide/show for one non-resource widget 100 times while measuring only the synchronous call duration. On the target Apple Silicon acceptance machine, p95 must stay below 16ms, no call may create a task above 50ms, final state must match the last call, and at most one visibility Animation may remain.
+
+- [ ] **Step 5: Verify Recorder locking without disabling the Recordings tab**
 
 Temporarily wrap `window.NotchWorkspace` inside the Electron test through `executeJavaScript()`:
 
@@ -923,9 +1159,20 @@ window.NotchWorkspace = {
 document.dispatchEvent(new CustomEvent('notch:recording-state-changed'));
 ```
 
-Assert the Recorder switch is disabled and that a direct `NotchHome.setModuleVisible('recorder', false)` call returns `error: 'recording_active'`. Restore the original object immediately after the assertion. Do not activate a real microphone in automated tests.
+When Recorder is visible, assert its switch is disabled and a direct `NotchHome.setModuleVisible('recorder', false)` call returns `error: 'recording_active'`. When Recorder was already hidden before the mocked recording became active, assert its switch remains enabled for restoration. Assert the Recordings-tab New Recording action is not disabled merely because the homepage card is hidden. Restore the original object immediately after the assertion. Do not activate a real microphone in automated tests.
 
-- [ ] **Step 5: Verify Mirror cleanup manually with a real camera**
+- [ ] **Step 6: Verify background lifecycle and Pomodoro continuity**
+
+Add automated or instrumented acceptance for:
+
+- Current Windows: wrap the renderer entry to `listWindows`, hide the widget, advance across two 6-second intervals, and assert no enumeration occurred; restore it on an expanded Home tab and assert exactly one immediate refresh.
+- Music: expose a read-only running flag from the effect instance during acceptance, hide Music, and assert its RAF ID is zero; restore it and assert only one RAF chain starts.
+- Pomodoro: start a short timer, hide its card for more than one second, and assert logical remaining time decreases; restore it and confirm the displayed value catches up. Do not suppress the existing completion notification path.
+- Recorder: hide its homepage card while idle, enter the Recordings tab, and confirm recording controls remain available.
+
+The test-only observability must expose state, not mutation controls, and must not ship a timer or microphone mock in production code.
+
+- [ ] **Step 7: Verify Mirror cleanup manually with a real camera**
 
 Automated CI must not request camera permission. During local acceptance:
 
@@ -937,7 +1184,7 @@ Automated CI must not request camera permission. During local acceptance:
 
 Record the result in the implementation handoff; a failing camera release blocks completion.
 
-- [ ] **Step 6: Run the Electron acceptance and commit**
+- [ ] **Step 8: Run the Electron acceptance and commit**
 
 Run:
 
@@ -945,7 +1192,7 @@ Run:
 env -u ELECTRON_RUN_AS_NODE electron tests/notch-focus.electron.js
 ```
 
-Expected: all seven counts, no-overlap checks, last-widget rejection, reduced motion, and Recorder guard pass.
+Expected: both viewport matrices, content protection regions, rapid transactions, rollback, persistence degradation, lifecycle guards, reduced motion, and Recorder behavior pass.
 
 Commit:
 
@@ -959,6 +1206,7 @@ git commit -m "test: verify homepage widget geometry and guards"
 **Files:**
 - Modify: `README.md`
 - Verify: `renderer/domain.js`
+- Verify: `renderer/effects.js`
 - Verify: `renderer/app.js`
 - Verify: `renderer/workspace.js`
 - Verify: `renderer/index.html`
@@ -978,7 +1226,10 @@ Document these exact behaviors in the homepage/settings sections:
 - At least one widget must remain visible.
 - Remaining widgets automatically refill the full homepage without blank cells.
 - Hiding does not delete widget data or overwrite saved order/size preferences.
+- Widget-size controls are available only when all seven widgets are visible; hidden states use automatic-fill templates.
 - Hiding Mirror releases its camera; Recorder cannot be hidden while a recording is active.
+- Hiding the homepage Recorder card does not disable recording from the Recordings tab.
+- Hidden Music and Current Windows stop presentation-only RAF/scanning work, while a hidden Pomodoro continues timing.
 - The preference is local to the current workspace and uses `notch-home-hidden-modules-v1`.
 
 - [ ] **Step 2: Run focused tests first**
@@ -1005,7 +1256,7 @@ Expected: all Node tests, Electron acceptance checks, and JavaScript syntax chec
 
 - [ ] **Step 4: Perform the visual acceptance matrix**
 
-Using `npm start`, inspect visible counts 1 through 7, including two different five-widget combinations. At each count verify:
+Using `npm start`, inspect visible counts 1 through 7 at both the normal and narrow supported window sizes, including two different five-widget combinations. Then force each of the seven widgets through every reachable `mini / compact / wide / tall / full` content contract. Verify:
 
 - no outer blank region, overlap, or grid overflow;
 - no stretched text, image, video, icon, or button;
@@ -1016,6 +1267,8 @@ Using `npm start`, inspect visible counts 1 through 7, including two different f
 - Mirror uses proportional `object-fit: cover` cropping;
 - long-press reordering still works between visible widgets;
 - restoring hidden widgets preserves their prior size preference;
+- automatic-fill mode hides size controls and restoring all seven returns them;
+- hidden Music and Current Windows stop background presentation work while Pomodoro continues;
 - reduced-motion mode changes layout immediately without animation.
 
 - [ ] **Step 5: Inspect only intended file changes**
@@ -1025,7 +1278,7 @@ Run:
 ```bash
 git status --short
 git diff --check
-git diff -- renderer/domain.js renderer/app.js renderer/workspace.js renderer/index.html renderer/styles.css tests/domain.test.js tests/renderer-structure.test.js tests/notch-focus.electron.js README.md
+git diff -- renderer/domain.js renderer/effects.js renderer/app.js renderer/workspace.js renderer/index.html renderer/styles.css tests/domain.test.js tests/renderer-structure.test.js tests/notch-focus.electron.js README.md
 ```
 
 Expected: no whitespace errors and no unrelated product changes. Preserve any pre-existing untracked or modified files outside this feature.
