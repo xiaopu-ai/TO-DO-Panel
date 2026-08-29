@@ -122,17 +122,84 @@ button, input, textarea, select { font: inherit; }
 }
 
 .hero-screen {
+  --hero-screen-radius: 9px 9px 3px 3px;
   position: absolute;
   top: 25.03%;
   left: 30.92%;
   width: 37.83%;
   height: 36.94%;
   overflow: hidden;
-  border-radius: 9px 9px 3px 3px;
+  border-radius: var(--hero-screen-radius);
   background: #030303;
 }
-.hero-screen-wallpaper { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.hero-panel-reveal { position: absolute; inset: 0; transform-origin: top center; }
+.hero-screen-wallpaper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  opacity: 0;
+  transform: scale(1.025);
+  transition: opacity 420ms ease 360ms, transform 1050ms var(--ease-out);
+}
+.hero-section[data-hero-boot="ready"] .hero-screen-wallpaper {
+  opacity: 1;
+  transform: scale(1);
+  transition: none;
+}
+.hero-boot-layer { position: absolute; inset: 0; z-index: 3; overflow: hidden; border-radius: inherit; pointer-events: none; transition: opacity 260ms ease; }
+.hero-boot-window {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 62%;
+  height: 54%;
+  translate: -50% -50%;
+  transition: width 1050ms var(--ease-out), height 1050ms var(--ease-out);
+}
+.hero-boot-frame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: clamp(8px, 1.1vw, 16px);
+  background: #05070a;
+  box-shadow: 0 16px 35px rgba(0, 0, 0, 0.36), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transform-origin: center;
+  transition: border-color 820ms ease, border-radius 1050ms var(--ease-out), box-shadow 820ms ease;
+}
+.hero-boot-wallpaper { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; transform-origin: center; }
+.hero-boot-frame::after { position: absolute; inset: 0; background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 38%, rgba(0, 0, 0, 0.1)); pointer-events: none; content: ""; }
+.hero-boot-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  color: #fff;
+  font: 500 clamp(14px, 1.44vw, 22px)/1 "Kanit", sans-serif;
+  letter-spacing: 0.075em;
+  opacity: 0.94;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.8);
+  translate: -50% -50%;
+  transition: opacity 220ms ease;
+}
+.hero-section[data-hero-boot="revealing"] .hero-boot-window,
+.hero-section[data-hero-boot="ready"] .hero-boot-window { width: 100%; height: 100%; }
+.hero-section[data-hero-boot="revealing"] .hero-boot-frame,
+.hero-section[data-hero-boot="ready"] .hero-boot-frame {
+  border: 0;
+  border-radius: var(--hero-screen-radius);
+  box-shadow: none;
+  transition: border-radius 1050ms var(--ease-out);
+}
+.hero-section[data-hero-boot="revealing"] .hero-boot-frame::after,
+.hero-section[data-hero-boot="ready"] .hero-boot-frame::after { content: none; }
+.hero-section[data-hero-boot="revealing"] .hero-boot-label,
+.hero-section[data-hero-boot="ready"] .hero-boot-label { opacity: 0; }
+.hero-section[data-hero-boot="ready"] .hero-boot-layer { opacity: 0; }
+.hero-panel-reveal { position: absolute; inset: 0; z-index: 2; transform-origin: top center; }
 .hero-panel-toggle {
   position: absolute;
   top: 0;

@@ -7,6 +7,7 @@ import type { MediaKind } from "./landingContent";
 type Props = {
   src: string;
   fallbackSrc?: string;
+  posterSrc?: string;
   kind?: MediaKind;
   alt: string;
   className?: string;
@@ -18,6 +19,7 @@ type Props = {
 export default function RealProductMedia({
   src,
   fallbackSrc = "",
+  posterSrc = "",
   kind = "image",
   alt,
   className = "",
@@ -39,7 +41,7 @@ export default function RealProductMedia({
           <small>{missingLabel}</small>
         </div>
       ) : media.kind === "video" ? (
-        <video src={media.src} muted loop playsInline autoPlay aria-label={alt} onError={handleError} />
+        <video src={media.src} poster={posterSrc || fallbackSrc || undefined} preload="metadata" muted loop playsInline autoPlay aria-label={alt} onError={handleError} />
       ) : (
         // The product capture is a real file-backed screenshot. It must never be replaced with drawn UI.
         // eslint-disable-next-line @next/next/no-img-element

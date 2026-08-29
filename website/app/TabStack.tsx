@@ -18,6 +18,8 @@ function TabCard({ item, index, progress, reducedMotion, loadMedia }: { item: Ta
         <header><strong>{String(index + 1).padStart(2, "0")}</strong><div><span>{item.eyebrow}</span><h3>{item.title}</h3><p>{item.description}</p></div></header>
         <RealProductMedia
           src={item.capture}
+          fallbackSrc={item.capturePoster}
+          posterSrc={item.capturePoster}
           kind={item.captureKind}
           alt={`${item.title}全桌面真实操作录屏`}
           className="tab-capture"

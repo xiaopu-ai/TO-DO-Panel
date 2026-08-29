@@ -8,6 +8,8 @@
     ·
     <a href="#从源码运行">从源码运行</a>
     ·
+    <a href="#更新日志">更新日志</a>
+    ·
     <a href="https://github.com/xiaopu-ai/TO-DO-Panel/issues">反馈问题</a>
   </p>
   <p>
@@ -40,7 +42,7 @@ TO-DO Panel 是一个常驻 macOS 屏幕顶部的本地工作台。默认折叠�
 
 ## 下载与安装
 
-> 当前版本：**1.0.1** · 支持 **Apple Silicon Mac**
+> 当前版本：**1.0.2** · 支持 **Apple Silicon Mac**
 
 1. 前往 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO-Panel-*-arm64.dmg`。
 2. 打开 DMG，将 `TO-DO Panel.app` 拖入「应用程序」。
@@ -48,6 +50,12 @@ TO-DO Panel 是一个常驻 macOS 屏幕顶部的本地工作台。默认折叠�
 4. 再次启动，根据需要授予辅助功能、屏幕录制、麦克风或摄像头权限。
 
 项目明确采用 GitHub Releases + ad-hoc 签名分发，不进行 Apple 公证，也不上架 Mac App Store。因此首次安装需要手动确认“仍要打开”；这是当前正式分发方式，不是待修复的发布缺陷。每次重新打包后，macOS 可能要求重新授权；由 `safeStorage` 加密的密钥也可能需要重新填写。
+
+## 更新日志
+
+当前稳定版本为 **v1.0.2**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
+
+完整版本历史、修复内容与未发布改动见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 设计原则
 

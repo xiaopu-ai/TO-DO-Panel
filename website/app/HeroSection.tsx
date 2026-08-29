@@ -8,29 +8,91 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { assetPath } from "./assetPath.mjs";
-import { DOWNLOAD_URL, NAV_ITEMS } from "./landingContent";
+import { DOWNLOAD_URL, MARQUEE_ITEMS, NAV_ITEMS, TAB_ITEMS } from "./landingContent";
 import { LATEST_RELEASE_API_URL, selectMacDownloadUrl } from "./landingDownload.mjs";
 import EchoText from "./reactbits/EchoText/EchoText";
 import Magnet from "./reactbits/Magnet/Magnet";
 import {
   INITIAL_HERO_PANEL_STATE,
+  advanceHeroBootPhase,
+  heroBootBreathingProfile,
+  heroBootPhase,
   nextHeroPanelState,
+  type HeroBootPhase,
   type HeroPanelState,
 } from "./landingHero.mjs";
 
 const HERO_ENTRANCE_MS = 1700;
+const HERO_BOOT_MINIMUM_MS = 2400;
+const HERO_BOOT_TIMEOUT_MS = 8000;
+const HERO_BOOT_REVEAL_MS = 1100;
+const HERO_BOOT_BREATHING = heroBootBreathingProfile();
 
 export default function HeroSection() {
   const reducedMotion = useReducedMotion();
   const [panelState, setPanelState] = useState<HeroPanelState>(INITIAL_HERO_PANEL_STATE);
+  const [bootPhase, setBootPhase] = useState<HeroBootPhase>("loading");
   const [entranceComplete, setEntranceComplete] = useState(false);
   const [downloadPending, setDownloadPending] = useState(false);
   const expanded = panelState === "expanded";
 
+  const noMotion = reducedMotion === true;
+  const effectiveBootPhase = noMotion ? heroBootPhase({ reducedMotion: true }) : bootPhase;
+
   useEffect(() => {
-    const timer = window.setTimeout(() => setEntranceComplete(true), reducedMotion ? 0 : HERO_ENTRANCE_MS);
+    if (noMotion) return;
+
+    let active = true;
+    const imagePromises = MARQUEE_ITEMS.map(({ src }) => new Promise<void>((resolve, reject) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error(`Failed to preload ${src}`));
+      image.src = src;
+    }));
+    const firstTabVideo = document.createElement("video");
+    const videoPromise = new Promise<void>((resolve, reject) => {
+      firstTabVideo.preload = "auto";
+      firstTabVideo.muted = true;
+      firstTabVideo.playsInline = true;
+      firstTabVideo.addEventListener("canplaythrough", () => resolve(), { once: true });
+      firstTabVideo.addEventListener("error", () => reject(new Error("Failed to preload first tab video")), { once: true });
+      firstTabVideo.src = TAB_ITEMS[0].capture;
+      firstTabVideo.load();
+    });
+    const minimumHoldPromise = new Promise<void>((resolve) => {
+      window.setTimeout(resolve, HERO_BOOT_MINIMUM_MS);
+    });
+
+    Promise.all([Promise.all([...imagePromises, videoPromise]), minimumHoldPromise]).then(() => {
+      if (active) setBootPhase((current) => advanceHeroBootPhase(current, { mediaReady: true, minimumElapsed: true }));
+    }).catch(() => {
+      // The eight-second fallback below keeps the boot sequence deterministic.
+    });
+
+    const fallbackTimer = window.setTimeout(() => {
+      if (active) setBootPhase((current) => advanceHeroBootPhase(current, { timedOut: true }));
+    }, HERO_BOOT_TIMEOUT_MS);
+
+    return () => {
+      active = false;
+      window.clearTimeout(fallbackTimer);
+      firstTabVideo.removeAttribute("src");
+      firstTabVideo.load();
+    };
+  }, [noMotion]);
+
+  useEffect(() => {
+    if (bootPhase !== "revealing") return;
+    const timer = window.setTimeout(() => setBootPhase("ready"), HERO_BOOT_REVEAL_MS);
     return () => window.clearTimeout(timer);
-  }, [reducedMotion]);
+  }, [bootPhase]);
+
+  useEffect(() => {
+    if (effectiveBootPhase !== "ready") return;
+    const timer = window.setTimeout(() => setEntranceComplete(true), noMotion ? 0 : HERO_ENTRANCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [effectiveBootPhase, noMotion]);
 
   const togglePanel = () => {
     setPanelState((current) => nextHeroPanelState(current, entranceComplete));
@@ -56,29 +118,26 @@ export default function HeroSection() {
     }
   };
 
-  const noMotion = reducedMotion === true;
+  const contentVisible = effectiveBootPhase === "ready";
   const heroMaskStyle = {
     "--hero-mask-image": `url("${assetPath("/hero/mac-foreground-mask.svg")}")`,
   } as CSSProperties;
 
   return (
-    <section className={`hero-section hero-photographic${entranceComplete ? " is-ready" : ""}`} data-section="hero" id="top">
-      <motion.div
+    <section className={`hero-section hero-photographic${entranceComplete ? " is-ready" : ""}`} data-section="hero" data-hero-boot={effectiveBootPhase} id="top">
+      <div
         className="hero-scene-artboard hero-scene-base"
-        initial={noMotion ? false : { opacity: 0, scale: 1.025 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
         aria-hidden="true"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={assetPath("/hero/mac-scene-hq.jpg")} alt="" />
-      </motion.div>
+        <img src={assetPath("/hero/mac-scene-hq.jpg")} alt="" fetchPriority="high" />
+      </div>
 
       <motion.h1
         className="hero-wordmark"
         initial={noMotion ? false : { opacity: 0, y: 38 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        animate={contentVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 38 }}
+        transition={{ duration: 0.6, delay: contentVisible ? 0.12 : 0, ease: [0.22, 1, 0.36, 1] }}
       >
         <EchoText
           text="TO-DO PANEL"
@@ -90,20 +149,40 @@ export default function HeroSection() {
         />
       </motion.h1>
 
-      <motion.div
+      <div
         className="hero-scene-artboard hero-screen-layer"
-        initial={noMotion ? false : { opacity: 0, scale: 1.025 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className="hero-screen">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img className="hero-screen-wallpaper" src={assetPath("/hero/mac-wallpaper-v2.jpg")} alt="Mac 屏幕山脉壁纸" />
+          <img className="hero-screen-wallpaper" src={assetPath("/hero/mac-wallpaper-v2.jpg")} alt="Mac 屏幕山脉壁纸" fetchPriority="high" />
+          <div className="hero-boot-layer" aria-live="polite" aria-label={effectiveBootPhase === "loading" ? "正在加载产品演示" : undefined}>
+            <motion.div
+              className="hero-boot-window"
+              animate={effectiveBootPhase === "loading" && !noMotion
+                ? { width: HERO_BOOT_BREATHING.maskWidth, height: HERO_BOOT_BREATHING.maskHeight }
+                : { width: "100%", height: "100%" }}
+              transition={effectiveBootPhase === "loading" && !noMotion
+                ? { duration: HERO_BOOT_BREATHING.duration, ease: "easeInOut", repeat: Infinity }
+                : { duration: 1.05, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <div className="hero-boot-frame">
+                <motion.img
+                  className="hero-boot-wallpaper"
+                  src={assetPath("/hero/mac-wallpaper-v2.jpg")}
+                  alt=""
+                  aria-hidden="true"
+                  animate={effectiveBootPhase === "loading" && !noMotion ? { scale: HERO_BOOT_BREATHING.wallpaperScale } : { scale: 1 }}
+                  transition={effectiveBootPhase === "loading" && !noMotion ? { duration: HERO_BOOT_BREATHING.duration, ease: "easeInOut", repeat: Infinity } : { duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+                />
+                <span className="hero-boot-label">Loading...</span>
+              </div>
+            </motion.div>
+          </div>
           <motion.div
             className="hero-panel-reveal"
             initial={noMotion ? false : { opacity: 0, clipPath: "inset(0 0 100% 0 round 18px)" }}
-            animate={{ opacity: 1, clipPath: "inset(0 0 0% 0 round 18px)" }}
-            transition={{ duration: 0.65, delay: 1.05, ease: [0.22, 1, 0.36, 1] }}
+            animate={contentVisible ? { opacity: 1, clipPath: "inset(0 0 0% 0 round 18px)" } : { opacity: 0, clipPath: "inset(0 0 100% 0 round 18px)" }}
+            transition={{ duration: 0.65, delay: contentVisible ? 0.5 : 0, ease: [0.22, 1, 0.36, 1] }}
           >
             <div
               className={`hero-panel-toggle is-${panelState}`}
@@ -124,26 +203,23 @@ export default function HeroSection() {
             </div>
           </motion.div>
         </div>
-      </motion.div>
+      </div>
 
-      <motion.div
+      <div
         className="hero-scene-artboard hero-scene-foreground"
         style={heroMaskStyle}
-        initial={noMotion ? false : { opacity: 0, scale: 1.025 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
         aria-hidden="true"
       >
         {/* Reuses original photo pixels through a mask; no foreground is generated. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={assetPath("/hero/mac-scene-hq.jpg")} alt="" />
-      </motion.div>
+        <img src={assetPath("/hero/mac-scene-hq.jpg")} alt="" fetchPriority="high" />
+      </div>
 
       <motion.nav
         className="hero-nav"
         initial={noMotion ? false : { opacity: 0, y: -16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.5 }}
+        animate={contentVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: -16 }}
+        transition={{ duration: 0.5, delay: contentVisible ? 0.12 : 0 }}
         aria-label="主要导航"
       >
         <a className="brand-lockup" href="#top">
@@ -169,8 +245,8 @@ export default function HeroSection() {
       <motion.div
         className="hero-bottom"
         initial={noMotion ? false : { opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.65, delay: 1.05, ease: [0.22, 1, 0.36, 1] }}
+        animate={contentVisible ? { opacity: 1, y: 0 } : { opacity: 0, y: 24 }}
+        transition={{ duration: 0.65, delay: contentVisible ? 0.5 : 0, ease: [0.22, 1, 0.36, 1] }}
       >
         <p>把灵动岛，变成随手可用的工作台</p>
         <div className="hero-actions">
