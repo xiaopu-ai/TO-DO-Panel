@@ -272,6 +272,34 @@ function clipboardServicePolicy(features) {
   };
 }
 
+function createWorkspacePersistenceGate() {
+  let lastSignature = null;
+  const signatureFor = (storage, destination = '') => {
+    if (!storage || typeof storage !== 'object' || Array.isArray(storage)) return null;
+    return JSON.stringify([
+      String(destination || ''),
+      Object.keys(storage).sort().map((key) => [key, storage[key]]),
+    ]);
+  };
+  return {
+    shouldWrite(storage, destination = '') {
+      const signature = signatureFor(storage, destination);
+      return signature !== null && signature !== lastSignature;
+    },
+    markWritten(storage, destination = '') {
+      const signature = signatureFor(storage, destination);
+      if (signature !== null) lastSignature = signature;
+    },
+  };
+}
+
+function hoverSpacePollingPolicy({ shortcut, visible, mode } = {}) {
+  return {
+    enabled: shortcut === 'Space' && visible === true && mode === 'collapsed',
+    intervalMs: 60,
+  };
+}
+
 const CONFIGURABLE_FEATURES = new Set(['todo', 'notes', 'links', 'recordings', 'credentials', 'clip']);
 
 function updateFeaturePreference(features, featureId, enabled) {
@@ -347,6 +375,8 @@ module.exports = {
   parseSmartMaterialMetadata,
   selectTranscriptionSettings,
   clipboardServicePolicy,
+  createWorkspacePersistenceGate,
+  hoverSpacePollingPolicy,
   updateFeaturePreference,
   sodaShortcutSpec,
   controlSodaMusic,

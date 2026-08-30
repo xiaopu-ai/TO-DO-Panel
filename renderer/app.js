@@ -2484,6 +2484,7 @@ let homeLayoutReadOnly = false;
 let homeLayoutMotionGeneration = 0;
 let homeLayoutMotionAnimations = [];
 let homeLayoutMotionGhosts = [];
+const HOME_LAYOUT_MOTION_MS = 680;
 
 function saveHomeLayout() {
   try {
@@ -2590,7 +2591,7 @@ function animateCommittedHomeLayout(reason, beforeState) {
     const previous = beforeState.tiles.get(moduleId);
     const contentAnimation = tile.animate(
       [{ opacity: 0.16 }, { opacity: 0.22, offset: 0.62 }, { opacity: 1 }],
-      { duration: 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
+      { duration: HOME_LAYOUT_MOTION_MS, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
     );
     homeLayoutMotionAnimations.push(contentAnimation);
     if (!previous) return;
@@ -2612,7 +2613,7 @@ function animateCommittedHomeLayout(reason, beforeState) {
         { transform: 'translate(0, 0) scale(1, 1)', opacity: 0.9, offset: 0.7 },
         { transform: 'translate(0, 0) scale(1, 1)', opacity: 0 },
       ],
-      { duration: 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
+      { duration: HOME_LAYOUT_MOTION_MS, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
     );
     homeLayoutMotionAnimations.push(ghostAnimation);
   });

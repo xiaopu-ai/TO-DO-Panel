@@ -272,7 +272,7 @@
       alpha: true,
       antialias: false,
       premultipliedAlpha: true,
-      powerPreference: 'high-performance',
+      powerPreference: 'low-power',
     });
     if (!gl) {
       container?.classList.add('effect-fallback');
@@ -310,8 +310,9 @@
     let lastDraw = 0;
     let disposed = false;
     let effectEnabled = true;
+    const frameInterval = 1000 / 30;
     const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       const width = Math.max(1, Math.round(canvas.clientWidth * dpr));
       const height = Math.max(1, Math.round(canvas.clientHeight * dpr));
       if (canvas.width !== width || canvas.height !== height) {
@@ -326,27 +327,36 @@
       document.visibilityState === 'visible' &&
       app?.classList.contains('expanded') &&
       homePanel?.getAttribute('aria-hidden') !== 'true' &&
-      canvas.offsetParent
+      !container?.hidden &&
+      canvas.isConnected
     );
+    const stopFrameLoop = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      canvas.dataset.effectRunning = 'false';
+    };
     const draw = (now, force = false) => {
       if (disposed || !effectEnabled) return;
-      const active = force || isActive();
-      if (active && (force || now - lastDraw >= 15)) {
+      if (!isActive()) {
+        stopFrameLoop();
+        return;
+      }
+      if (force || now - lastDraw >= frameInterval) {
         const size = resize();
         gl.useProgram(program);
         configure.frame(state, reducedMotion.matches ? 0 : (now - start) / 1000, size);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         lastDraw = now;
       }
-      raf = !reducedMotion.matches && effectEnabled ? requestAnimationFrame(draw) : 0;
+      raf = !reducedMotion.matches ? requestAnimationFrame(draw) : 0;
       canvas.dataset.effectRunning = String(Boolean(raf));
     };
-    const restart = () => {
-      cancelAnimationFrame(raf);
-      raf = 0;
-      canvas.dataset.effectRunning = 'false';
+    const syncActivity = () => {
+      stopFrameLoop();
+      if (!effectEnabled || !isActive()) return;
       start = performance.now();
-      if (effectEnabled) draw(start, true);
+      lastDraw = 0;
+      draw(start, true);
     };
 
     const onPointerMove = (event) => {
@@ -360,32 +370,33 @@
     };
     container.addEventListener('pointermove', onPointerMove);
     container.addEventListener('pointerleave', onPointerLeave);
-    reducedMotion.addEventListener('change', restart);
+    reducedMotion.addEventListener('change', syncActivity);
+    document.addEventListener('visibilitychange', syncActivity);
+    document.addEventListener('notch:modechange', syncActivity);
+    document.addEventListener('notch:tabchange', syncActivity);
     const resizeObserver = new ResizeObserver(() => {
-      if (effectEnabled) restart();
+      if (effectEnabled && isActive()) syncActivity();
     });
     resizeObserver.observe(canvas);
-    restart();
+    syncActivity();
 
     return {
-      redraw: () => { if (effectEnabled) restart(); },
+      redraw: () => { if (effectEnabled) syncActivity(); },
       setEnabled(enabled) {
         const next = enabled === true;
         if (next === effectEnabled) return;
         effectEnabled = next;
-        cancelAnimationFrame(raf);
-        raf = 0;
-        canvas.dataset.effectRunning = 'false';
-        if (effectEnabled) restart();
+        syncActivity();
       },
       destroy() {
         disposed = true;
-        cancelAnimationFrame(raf);
-        raf = 0;
-        canvas.dataset.effectRunning = 'false';
+        stopFrameLoop();
         container.removeEventListener('pointermove', onPointerMove);
         container.removeEventListener('pointerleave', onPointerLeave);
-        reducedMotion.removeEventListener('change', restart);
+        reducedMotion.removeEventListener('change', syncActivity);
+        document.removeEventListener('visibilitychange', syncActivity);
+        document.removeEventListener('notch:modechange', syncActivity);
+        document.removeEventListener('notch:tabchange', syncActivity);
         resizeObserver.disconnect();
         gl.deleteBuffer(buffer);
         gl.deleteProgram(program);

@@ -510,6 +510,41 @@ async function main() {
     assert.ok(lifecycleAudit.whileHidden < lifecycleAudit.before, '番茄钟隐藏后应继续计时');
     assert.equal(lifecycleAudit.after, lifecycleAudit.whileHidden);
 
+    const idlePerformanceAudit = await window.webContents.executeJavaScript(`
+      (async () => {
+        const appSurface = document.getElementById('app');
+        const canvas = document.getElementById('music-color-bends');
+        document.getElementById('tab-button-home').click();
+        appSurface.classList.remove('collapsed');
+        appSurface.classList.add('expanded');
+        document.dispatchEvent(new CustomEvent('notch:modechange', { detail: { expanded: true } }));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const runningWhileExpanded = canvas.dataset.effectRunning === 'true';
+        const hasInfinitePanelEffect = document.getElementById('panel').getAnimations({ subtree: true })
+          .some((animation) => animation.animationName === 'bento-border-breathe'
+            && animation.effect?.getTiming?.().iterations === Infinity);
+        const panelBackdropFilter = getComputedStyle(document.getElementById('panel'), '::before').backdropFilter;
+        appSurface.classList.remove('expanded');
+        appSurface.classList.add('collapsed');
+        document.dispatchEvent(new CustomEvent('notch:modechange', { detail: { expanded: false } }));
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const stoppedWhileCollapsed = canvas.dataset.effectRunning === 'false';
+        appSurface.classList.remove('collapsed');
+        appSurface.classList.add('expanded');
+        document.dispatchEvent(new CustomEvent('notch:modechange', { detail: { expanded: true } }));
+        return {
+          runningWhileExpanded,
+          stoppedWhileCollapsed,
+          hasInfinitePanelEffect,
+          panelBackdropFilter,
+        };
+      })()
+    `);
+    assert.equal(idlePerformanceAudit.runningWhileExpanded, true);
+    assert.equal(idlePerformanceAudit.stoppedWhileCollapsed, true, '收起后 WebGL 不得保留空转 RAF');
+    assert.equal(idlePerformanceAudit.hasInfinitePanelEffect, false, '展开后不得运行大面积无限边框滤镜动画');
+    assert.equal(idlePerformanceAudit.panelBackdropFilter, 'none', '近乎不透明的面板不得使用大面积实时背景模糊');
+
     const autoLayoutMotionAudit = await window.webContents.executeJavaScript(`
       (async () => {
         const ids = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands'];
@@ -521,6 +556,8 @@ async function main() {
         sizeButton.click();
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const ghosts = [...document.querySelectorAll('.home-layout-ghost')];
+        const ghostDurations = ghosts.flatMap((ghost) => ghost.getAnimations()
+          .map((animation) => Number(animation.effect?.getTiming?.().duration) || 0));
         const realTileHasScale = [...document.querySelectorAll('#home-bento [data-home-module]:not([hidden])')]
           .some((tile) => tile.getAnimations().some((animation) => (
             animation.effect?.getKeyframes?.().some((frame) => /scale/.test(String(frame.transform || '')))
@@ -530,9 +567,10 @@ async function main() {
           afterSize: sizeButton.dataset.currentSize,
           ghostCount: ghosts.length,
           ghostPointerSafe: ghosts.every((ghost) => getComputedStyle(ghost).pointerEvents === 'none'),
+          ghostDurations,
           realTileHasScale,
         };
-        await new Promise((resolve) => setTimeout(resolve, 520));
+        await new Promise((resolve) => setTimeout(resolve, 760));
         const ghostsAfter = document.querySelectorAll('.home-layout-ghost').length;
         sizeButton.click();
         sizeButton.click();
@@ -540,7 +578,7 @@ async function main() {
         const rapidGhostIds = [...document.querySelectorAll('.home-layout-ghost')]
           .map((ghost) => ghost.dataset.homeLayoutGhost);
         const rapidDuplicateGhosts = new Set(rapidGhostIds).size !== rapidGhostIds.length;
-        await new Promise((resolve) => setTimeout(resolve, 520));
+        await new Promise((resolve) => setTimeout(resolve, 760));
         return {
           ...during,
           ghostsAfter,
@@ -551,6 +589,7 @@ async function main() {
     `);
     assert.notEqual(autoLayoutMotionAudit.afterSize, autoLayoutMotionAudit.beforeSize);
     assert.ok(autoLayoutMotionAudit.ghostCount > 0, '尺寸切换应产生 Auto Layout 外壳重排');
+    assert.ok(autoLayoutMotionAudit.ghostDurations.every((duration) => duration >= 600), 'Auto Layout 重排节奏不得过快');
     assert.equal(autoLayoutMotionAudit.ghostPointerSafe, true);
     assert.equal(autoLayoutMotionAudit.realTileHasScale, false, '真实组件内容不得参与缩放');
     assert.equal(autoLayoutMotionAudit.ghostsAfter, 0, 'Auto Layout ghost 必须在动画后清理');

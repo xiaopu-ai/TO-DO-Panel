@@ -38,6 +38,8 @@ const {
   controlSodaMusic,
   sodaShortcutSpec,
   selectTranscriptionSettings,
+  createWorkspacePersistenceGate,
+  hoverSpacePollingPolicy,
 } = require('./main-services');
 
 // Keep the historical data directory so upgrading users retain notes, links,
@@ -194,6 +196,7 @@ const APP_SETTINGS_FILE = 'app-settings.json';
 const WORKSPACE_SETTINGS_FILE = 'workspace-settings.json';
 const WORKSPACE_DATA_FILE = 'workspace.json';
 const MIRROR_IMAGE_FILE = 'mirror-cover.jpg';
+const workspacePersistenceGate = createWorkspacePersistenceGate();
 const SODA_MUSIC_APP = '/Applications/汽水音乐.app';
 const TRANSCRIPTION_MODEL = 'qwen3-asr-flash-realtime';
 const TRANSCRIPTION_SAMPLE_RATE = 16000;
@@ -367,6 +370,7 @@ function applyMode(mode, display) {
     mainWindow.hide();
     refreshTrayMenu();
   }
+  syncHoverSpacePolling();
 }
 
 // 纯重新定位不能改变收起事务，否则屏幕变化会取消 watchdog 并重新吞掉鼠标。
@@ -987,6 +991,8 @@ function createWindow() {
   mainWindow.on('focus', () => {
     cameraBlurDeferred = false;
   });
+  mainWindow.on('show', syncHoverSpacePolling);
+  mainWindow.on('hide', syncHoverSpacePolling);
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
@@ -1418,11 +1424,15 @@ ipcMain.handle('workspace:save-data', (event, storage) => {
   const portableStorage = normalizePortableStorage(storage);
   const serialized = JSON.stringify(portableStorage);
   if (Buffer.byteLength(serialized) > 8 * 1024 * 1024) return false;
-  return writeJsonFile(workspacePath(WORKSPACE_DATA_FILE), {
+  const destination = workspacePath(WORKSPACE_DATA_FILE);
+  if (!workspacePersistenceGate.shouldWrite(portableStorage, destination)) return true;
+  const written = writeJsonFile(destination, {
     version: 1,
     updatedAt: Date.now(),
     localStorage: portableStorage,
   });
+  if (written) workspacePersistenceGate.markWritten(portableStorage, destination);
+  return written;
 });
 ipcMain.handle('workspace:open', () => shell.openPath(workspaceRoot()));
 ipcMain.handle('workspace:choose', () => chooseWorkspaceFolder());
@@ -2936,10 +2946,21 @@ function setHoverSpaceShortcut(enabled) {
 }
 
 function startHoverSpaceShortcut() {
+  const policy = hoverSpacePollingPolicy({
+    shortcut: configuredShortcut,
+    visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
+    mode: currentMode,
+  });
+  if (!policy.enabled) return;
   if (spaceShortcutTimer) return;
   spaceShortcutTimer = setInterval(() => {
-    if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible() || currentMode !== 'collapsed') {
-      setHoverSpaceShortcut(false);
+    const currentPolicy = hoverSpacePollingPolicy({
+      shortcut: configuredShortcut,
+      visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
+      mode: currentMode,
+    });
+    if (!currentPolicy.enabled) {
+      stopHoverSpaceShortcut();
       return;
     }
     const point = screen.getCursorScreenPoint();
@@ -2947,13 +2968,23 @@ function startHoverSpaceShortcut() {
     const hovering = point.x >= bounds.x && point.x < bounds.x + bounds.width
       && point.y >= bounds.y && point.y < bounds.y + bounds.height;
     setHoverSpaceShortcut(hovering);
-  }, 24);
+  }, policy.intervalMs);
 }
 
 function stopHoverSpaceShortcut() {
   if (spaceShortcutTimer) clearInterval(spaceShortcutTimer);
   spaceShortcutTimer = null;
   setHoverSpaceShortcut(false);
+}
+
+function syncHoverSpacePolling() {
+  const policy = hoverSpacePollingPolicy({
+    shortcut: configuredShortcut,
+    visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
+    mode: currentMode,
+  });
+  if (policy.enabled) startHoverSpaceShortcut();
+  else stopHoverSpaceShortcut();
 }
 
 ipcMain.handle('shortcut:hover-space-status', () => ({

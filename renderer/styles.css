@@ -2628,18 +2628,6 @@ body {
   --panel-shadow: rgba(0, 0, 0, 0.64);
 }
 
-@property --bento-border-angle {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
-
-@keyframes bento-border-breathe {
-  0% { --bento-border-angle: 0deg; opacity: 0.45; filter: saturate(0.85) brightness(0.8); }
-  45% { opacity: 0.95; filter: saturate(1.2) brightness(1.25); }
-  100% { --bento-border-angle: 360deg; opacity: 0.5; filter: saturate(0.9) brightness(0.9); }
-}
-
 .panel::before {
   background:
     radial-gradient(70% 80% at 50% -10%, rgba(74, 93, 126, 0.16), transparent 62%),
@@ -2649,7 +2637,6 @@ body {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.055),
     0 24px 80px rgba(0, 0, 0, 0.68);
-  backdrop-filter: blur(34px) saturate(1.25);
 }
 
 .panel::after {
@@ -2660,7 +2647,7 @@ body {
   padding: 3.35px;
   border-radius: inherit;
   background: conic-gradient(
-    from var(--bento-border-angle) at 50% 50%,
+    from 24deg at 50% 50%,
     rgba(102, 178, 255, 0.04),
     rgba(104, 212, 255, 0.9) 18%,
     rgba(144, 108, 255, 0.92) 37%,
@@ -2678,7 +2665,7 @@ body {
 }
 
 #app.expanded .panel::after {
-  animation: bento-border-breathe 4.8s linear infinite;
+  opacity: 0.46;
 }
 
 .panel > .topbar,
@@ -2881,8 +2868,8 @@ body {
 }
 
 @keyframes bento-masonry-in {
-  0% { opacity: 0; transform: translateY(34px) scale(.965); filter: blur(8px); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  0% { opacity: 0; transform: translateY(34px) scale(.965); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .home-bento.masonry-reveal > [data-home-module] {

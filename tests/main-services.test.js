@@ -17,7 +17,31 @@ const {
   controlSodaMusic,
   sodaShortcutSpec,
   selectTranscriptionSettings,
+  createWorkspacePersistenceGate,
+  hoverSpacePollingPolicy,
 } = require('../main-services');
+
+test('portable workspace persistence skips unchanged snapshots regardless of key order', () => {
+  const gate = createWorkspacePersistenceGate();
+  assert.equal(gate.shouldWrite({ todo: 'one', notes: 'two' }), true);
+  assert.equal(gate.shouldWrite({ notes: 'two', todo: 'one' }), true, '写入确认前必须允许重试');
+  gate.markWritten({ todo: 'one', notes: 'two' });
+  assert.equal(gate.shouldWrite({ notes: 'two', todo: 'one' }), false);
+  assert.equal(gate.shouldWrite({ notes: 'updated', todo: 'one' }), true);
+  gate.markWritten({ notes: 'updated', todo: 'one' });
+  assert.equal(gate.shouldWrite({ notes: 'updated', todo: 'one' }), false);
+  assert.equal(gate.shouldWrite({ notes: 'updated', todo: 'one' }, '/another/workspace'), true);
+});
+
+test('Hover + Space polls only while the collapsed strip is visible', () => {
+  assert.deepEqual(hoverSpacePollingPolicy({ shortcut: 'Space', visible: true, mode: 'collapsed' }), {
+    enabled: true,
+    intervalMs: 60,
+  });
+  assert.equal(hoverSpacePollingPolicy({ shortcut: 'Space', visible: true, mode: 'expanded' }).enabled, false);
+  assert.equal(hoverSpacePollingPolicy({ shortcut: 'Space', visible: false, mode: 'collapsed' }).enabled, false);
+  assert.equal(hoverSpacePollingPolicy({ shortcut: 'Command+Shift+P', visible: true, mode: 'collapsed' }).enabled, false);
+});
 
 test('isPrivateAddress blocks loopback, private, link-local and unique-local ranges', () => {
   for (const address of ['127.0.0.1', '10.2.3.4', '172.16.2.3', '192.168.1.9', '169.254.1.1', '::1', 'fc00::1', 'fe80::1']) {
