@@ -4,6 +4,21 @@
 
 ## [未发布]
 
+## [1.0.3] - 2026-08-30
+
+### 桌面端
+
+- 修复首次启用剪贴板历史时误收录启用前内容，以及文字/图片交替后重复收录同一图片的问题；全新用户目录不再出现预置记录。
+- 将剪贴板图片去重改为内容哈希，避免不同图片因尺寸和文件长度相同而被误判。
+- 复用 Electron 44 `ClipboardItem` 提供的 PNG 原始字节，并把图片探测降到每 3 秒一次，避免 4K 图片在后台每轮重复编码。
+- 修复镜子配图与工作区文件选择器可能被其他应用遮挡的问题，弹窗现在附着主面板且不会触发面板失焦收起。
+- 降低展开/收起和首页静置时的 GPU 工作：面板内容层不再参与大面积裁剪，WebGL 动效仅在鼠标悬停时运行。
+- 修复多 Tab 分栏时透明容器覆盖整条顶栏、导致展开后无法点击顶部中央空白收起的问题；Tab 点击与 Space 收起保持不变。
+- 显式启用渲染沙箱，并拒绝本地窗口导航和创建子窗口。
+- 升级至 Electron 44 与 electron-builder 26.15.7，最低系统调整为 macOS 13，并清除完整依赖审计中的已知漏洞。
+- 收紧 macOS 运行时 entitlements；启动自检不再在用户尚未同意时触发屏幕捕获 API。
+- 通知队列清空后销毁独立通知窗口，避免隐藏 renderer 长期常驻内存。
+
 ### 官网
 
 - 新增 Mac 屏幕内的自动 Loading 唤醒动效：等待第二屏截图与首个 TAB 视频就绪，超过 8 秒使用静态封面兜底。
@@ -34,7 +49,8 @@
 
 - 首个稳定版本，建立固定命名的 Apple Silicon DMG 发布流程。
 
-[未发布]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.2...HEAD
+[未发布]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/xiaopu-ai/TO-DO-Panel/releases/tag/v1.0.0

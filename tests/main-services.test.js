@@ -13,12 +13,20 @@ const {
   parseSmartLinkMetadata,
   parseSmartMaterialMetadata,
   clipboardServicePolicy,
+  createClipboardImageFingerprint,
+  installLocalWebContentsGuards,
+  runOwnedOpenDialog,
+  readClipboardObservation,
+  screenRecordingProbePolicy,
+  taskNotificationWindowPolicy,
+  prepareClipboardImagePayload,
   updateFeaturePreference,
   controlSodaMusic,
   sodaShortcutSpec,
   selectTranscriptionSettings,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
+  reduceClipboardObservation,
 } = require('../main-services');
 
 test('portable workspace persistence skips unchanged snapshots regardless of key order', () => {
@@ -224,6 +232,181 @@ test('clipboard polling follows the feature switch and never reserves a global s
   for (const input of [{ clip: true }, { clip: false }, {}, undefined]) {
     assert.equal(clipboardServicePolicy(input).registerGlobalShortcut, false);
   }
+});
+
+test('enabling clipboard history baselines existing text and image without recording either', () => {
+  const result = reduceClipboardObservation(
+    {},
+    { text: '开启前已复制的文字', imageFingerprint: 'image-before-enable' },
+    { baseline: true }
+  );
+
+  assert.deepEqual(result, {
+    state: {
+      textFingerprint: '开启前已复制的文字',
+      imageFingerprint: 'image-before-enable',
+    },
+    record: null,
+  });
+});
+
+test('text observations do not forget the last image fingerprint', () => {
+  const firstImage = reduceClipboardObservation(
+    {},
+    { text: '', imageFingerprint: 'same-image' }
+  );
+  const text = reduceClipboardObservation(
+    firstImage.state,
+    { text: '中间的文字', imageFingerprint: null }
+  );
+  const repeatedImage = reduceClipboardObservation(
+    text.state,
+    { text: '', imageFingerprint: 'same-image' }
+  );
+
+  assert.equal(firstImage.record.type, 'image');
+  assert.equal(text.record.type, 'text');
+  assert.equal(text.state.imageFingerprint, 'same-image');
+  assert.equal(repeatedImage.record, null);
+});
+
+test('clipboard image fingerprints distinguish different PNG bytes of the same size', () => {
+  const first = createClipboardImageFingerprint(64, 64, Buffer.from([1, 2, 3, 4]));
+  const second = createClipboardImageFingerprint(64, 64, Buffer.from([4, 3, 2, 1]));
+
+  assert.notEqual(first, second);
+  assert.equal(first, createClipboardImageFingerprint(64, 64, Buffer.from([1, 2, 3, 4])));
+});
+
+test('local Electron windows deny renderer navigation and child windows', () => {
+  let windowOpenHandler = null;
+  let navigationHandler = null;
+  const webContents = {
+    setWindowOpenHandler(handler) { windowOpenHandler = handler; },
+    on(eventName, handler) {
+      if (eventName === 'will-navigate') navigationHandler = handler;
+    },
+  };
+
+  assert.equal(installLocalWebContentsGuards(webContents), true);
+  assert.deepEqual(windowOpenHandler({ url: 'https://example.com' }), { action: 'deny' });
+  let prevented = false;
+  navigationHandler({ preventDefault() { prevented = true; } }, 'https://example.com');
+  assert.equal(prevented, true);
+});
+
+test('native file pickers stay attached to the panel and always release the transient guard', async () => {
+  const owner = { id: 'main-window' };
+  const options = { properties: ['openFile'] };
+  const guardDeltas = [];
+  let receivedArgs = null;
+  const result = await runOwnedOpenDialog(
+    async (...args) => {
+      receivedArgs = args;
+      return { canceled: false, filePaths: ['/tmp/example.png'] };
+    },
+    owner,
+    options,
+    (delta) => guardDeltas.push(delta)
+  );
+
+  assert.deepEqual(receivedArgs, [owner, options]);
+  assert.deepEqual(guardDeltas, [1, -1]);
+  assert.equal(result.canceled, false);
+
+  const failureDeltas = [];
+  await assert.rejects(() => runOwnedOpenDialog(
+    async () => { throw new Error('dialog failed'); },
+    owner,
+    options,
+    (delta) => failureDeltas.push(delta)
+  ));
+  assert.deepEqual(failureDeltas, [1, -1]);
+});
+
+test('Electron 44 clipboard items preserve concealed content and lazily decode images', async () => {
+  let imageReads = 0;
+  const items = [{
+    types: [
+      'text/plain',
+      'image/png',
+      'electron application/osclipboard;format="org.nspasteboard.ConcealedType"',
+    ],
+    async getType(type) {
+      if (type === 'image/png') imageReads += 1;
+      if (type === 'text/plain') return new Blob(['secret']);
+      return new Blob([Buffer.from([1, 2, 3])], { type });
+    },
+  }];
+
+  assert.deepEqual(await readClipboardObservation(items, { includeImage: true }), {
+    concealed: true,
+    text: '',
+    image: null,
+  });
+  assert.equal(imageReads, 0, '敏感剪贴板不得解码图片内容');
+});
+
+test('Electron 44 clipboard items decode text first and only read image bytes when requested', async () => {
+  let imageReads = 0;
+  const items = [{
+    types: ['text/plain', 'image/png'],
+    async getType(type) {
+      if (type === 'text/plain') return new Blob(['hello']);
+      imageReads += 1;
+      return new Blob([Buffer.from([4, 5, 6])], { type: 'image/png' });
+    },
+  }];
+
+  const textOnly = await readClipboardObservation(items, { includeImage: false });
+  assert.deepEqual(textOnly, { concealed: false, text: 'hello', image: null });
+  assert.equal(imageReads, 0);
+
+  const withImage = await readClipboardObservation(items, { includeImage: true });
+  assert.equal(withImage.text, 'hello');
+  assert.equal(withImage.image.mimeType, 'image/png');
+  assert.deepEqual(withImage.image.buffer, Buffer.from([4, 5, 6]));
+  assert.equal(imageReads, 1);
+});
+
+test('screen-recording startup checks never touch capture APIs before user consent', () => {
+  assert.deepEqual(screenRecordingProbePolicy('not-determined'), {
+    hasAccess: false,
+    inspectWindowTitles: false,
+  });
+  assert.deepEqual(screenRecordingProbePolicy('denied'), {
+    hasAccess: false,
+    inspectWindowTitles: false,
+  });
+  assert.deepEqual(screenRecordingProbePolicy('granted'), {
+    hasAccess: true,
+    inspectWindowTitles: true,
+  });
+  assert.deepEqual(screenRecordingProbePolicy('unknown'), {
+    hasAccess: true,
+    inspectWindowTitles: false,
+  });
+});
+
+test('hidden task notification renderer is disposed after its queue drains', () => {
+  assert.equal(taskNotificationWindowPolicy({ active: true, queueLength: 0 }), 'retain');
+  assert.equal(taskNotificationWindowPolicy({ active: false, queueLength: 1 }), 'retain');
+  assert.equal(taskNotificationWindowPolicy({ active: false, queueLength: 0 }), 'dispose');
+});
+
+test('unchanged PNG clipboard probes reuse source bytes without re-encoding', () => {
+  const png = Buffer.from([137, 80, 78, 71, 1, 2, 3]);
+  const prepared = prepareClipboardImagePayload('image/png', png, { width: 4096, height: 4096 });
+
+  assert.equal(prepared.pngBuffer, png);
+  assert.equal(prepared.sourceBuffer, png);
+  assert.match(prepared.fingerprint, /^4096x4096:[a-f0-9]{64}$/);
+
+  const jpeg = Buffer.from([255, 216, 255, 1, 2, 3]);
+  assert.equal(
+    prepareClipboardImagePayload('image/jpeg', jpeg, { width: 100, height: 100 }).pngBuffer,
+    null
+  );
 });
 
 test('feature preferences only update configurable tabs and keep permanent tabs enabled', () => {

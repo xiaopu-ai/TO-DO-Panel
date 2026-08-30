@@ -62,5 +62,5 @@ git push origin "v${version}"
 - 确认 `scripts/codex-notify.js` 与 `scripts/claude-notify.js` 已随包装入（在 `build.files` 白名单内），
   否则装了 DMG 的用户按 README 注册钩子时会指向空路径。
 - 不把 API Key、密码、Apple ID 或其他凭据写入源码和 Release。
-- 发布说明必须注明 Apple Silicon 系统要求和首次“仍要打开”的操作。
+- 发布说明必须注明 macOS 13.0+、Apple Silicon 系统要求和首次“仍要打开”的操作。
 - 每个正式版本只使用一个唯一标签，不覆盖已经公开的安装包。

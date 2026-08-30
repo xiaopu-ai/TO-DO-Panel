@@ -13,6 +13,7 @@ const {
   safeStorage,
   dialog,
   desktopCapturer,
+  ClipboardItem,
 } = require('electron');
 const WebSocket = require('ws');
 const path = require('path');
@@ -34,12 +35,20 @@ const {
   extractFaviconHref,
   parseSmartMaterialMetadata,
   clipboardServicePolicy,
+  createClipboardImageFingerprint,
+  prepareClipboardImagePayload,
+  installLocalWebContentsGuards,
+  runOwnedOpenDialog,
+  readClipboardObservation,
+  screenRecordingProbePolicy,
+  taskNotificationWindowPolicy,
   updateFeaturePreference,
   controlSodaMusic,
   sodaShortcutSpec,
   selectTranscriptionSettings,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
+  reduceClipboardObservation,
 } = require('./main-services');
 
 // Keep the historical data directory so upgrading users retain notes, links,
@@ -186,7 +195,9 @@ const COLLAPSE_WATCHDOG_MS = 650;
 
 const CLIP_MAX_ITEMS = 100;
 const CLIP_POLL_INTERVAL_MS = 500;
-const CLIP_IMAGE_POLL_INTERVAL_MS = 1500;
+// 大图从系统 ClipboardItem 复制到进程仍有固定成本；图片探测降到 3 秒一次，
+// 文本继续保持 500ms 响应，不影响日常文字剪贴体验。
+const CLIP_IMAGE_POLL_INTERVAL_MS = 3000;
 const CLIP_IMAGES_DIR_NAME = 'clipboard-images';
 
 const RECORDINGS_DIR_NAME = 'recordings';
@@ -251,11 +262,12 @@ let todoReminderTimer = null;
 let scheduledTodoReminders = [];
 
 let clipPollTimer = null;
+let clipBaselineTimer = null;
+let clipPollingEnabled = false;
 let clipPolling = false; // 互斥锁：大图 toPNG 同步耗时，防止上一轮未完成又进入
-let lastClipTextFingerprint = null;
-let lastClipImageFingerprint = null;
+let clipObservationState = { textFingerprint: null, imageFingerprint: null };
 let lastClipImageProbeAt = 0;
-let pendingClipboardSelfWrite = null;
+let clipPollingGeneration = 0;
 let spaceShortcutTimer = null;
 let spaceShortcutRegistered = false;
 let configuredShortcut = '';
@@ -700,9 +712,12 @@ function createTaskNotificationWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
       backgroundThrottling: false,
     },
   });
+
+  installLocalWebContentsGuards(notificationWindow.webContents);
 
   const targetWindow = notificationWindow;
   notificationWindow.setAlwaysOnTop(true, 'screen-saver', 1);
@@ -799,12 +814,27 @@ function beginTaskNotificationDismiss() {
 function finishTaskNotification(eventId) {
   if (!activeTaskNotification || activeTaskNotification.eventId !== eventId) return;
   clearTaskNotificationTimers();
-  if (notificationWindow && !notificationWindow.isDestroyed()) notificationWindow.hide();
+  const completedWindow = notificationWindow;
+  if (completedWindow && !completedWindow.isDestroyed()) completedWindow.hide();
   activeTaskNotification = null;
   taskNotificationLeaving = false;
   taskNotificationPaused = false;
   taskNotificationRemainingMs = TASK_NOTIFICATION_VISIBLE_MS;
-  setTimeout(showNextTaskNotification, 80);
+  setTimeout(() => {
+    showNextTaskNotification();
+    const policy = taskNotificationWindowPolicy({
+      active: Boolean(activeTaskNotification),
+      queueLength: taskNotificationQueue.length,
+    });
+    if (
+      policy === 'dispose'
+      && notificationWindow === completedWindow
+      && completedWindow
+      && !completedWindow.isDestroyed()
+    ) {
+      completedWindow.destroy();
+    }
+  }, 80);
 }
 
 function sendTaskNotificationResponse(response, statusCode, body) {
@@ -965,8 +995,11 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
+
+  installLocalWebContentsGuards(mainWindow.webContents);
 
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
@@ -1110,6 +1143,25 @@ function workspacePath(name) {
   return path.join(workspaceRoot(), name);
 }
 
+function showOwnedOpenDialog(options) {
+  const owner = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  if (owner) {
+    if (!owner.isVisible()) owner.show();
+    owner.focus();
+  }
+  return runOwnedOpenDialog(
+    dialog.showOpenDialog.bind(dialog),
+    owner,
+    options,
+    (delta) => {
+      transientSystemInteractionRequests = Math.max(0, transientSystemInteractionRequests + delta);
+      if (delta < 0 && transientSystemInteractionRequests === 0 && mediaPermissionRequests === 0) {
+        cameraBlurDeferred = false;
+      }
+    }
+  );
+}
+
 function copyWorkspaceAssets(sourceRoot, targetRoot) {
   if (!sourceRoot || !targetRoot || path.resolve(sourceRoot) === path.resolve(targetRoot)) return;
   for (const directory of [RECORDINGS_DIR_NAME, CLIP_IMAGES_DIR_NAME]) {
@@ -1133,7 +1185,10 @@ function copyWorkspaceAssets(sourceRoot, targetRoot) {
 }
 
 async function chooseWorkspaceFolder() {
-  const result = await dialog.showOpenDialog({ title: '选择 TO-DO Panel 数据文件夹', properties: ['openDirectory', 'createDirectory'] });
+  const result = await showOwnedOpenDialog({
+    title: '选择 TO-DO Panel 数据文件夹',
+    properties: ['openDirectory', 'createDirectory'],
+  });
   const selected = !result.canceled && result.filePaths && result.filePaths[0];
   if (!selected) return false;
   const previousRoot = workspaceRoot();
@@ -1235,7 +1290,7 @@ function mirrorImageDataUrl() {
 }
 
 async function chooseMirrorImage() {
-  const result = await dialog.showOpenDialog({
+  const result = await showOwnedOpenDialog({
     title: '替换镜子配图',
     properties: ['openFile'],
     filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'heic'] }],
@@ -1534,10 +1589,12 @@ ipcMain.handle('shell:open-privacy-settings', (event, pane) => {
 // 系统对前者根本不弹提示，所以只能由应用自己说，否则用户完全无从下手。
 const PERMISSION_PROMPT_SKIP_FILE = 'permission-prompt-skipped';
 
-// 屏幕录制没有可靠的状态查询：getMediaAccessStatus('screen') 在部分系统上恒为 granted。
-// 改用实际取一次窗口源来判定——有权限时能拿到窗口标题，没权限时标题一律为空。
-// thumbnailSize 设为 0 避免真的去抓图。
+// 先尊重系统的明确状态，尤其不能在 not-determined 时调用 desktopCapturer，
+// 否则启动自检本身就会抢先弹出系统录屏框。只有系统报告 granted 时才通过
+// 无缩略图的窗口标题做二次确认；未知状态 fail-open，等用户实际使用时再申请。
 async function hasScreenRecordingAccess() {
+  const policy = screenRecordingProbePolicy(systemPreferences.getMediaAccessStatus('screen'));
+  if (!policy.inspectWindowTitles) return policy.hasAccess;
   try {
     const sources = await desktopCapturer.getSources({
       types: ['window'],
@@ -2274,17 +2331,22 @@ ipcMain.handle('credentials:delete-many', (event, ids) => {
   return { ok: true, deleted: rows.length - next.length };
 });
 
-ipcMain.handle('credentials:copy', (event, payload) => {
+ipcMain.handle('credentials:copy', async (event, payload) => {
   const id = String(payload && payload.id || '');
   const field = payload && payload.field === 'password' ? 'password' : payload && payload.field === 'account' ? 'account' : '';
   if (!id || !field) return false;
   const item = readCredentialsVault().find((row) => row.id === id);
   if (!item) return false;
   const value = item[field];
-  clipboard.writeText(value);
+  await clipboard.writeText(value);
   if (field === 'password') {
     setTimeout(() => {
-      if (clipboard.readText() === value) clipboard.clear();
+      void clipboard.readText()
+        .then((currentValue) => {
+          if (currentValue === value) return clipboard.clear();
+          return undefined;
+        })
+        .catch(() => {});
     }, 60_000).unref?.();
   }
   return true;
@@ -2819,67 +2881,88 @@ function ensureClipImagesDir() {
   }
 }
 
-// 返回 { fingerprint, pngBuf } 或 null
-function readClipboardImage() {
+async function readSystemClipboard(includeImage = false) {
   try {
-    const image = clipboard.readImage();
-    if (image.isEmpty()) return null;
-    const size = image.getSize();
-    const pngBuf = image.toPNG();
-    const fingerprint = `${size.width}x${size.height}:${pngBuf.length}`;
-    return { fingerprint, pngBuf };
-  } catch (e) {
-    return null;
+    const items = await clipboard.read();
+    const observation = await readClipboardObservation(items, { includeImage });
+    let image = null;
+    if (observation.image?.buffer) {
+      const native = nativeImage.createFromBuffer(observation.image.buffer);
+      if (!native.isEmpty()) {
+        const size = native.getSize();
+        image = prepareClipboardImagePayload(
+          observation.image.mimeType,
+          observation.image.buffer,
+          size
+        );
+      }
+    }
+    return { concealed: observation.concealed, text: observation.text, image };
+  } catch (error) {
+    return { concealed: false, text: '', image: null };
   }
 }
 
-async function pollClipboard(options = {}) {
-  if (!mainWindow) return;
-  if (clipPolling) return;
-  const force = Boolean(options && options.force);
-  clipPolling = true;
+async function baselineCurrentClipboard(generation) {
   try {
-    // 密码管理器写入的敏感内容：跳过不记录、不更新指纹
-    const formats = clipboard.availableFormats();
-    if (formats.includes('org.nspasteboard.ConcealedType')) return;
-
-    // 优先读文字
-    const text = clipboard.readText();
-    if (pendingClipboardSelfWrite && pendingClipboardSelfWrite.expiresAt <= Date.now()) {
-      pendingClipboardSelfWrite = null;
-    }
-    if (text && force && pendingClipboardSelfWrite?.type === 'text'
-      && pendingClipboardSelfWrite.text === text) {
-      pendingClipboardSelfWrite = null;
-      lastClipTextFingerprint = text;
-      lastClipImageFingerprint = null;
+    const observation = await readSystemClipboard(true);
+    if (!clipPollingEnabled || generation !== clipPollingGeneration) return;
+    if (observation.concealed) {
+      clipObservationState = reduceClipboardObservation(
+        {},
+        { concealed: true },
+        { baseline: true }
+      ).state;
       return;
     }
-    if (text && (force || text !== lastClipTextFingerprint)) {
-      lastClipTextFingerprint = text;
-      lastClipImageFingerprint = null;
-      const type = /^https?:\/\//i.test(text.trim()) ? 'url' : 'text';
-      mainWindow.webContents.send('clipboard:new-entry', { type, text, imagePath: null });
+    clipObservationState = reduceClipboardObservation(
+      {},
+      { text: observation.text, imageFingerprint: observation.image?.fingerprint || null },
+      { baseline: true }
+    ).state;
+    lastClipImageProbeAt = Date.now();
+  } catch (error) {
+    clipObservationState = { textFingerprint: null, imageFingerprint: null };
+  }
+}
+
+async function pollClipboard() {
+  if (!clipPollingEnabled || !mainWindow) return;
+  if (clipPolling) return;
+  clipPolling = true;
+  try {
+    const now = Date.now();
+    const includeImage = now - lastClipImageProbeAt >= CLIP_IMAGE_POLL_INTERVAL_MS;
+    const observation = await readSystemClipboard(includeImage);
+    if (!clipPollingEnabled) return;
+    // 密码管理器写入的敏感内容：跳过不记录、不更新指纹
+    if (observation.concealed) return;
+
+    // 优先读文字
+    const text = observation.text;
+    if (text) {
+      const decision = reduceClipboardObservation(clipObservationState, { text });
+      clipObservationState = decision.state;
+      if (decision.record && clipPollingEnabled) {
+        const type = /^https?:\/\//i.test(text.trim()) ? 'url' : 'text';
+        mainWindow.webContents.send('clipboard:new-entry', { type, text, imagePath: null });
+      }
       return;
     }
 
     // 文字为空再读图片
-    if (!text) {
-      const now = Date.now();
-      if (!force && now - lastClipImageProbeAt < CLIP_IMAGE_POLL_INTERVAL_MS) return;
+    if (!text && includeImage) {
       lastClipImageProbeAt = now;
-      const result = readClipboardImage();
-      if (result && force && pendingClipboardSelfWrite?.type === 'image'
-        && pendingClipboardSelfWrite.fingerprint === result.fingerprint) {
-        pendingClipboardSelfWrite = null;
-        lastClipImageFingerprint = result.fingerprint;
-        lastClipTextFingerprint = null;
-        return;
-      }
-      if (result && (force || result.fingerprint !== lastClipImageFingerprint)) {
-        const { fingerprint, pngBuf } = result;
-        lastClipImageFingerprint = fingerprint;
-        lastClipTextFingerprint = null;
+      const result = observation.image;
+      const decision = reduceClipboardObservation(clipObservationState, {
+        text: '',
+        imageFingerprint: result?.fingerprint || null,
+      });
+      clipObservationState = decision.state;
+      if (result && decision.record && clipPollingEnabled) {
+        const pngBuf = result.pngBuffer
+          || nativeImage.createFromBuffer(result.sourceBuffer).toPNG();
+        if (!pngBuf.length) return;
         ensureClipImagesDir();
         const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
         const fileName = 'clip-' + id + '.png';
@@ -2888,6 +2971,10 @@ async function pollClipboard(options = {}) {
           await fs.promises.writeFile(imagePath, pngBuf);
         } catch (e) {
           return; // 写盘失败不记录
+        }
+        if (!clipPollingEnabled) {
+          try { await fs.promises.unlink(imagePath); } catch (error) {}
+          return;
         }
         mainWindow.webContents.send('clipboard:new-entry', {
           type: 'image',
@@ -2905,16 +2992,35 @@ async function pollClipboard(options = {}) {
 
 function startClipboardPolling() {
   // Electron 没有 NSPasteboard.changeCount，只能内容轮询：靠文本本身与
-  // 图片「宽x高:PNG 字节长度」指纹去重（见 pollClipboard）。
-  if (clipPollTimer) return;
-  clipPollTimer = setInterval(pollClipboard, CLIP_POLL_INTERVAL_MS);
+  // 图片 PNG 内容哈希指纹去重（见 pollClipboard）。
+  if (clipPollingEnabled) return;
+  clipPollingEnabled = true;
+  const generation = ++clipPollingGeneration;
+  // 首次开启只建立当前系统剪贴板基线，不把开启前的内容写入历史。
+  clipBaselineTimer = setTimeout(() => {
+    clipBaselineTimer = null;
+    if (!clipPollingEnabled) return;
+    void baselineCurrentClipboard(generation).finally(() => {
+      if (clipPollingEnabled && generation === clipPollingGeneration && !clipPollTimer) {
+        clipPollTimer = setInterval(pollClipboard, CLIP_POLL_INTERVAL_MS);
+      }
+    });
+  }, 0);
 }
 
 function stopClipboardPolling() {
+  clipPollingEnabled = false;
+  clipPollingGeneration += 1;
+  if (clipBaselineTimer) {
+    clearTimeout(clipBaselineTimer);
+    clipBaselineTimer = null;
+  }
   if (clipPollTimer) {
     clearInterval(clipPollTimer);
     clipPollTimer = null;
   }
+  clipObservationState = { textFingerprint: null, imageFingerprint: null };
+  lastClipImageProbeAt = 0;
 }
 
 function setHoverSpaceShortcut(enabled) {
@@ -3021,7 +3127,7 @@ ipcMain.handle('clipboard:deleteImages', async (event, paths) => {
   }
 });
 
-function writeClipboardEntry(entry) {
+async function writeClipboardEntry(entry) {
   if (!entry) return false;
   try {
     const safeImagePath =
@@ -3029,32 +3135,34 @@ function writeClipboardEntry(entry) {
     if (safeImagePath) {
       const buf = fs.readFileSync(safeImagePath);
       const image = nativeImage.createFromBuffer(buf);
-      clipboard.writeImage(image);
-      const r = readClipboardImage(); // 写回后更新指纹，避免下轮轮询把自己写的再记一遍
-      if (r) {
-        lastClipImageFingerprint = r.fingerprint;
-        pendingClipboardSelfWrite = {
-          type: 'image',
-          fingerprint: r.fingerprint,
-          expiresAt: Date.now() + 1500,
-        };
+      if (image.isEmpty()) return false;
+      const pngBuf = image.toPNG();
+      await clipboard.write([
+        new ClipboardItem({
+          'image/png': new Blob([pngBuf], { type: 'image/png' }),
+        }),
+      ]);
+      const size = image.getSize();
+      const fingerprint = createClipboardImageFingerprint(size.width, size.height, pngBuf);
+      if (fingerprint) {
+        clipObservationState = reduceClipboardObservation(
+          clipObservationState,
+          { imageFingerprint: fingerprint },
+          { baseline: true }
+        ).state;
       }
-      lastClipTextFingerprint = null;
     } else if (entry.text) {
-      clipboard.writeText(entry.text);
-      lastClipTextFingerprint = entry.text;
-      lastClipImageFingerprint = null;
-      pendingClipboardSelfWrite = {
-        type: 'text',
-        text: entry.text,
-        expiresAt: Date.now() + 1500,
-      };
+      await clipboard.writeText(entry.text);
+      clipObservationState = reduceClipboardObservation(
+        clipObservationState,
+        { text: entry.text },
+        { baseline: true }
+      ).state;
     } else {
       return false;
     }
     return true;
   } catch (e) {
-    pendingClipboardSelfWrite = null;
     return false;
   }
 }
@@ -3087,7 +3195,7 @@ ipcMain.handle('clipboard:write', (event, entry) => writeClipboardEntry(entry));
 // 点击历史项后先收起灵动岛，再回到打开面板前的应用执行粘贴。
 // 若系统尚未授予辅助功能权限，内容仍保留在系统剪贴板作为可靠降级。
 ipcMain.handle('clipboard:paste', async (event, entry) => {
-  if (!writeClipboardEntry(entry)) return { ok: false, pasted: false };
+  if (!await writeClipboardEntry(entry)) return { ok: false, pasted: false };
   if (process.platform === 'darwin' && !systemPreferences.isTrustedAccessibilityClient(true)) {
     return { ok: true, pasted: false, permissionRequired: true };
   }

@@ -17,10 +17,27 @@ async function main() {
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
+    webPreferences: {
+      // 与生产主窗口一致，避免 macOS 将重复运行的测试窗口判为遮挡后暂停 rAF。
+      backgroundThrottling: false,
+    },
   });
 
   try {
     await window.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+    const freshProfileClipboardState = await window.webContents.executeJavaScript(`
+      (() => ({
+        history: localStorage.getItem('notch-clip-history'),
+        favorites: localStorage.getItem('notch-clip-favorites'),
+        imageRows: document.querySelectorAll('#clip-list [data-type="image"]').length,
+      }))()
+    `);
+    assert.deepEqual(freshProfileClipboardState, {
+      history: null,
+      favorites: null,
+      imageRows: 0,
+    }, '全新用户目录不得预置任何剪贴板文本、收藏或图片记录');
+
     await window.webContents.debugger.attach('1.3');
     await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
@@ -30,22 +47,26 @@ async function main() {
     window.webContents.focus();
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
-    await new Promise((resolve) => setTimeout(resolve, 80));
     const focusStyle = await window.webContents.executeJavaScript(`
-      new Promise((resolve) => {
+      (async () => {
         const notch = document.getElementById('notch');
-        requestAnimationFrame(() => {
+        const deadline = performance.now() + 5000;
+        let result;
+        do {
           const notchStyle = getComputedStyle(notch);
           const dotStyle = getComputedStyle(notch.querySelector('.notch-dot'));
-          resolve({
+          result = {
             active: document.activeElement === notch,
             focusVisible: notch.matches(':focus-visible'),
             outlineStyle: notchStyle.outlineStyle,
             outlineWidth: notchStyle.outlineWidth,
             dotBoxShadow: dotStyle.boxShadow,
-          });
-        });
-      })
+          };
+          if (result.active && result.focusVisible) return result;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        } while (performance.now() < deadline);
+        return result;
+      })()
     `);
 
     assert.equal(focusStyle.active, true, '折叠条应能通过键盘获得焦点');
@@ -57,6 +78,115 @@ async function main() {
     );
     assert.notEqual(focusStyle.dotBoxShadow, 'none', '焦点提示应转移到中间抓握条');
 
+    const collapsedPanelLayers = await window.webContents.executeJavaScript(`
+      (() => {
+        const panel = document.querySelector('.panel');
+        return {
+          contentClipPath: getComputedStyle(panel).clipPath,
+          shellClipPath: getComputedStyle(panel, '::before').clipPath,
+        };
+      })()
+    `);
+    assert.equal(
+      collapsedPanelLayers.contentClipPath,
+      'none',
+      '折叠动效不得裁剪承载全部组件的内容层'
+    );
+    assert.notEqual(
+      collapsedPanelLayers.shellClipPath,
+      'none',
+      '折叠轮廓应由独立背景外壳承担'
+    );
+
+    window.setSize(1240, 616);
+    const topbarBlankToggle = await window.webContents.executeJavaScript(`
+      (async () => {
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const waitForClass = async (name) => {
+          const deadline = performance.now() + 5000;
+          while (performance.now() < deadline) {
+            if (document.getElementById('app').classList.contains(name)) return true;
+            await sleep(10);
+          }
+          return false;
+        };
+        // 生产默认开启超过四个 Tab，会进入左右分栏并让容器横跨整条顶栏。
+        document.getElementById('tabs').classList.add('is-split');
+        document.getElementById('notch').click();
+        const opened = await waitForClass('expanded');
+        const topbar = document.querySelector('.topbar').getBoundingClientRect();
+        const x = topbar.left + topbar.width / 2;
+        const y = topbar.top + topbar.height / 2;
+        const hitTarget = document.elementFromPoint(x, y);
+        const interceptedByTabs = Boolean(hitTarget?.closest('.tabs'));
+        hitTarget?.dispatchEvent(new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          clientX: x,
+          clientY: y,
+        }));
+        const collapsed = await waitForClass('collapsed');
+        return {
+          opened,
+          collapsed,
+          interceptedByTabs,
+          hitTarget: hitTarget?.id || hitTarget?.className || hitTarget?.tagName || '',
+          appClass: document.getElementById('app').className,
+          panelAriaHidden: document.querySelector('.panel').getAttribute('aria-hidden'),
+        };
+      })()
+    `);
+    assert.equal(topbarBlankToggle.opened, true, '折叠岛点击后必须展开');
+    assert.equal(
+      topbarBlankToggle.interceptedByTabs,
+      false,
+      `顶部中央空白不得被 Tab 容器截获，当前命中 ${topbarBlankToggle.hitTarget}`
+    );
+    assert.equal(
+      topbarBlankToggle.collapsed,
+      true,
+      `展开后点击顶部中央空白必须收起；最终状态 ${topbarBlankToggle.appClass} / aria-hidden=${topbarBlankToggle.panelAriaHidden}`
+    );
+
+    const topbarTabAndSpaceToggle = await window.webContents.executeJavaScript(`
+      (async () => {
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const waitForClass = async (name) => {
+          const deadline = performance.now() + 5000;
+          while (performance.now() < deadline) {
+            if (document.getElementById('app').classList.contains(name)) return true;
+            await sleep(10);
+          }
+          return false;
+        };
+        document.getElementById('notch').click();
+        const opened = await waitForClass('expanded');
+        const todoButton = document.getElementById('tab-button-todo');
+        const rect = todoButton.getBoundingClientRect();
+        const hitTarget = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        hitTarget?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        await sleep(30);
+        const todoActivated = document.getElementById('tab-todo').classList.contains('active');
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: ' ',
+          code: 'Space',
+          bubbles: true,
+          cancelable: true,
+        }));
+        const collapsedBySpace = await waitForClass('collapsed');
+        return {
+          opened,
+          todoActivated,
+          tabHit: Boolean(hitTarget?.closest('#tab-button-todo')),
+          collapsedBySpace,
+        };
+      })()
+    `);
+    assert.equal(topbarTabAndSpaceToggle.opened, true);
+    assert.equal(topbarTabAndSpaceToggle.tabHit, true, '空白穿透不得破坏真实 Tab 的点击命中');
+    assert.equal(topbarTabAndSpaceToggle.todoActivated, true, '真实 Tab 点击必须继续切换页面');
+    assert.equal(topbarTabAndSpaceToggle.collapsedBySpace, true, '展开后 Space 必须继续收起');
+
     window.setSize(1240, 616);
     const settingsSurface = await window.webContents.executeJavaScript(`
       new Promise((resolve) => {
@@ -66,7 +196,11 @@ async function main() {
         document.getElementById('tab-button-settings').click();
         setTimeout(() => {
           const page = document.getElementById('settings-page');
+          const panel = document.querySelector('.panel');
+          const shellClipPath = getComputedStyle(panel, '::before').clipPath;
           resolve({
+            contentClipPath: getComputedStyle(panel).clipPath,
+            shellOwnsExpandedOutline: shellClipPath !== 'none' && !shellClipPath.includes('calc'),
             rightmostTab: document.querySelector('.tab[data-tab]:last-of-type')?.dataset.tab,
             activePanel: document.getElementById('tab-settings')?.classList.contains('active'),
             display: getComputedStyle(page).display,
@@ -84,6 +218,8 @@ async function main() {
     `);
 
     assert.deepEqual(settingsSurface, {
+      contentClipPath: 'none',
+      shellOwnsExpandedOutline: true,
       rightmostTab: 'settings',
       activePanel: true,
       display: 'grid',
@@ -485,7 +621,14 @@ async function main() {
         const musicStopped = document.getElementById('music-color-bends').dataset.effectRunning === 'false';
         window.NotchHome.setModuleVisible('music', true);
         await new Promise((resolve) => requestAnimationFrame(resolve));
-        const musicRestarted = document.getElementById('music-color-bends').dataset.effectRunning === 'true';
+        const musicIdleAfterRestore = document.getElementById('music-color-bends').dataset.effectRunning === 'false';
+        const musicTile = document.getElementById('music-color-bends').parentElement;
+        musicTile.dispatchEvent(new PointerEvent('pointerenter'));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const musicAnimatingOnHover = document.getElementById('music-color-bends').dataset.effectRunning === 'true';
+        musicTile.dispatchEvent(new PointerEvent('pointerleave'));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const musicStoppedAfterHover = document.getElementById('music-color-bends').dataset.effectRunning === 'false';
 
         const minutes = document.getElementById('pomodoro-minutes');
         const seconds = document.getElementById('pomodoro-seconds');
@@ -500,13 +643,25 @@ async function main() {
         window.NotchHome.setModuleVisible('pomodoro', true);
         const after = Number(minutes.value) * 60 + Number(seconds.value);
         document.getElementById('pomodoro-reset').click();
-        return { scansWhileHidden, scansAfterRestore, musicStopped, musicRestarted, before, whileHidden, after };
+        return {
+          scansWhileHidden,
+          scansAfterRestore,
+          musicStopped,
+          musicIdleAfterRestore,
+          musicAnimatingOnHover,
+          musicStoppedAfterHover,
+          before,
+          whileHidden,
+          after,
+        };
       })()
     `);
     assert.equal(lifecycleAudit.scansWhileHidden, 0);
     assert.equal(lifecycleAudit.scansAfterRestore, 1);
     assert.equal(lifecycleAudit.musicStopped, true);
-    assert.equal(lifecycleAudit.musicRestarted, true);
+    assert.equal(lifecycleAudit.musicIdleAfterRestore, true);
+    assert.equal(lifecycleAudit.musicAnimatingOnHover, true);
+    assert.equal(lifecycleAudit.musicStoppedAfterHover, true);
     assert.ok(lifecycleAudit.whileHidden < lifecycleAudit.before, '番茄钟隐藏后应继续计时');
     assert.equal(lifecycleAudit.after, lifecycleAudit.whileHidden);
 
@@ -519,7 +674,7 @@ async function main() {
         appSurface.classList.add('expanded');
         document.dispatchEvent(new CustomEvent('notch:modechange', { detail: { expanded: true } }));
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        const runningWhileExpanded = canvas.dataset.effectRunning === 'true';
+        const stoppedWhileExpandedIdle = canvas.dataset.effectRunning === 'false';
         const hasInfinitePanelEffect = document.getElementById('panel').getAnimations({ subtree: true })
           .some((animation) => animation.animationName === 'bento-border-breathe'
             && animation.effect?.getTiming?.().iterations === Infinity);
@@ -533,14 +688,14 @@ async function main() {
         appSurface.classList.add('expanded');
         document.dispatchEvent(new CustomEvent('notch:modechange', { detail: { expanded: true } }));
         return {
-          runningWhileExpanded,
+          stoppedWhileExpandedIdle,
           stoppedWhileCollapsed,
           hasInfinitePanelEffect,
           panelBackdropFilter,
         };
       })()
     `);
-    assert.equal(idlePerformanceAudit.runningWhileExpanded, true);
+    assert.equal(idlePerformanceAudit.stoppedWhileExpandedIdle, true, '首页静置时 WebGL 不得保留空转 RAF');
     assert.equal(idlePerformanceAudit.stoppedWhileCollapsed, true, '收起后 WebGL 不得保留空转 RAF');
     assert.equal(idlePerformanceAudit.hasInfinitePanelEffect, false, '展开后不得运行大面积无限边框滤镜动画');
     assert.equal(idlePerformanceAudit.panelBackdropFilter, 'none', '近乎不透明的面板不得使用大面积实时背景模糊');

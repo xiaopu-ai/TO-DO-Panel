@@ -270,12 +270,6 @@ body {
   flex-direction: column;
   overflow: hidden;
   pointer-events: none;
-  clip-path: inset(
-    0 calc(50% - var(--island-half-width)) 0 calc(50% - var(--island-half-width))
-      round 0 0 var(--r-notch) var(--r-notch)
-  );
-  will-change: clip-path;
-  transition: clip-path var(--d-island-close) var(--ease-soft);
 }
 
 .panel::before {
@@ -287,8 +281,13 @@ body {
   border-radius: inherit;
   box-shadow: 0 8px 24px var(--panel-shadow);
   opacity: 0;
-  will-change: opacity;
-  transition: opacity var(--d-fast) var(--ease-out);
+  clip-path: inset(
+    0 calc(50% - var(--island-half-width)) 0 calc(50% - var(--island-half-width))
+      round 0 0 var(--r-notch) var(--r-notch)
+  );
+  transition:
+    clip-path var(--d-island-close) var(--ease-soft),
+    opacity var(--d-fast) var(--ease-out);
 }
 
 .panel > .topbar,
@@ -306,13 +305,14 @@ body {
 
 #app.expanded .panel {
   pointer-events: auto;
-  clip-path: inset(0 0 0 0 round 0 0 var(--r-panel) var(--r-panel));
-  transition-duration: var(--d-grand);
-  transition-timing-function: var(--ease-island);
 }
 
 #app.expanded .panel::before {
+  clip-path: inset(0 0 0 0 round 0 0 var(--r-panel) var(--r-panel));
   opacity: 1;
+  transition:
+    clip-path var(--d-grand) var(--ease-island),
+    opacity var(--d-fast) var(--ease-out);
 }
 
 #app.expanded .panel > .topbar,
@@ -335,20 +335,17 @@ body {
 
 #app.closing .panel {
   pointer-events: none;
+}
+
+#app.closing .panel::before {
   clip-path: inset(
     0 calc(50% - var(--island-half-width)) calc(100% - var(--notch-h, 38px))
       calc(50% - var(--island-half-width)) round 0 0 var(--r-notch) var(--r-notch)
   );
-  transition-duration: var(--d-island-close);
-  transition-delay: var(--d-island-close-delay);
-  transition-timing-function: var(--ease-soft);
-}
-
-#app.closing .panel::before {
   opacity: 0;
-  transition-duration: var(--d-island-shell-fade);
-  transition-delay: var(--d-island-shell-fade-delay);
-  transition-timing-function: var(--ease-out);
+  transition:
+    clip-path var(--d-island-close) var(--ease-soft) var(--d-island-close-delay),
+    opacity var(--d-island-shell-fade) var(--ease-out) var(--d-island-shell-fade-delay);
 }
 
 #app.closing .panel > .topbar,
@@ -2662,10 +2659,18 @@ body {
   clip-path: polygon(0 4px, 100% 4px, 100% 100%, 0 100%);
   pointer-events: none;
   opacity: 0;
+  transition: opacity var(--d-fast) var(--ease-out);
 }
 
 #app.expanded .panel::after {
   opacity: 0.46;
+  transition-delay: 200ms;
+}
+
+#app.closing .panel::after {
+  opacity: 0;
+  transition-duration: var(--d-island-shell-fade);
+  transition-delay: 0ms;
 }
 
 .panel > .topbar,
@@ -3739,8 +3744,17 @@ body {
   overflow: visible;
 }
 .topbar > .tabs:not(.is-split) { right: auto; width: max-content; }
-.topbar > .tabs.is-split { background: transparent; border-color: transparent; box-shadow: none; }
-.tabs.is-split .tab { background: rgba(255,255,255,.035); }
+.topbar > .tabs.is-split {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  /* 分栏容器只负责把 Tab 推到刘海两侧；中央透明区必须把点击交给 topbar 收起。 */
+  pointer-events: none;
+}
+.tabs.is-split .tab {
+  background: rgba(255,255,255,.035);
+  pointer-events: auto;
+}
 .tabs .tab[data-tab='links'] { margin-right: 0; }
 .tabs.is-split .tab-split-start { margin-left: auto; }
 .topbar-mid { position:absolute; inset:4px 8px auto auto; z-index:6; }

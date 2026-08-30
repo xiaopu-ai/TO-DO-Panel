@@ -1,6 +1,6 @@
 {
   "name": "to-do-panel",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "TO-DO Panel - a local workspace that lives under the Mac notch",
   "main": "main.js",
   "author": "xiaopu-ai",
@@ -13,8 +13,8 @@
     "pack": "electron-builder --dir"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.7"
   },
   "build": {
     "appId": "com.dynamicpanel.app",
@@ -44,6 +44,7 @@
     "mac": {
       "icon": "build/to-do-panel-icon.icns",
       "category": "public.app-category.productivity",
+      "minimumSystemVersion": "13.0",
       "target": [
         {
           "target": "dmg",

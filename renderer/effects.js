@@ -310,6 +310,7 @@
     let lastDraw = 0;
     let disposed = false;
     let effectEnabled = true;
+    let interactionActive = false;
     const frameInterval = 1000 / 30;
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
@@ -348,26 +349,36 @@
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         lastDraw = now;
       }
-      raf = !reducedMotion.matches ? requestAnimationFrame(draw) : 0;
+      raf = interactionActive && !reducedMotion.matches ? requestAnimationFrame(draw) : 0;
       canvas.dataset.effectRunning = String(Boolean(raf));
     };
     const syncActivity = () => {
       stopFrameLoop();
-      if (!effectEnabled || !isActive()) return;
+      if (!effectEnabled || !isActive()) {
+        interactionActive = false;
+        return;
+      }
       start = performance.now();
       lastDraw = 0;
       draw(start, true);
     };
 
+    const onPointerEnter = () => {
+      interactionActive = true;
+      syncActivity();
+    };
     const onPointerMove = (event) => {
       const rect = container.getBoundingClientRect();
       state.pointer.tx = ((event.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
       state.pointer.ty = -(((event.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1);
     };
     const onPointerLeave = () => {
+      interactionActive = false;
       state.pointer.tx = 0;
       state.pointer.ty = 0;
+      syncActivity();
     };
+    container.addEventListener('pointerenter', onPointerEnter);
     container.addEventListener('pointermove', onPointerMove);
     container.addEventListener('pointerleave', onPointerLeave);
     reducedMotion.addEventListener('change', syncActivity);
@@ -391,6 +402,7 @@
       destroy() {
         disposed = true;
         stopFrameLoop();
+        container.removeEventListener('pointerenter', onPointerEnter);
         container.removeEventListener('pointermove', onPointerMove);
         container.removeEventListener('pointerleave', onPointerLeave);
         reducedMotion.removeEventListener('change', syncActivity);

@@ -1,5 +1,6 @@
 const net = require('net');
 const path = require('path');
+const crypto = require('crypto');
 
 function isPrivateAddress(address) {
   const value = String(address || '').trim().toLowerCase().split('%', 1)[0];
@@ -272,6 +273,139 @@ function clipboardServicePolicy(features) {
   };
 }
 
+function createClipboardImageFingerprint(width, height, pngBuffer) {
+  if (!Buffer.isBuffer(pngBuffer) || pngBuffer.length === 0) return null;
+  const safeWidth = Number.isFinite(width) ? Math.max(0, Math.trunc(width)) : 0;
+  const safeHeight = Number.isFinite(height) ? Math.max(0, Math.trunc(height)) : 0;
+  const digest = crypto.createHash('sha256').update(pngBuffer).digest('hex');
+  return `${safeWidth}x${safeHeight}:${digest}`;
+}
+
+function prepareClipboardImagePayload(mimeType, sourceBuffer, size = {}) {
+  if (!Buffer.isBuffer(sourceBuffer) || sourceBuffer.length === 0) return null;
+  const fingerprint = createClipboardImageFingerprint(size.width, size.height, sourceBuffer);
+  if (!fingerprint) return null;
+  return {
+    fingerprint,
+    mimeType: String(mimeType || '').toLowerCase(),
+    sourceBuffer,
+    // Electron 44 已经从 ClipboardItem 给出了 PNG 原始字节。复用它可以避免每次
+    // 轮询都让 nativeImage 再做一次昂贵的 PNG 编码；其他格式只在确认为新图片后转换。
+    pngBuffer: String(mimeType || '').toLowerCase() === 'image/png' ? sourceBuffer : null,
+  };
+}
+
+function installLocalWebContentsGuards(webContents) {
+  if (!webContents
+    || typeof webContents.setWindowOpenHandler !== 'function'
+    || typeof webContents.on !== 'function') return false;
+  webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  webContents.on('will-navigate', (event) => event.preventDefault());
+  return true;
+}
+
+async function runOwnedOpenDialog(showOpenDialog, owner, options, updateGuard = () => {}) {
+  if (typeof showOpenDialog !== 'function') throw new TypeError('showOpenDialog must be a function');
+  updateGuard(1);
+  try {
+    return owner
+      ? await showOpenDialog(owner, options)
+      : await showOpenDialog(options);
+  } finally {
+    updateGuard(-1);
+  }
+}
+
+async function readClipboardObservation(items, options = {}) {
+  const rows = Array.isArray(items) ? items.filter((item) => item && Array.isArray(item.types)) : [];
+  const concealed = rows.some((item) => item.types.some((type) => (
+    String(type || '').toLowerCase().includes('org.nspasteboard.concealedtype')
+  )));
+  if (concealed) return { concealed: true, text: '', image: null };
+
+  let text = '';
+  for (const item of rows) {
+    if (!item.types.includes('text/plain') || typeof item.getType !== 'function') continue;
+    try {
+      const blob = await item.getType('text/plain');
+      text = typeof blob?.text === 'function' ? await blob.text() : '';
+    } catch (error) {
+      text = '';
+    }
+    if (text) break;
+  }
+
+  let image = null;
+  if (options.includeImage === true) {
+    const preferredTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    for (const mimeType of preferredTypes) {
+      const item = rows.find((row) => row.types.includes(mimeType));
+      if (!item || typeof item.getType !== 'function') continue;
+      try {
+        const blob = await item.getType(mimeType);
+        if (blob && typeof blob.arrayBuffer === 'function') {
+          const buffer = Buffer.from(await blob.arrayBuffer());
+          if (buffer.length > 0) image = { mimeType, buffer };
+        }
+      } catch (error) {
+        image = null;
+      }
+      if (image) break;
+    }
+  }
+
+  return { concealed: false, text, image };
+}
+
+function screenRecordingProbePolicy(status) {
+  if (status === 'granted') return { hasAccess: true, inspectWindowTitles: true };
+  if (['not-determined', 'denied', 'restricted'].includes(status)) {
+    return { hasAccess: false, inspectWindowTitles: false };
+  }
+  // 未知状态下不主动触碰捕获 API，避免在启动阶段制造不可预测的系统弹窗。
+  return { hasAccess: true, inspectWindowTitles: false };
+}
+
+function taskNotificationWindowPolicy(state) {
+  const active = Boolean(state && state.active);
+  const queueLength = Math.max(0, Number(state && state.queueLength) || 0);
+  return !active && queueLength === 0 ? 'dispose' : 'retain';
+}
+
+function reduceClipboardObservation(state, observation, options = {}) {
+  const previous = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
+  const current = observation && typeof observation === 'object' && !Array.isArray(observation)
+    ? observation
+    : {};
+  const normalizedState = {
+    textFingerprint: typeof previous.textFingerprint === 'string'
+      ? previous.textFingerprint
+      : null,
+    imageFingerprint: typeof previous.imageFingerprint === 'string'
+      ? previous.imageFingerprint
+      : null,
+  };
+  if (current.concealed === true) return { state: normalizedState, record: null };
+
+  const text = typeof current.text === 'string' && current.text ? current.text : null;
+  const imageFingerprint = typeof current.imageFingerprint === 'string' && current.imageFingerprint
+    ? current.imageFingerprint
+    : null;
+  const nextState = { ...normalizedState };
+  if (text) nextState.textFingerprint = text;
+  if (imageFingerprint) nextState.imageFingerprint = imageFingerprint;
+
+  let record = null;
+  if (options.baseline !== true) {
+    if (text && text !== normalizedState.textFingerprint) {
+      record = { type: 'text', text };
+    } else if (!text && imageFingerprint && imageFingerprint !== normalizedState.imageFingerprint) {
+      record = { type: 'image', imageFingerprint };
+    }
+  }
+  return { state: nextState, record };
+}
+
 function createWorkspacePersistenceGate() {
   let lastSignature = null;
   const signatureFor = (storage, destination = '') => {
@@ -375,6 +509,14 @@ module.exports = {
   parseSmartMaterialMetadata,
   selectTranscriptionSettings,
   clipboardServicePolicy,
+  createClipboardImageFingerprint,
+  prepareClipboardImagePayload,
+  installLocalWebContentsGuards,
+  runOwnedOpenDialog,
+  readClipboardObservation,
+  screenRecordingProbePolicy,
+  taskNotificationWindowPolicy,
+  reduceClipboardObservation,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
   updateFeaturePreference,

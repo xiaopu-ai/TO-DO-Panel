@@ -14,9 +14,9 @@
   </p>
   <p>
     <img alt="Release" src="https://img.shields.io/github/v/release/xiaopu-ai/TO-DO-Panel?style=flat-square&color=7c8cff" />
-    <img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111318?style=flat-square&logo=apple" />
+    <img alt="macOS 13+ Apple Silicon" src="https://img.shields.io/badge/macOS-13%2B%20Apple%20Silicon-111318?style=flat-square&logo=apple" />
     <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-35c58b?style=flat-square" />
-    <img alt="Electron 33" src="https://img.shields.io/badge/Electron-33-47848f?style=flat-square&logo=electron" />
+    <img alt="Electron 44" src="https://img.shields.io/badge/Electron-44-47848f?style=flat-square&logo=electron" />
   </p>
 </div>
 
@@ -46,7 +46,7 @@ TO-DO Panel 是一个常驻 macOS 屏幕顶部的本地工作台。默认折叠�
 
 ## 下载与安装
 
-> 当前版本：**1.0.2** · 支持 **Apple Silicon Mac**
+> 当前稳定版本：**1.0.3** · 支持 **macOS 13.0+ 的 Apple Silicon Mac**
 
 1. 前往 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO-Panel-*-arm64.dmg`。
 2. 打开 DMG，将 `TO-DO Panel.app` 拖入「应用程序」。
@@ -57,7 +57,7 @@ TO-DO Panel 是一个常驻 macOS 屏幕顶部的本地工作台。默认折叠�
 
 ## 更新日志
 
-当前稳定版本为 **v1.0.2**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
+当前稳定版本为 **v1.0.3**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
 
 完整版本历史、修复内容与未发布改动见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -88,7 +88,7 @@ curl -X POST http://127.0.0.1:43821/notify/codex \
 
 ## 从源码运行
 
-桌面端要求 Node.js 18+：
+桌面端要求 Node.js 22.12.0+：
 
 ```bash
 git clone https://github.com/xiaopu-ai/TO-DO-Panel.git

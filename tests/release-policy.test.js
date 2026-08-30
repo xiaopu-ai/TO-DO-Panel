@@ -8,7 +8,10 @@ const { spawnSync } = require('node:child_process');
 const projectRoot = path.join(__dirname, '..');
 const releasePolicyScript = path.join(projectRoot, 'scripts', 'release-policy.js');
 const releaseWorkflowPath = path.join(projectRoot, '.github', 'workflows', 'release-dmg.yml');
+const entitlementsPath = path.join(projectRoot, 'build', 'entitlements.mac.plist');
+const readmePath = path.join(projectRoot, 'README.md');
 const packageVersion = require(path.join(projectRoot, 'package.json')).version;
+const packageConfig = require(path.join(projectRoot, 'package.json'));
 
 function runReleasePolicy(t, environment) {
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'todo-panel-release-policy-'));
@@ -81,4 +84,16 @@ test('the release workflow lets manual runs verify artifacts while policy gates 
     workflow,
     /name:\s*Publish GitHub Release\s*\n\s*if:\s*steps\.release\.outputs\.publish == 'true'/
   );
+});
+
+test('macOS packaging declares the Electron 44 minimum and least-privilege runtime entitlements', () => {
+  const entitlements = fs.readFileSync(entitlementsPath, 'utf8');
+  const readme = fs.readFileSync(readmePath, 'utf8');
+
+  assert.equal(packageConfig.build.mac.minimumSystemVersion, '13.0');
+  assert.match(readme, /macOS 13(?:\.0)?\+/);
+  assert.doesNotMatch(entitlements, /com\.apple\.security\.cs\.allow-dyld-environment-variables/);
+  assert.doesNotMatch(entitlements, /com\.apple\.security\.cs\.disable-executable-page-protection/);
+  assert.match(entitlements, /com\.apple\.security\.cs\.allow-jit/);
+  assert.match(entitlements, /com\.apple\.security\.cs\.disable-library-validation/);
 });
