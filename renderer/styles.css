@@ -295,12 +295,7 @@ body {
   position: relative;
   z-index: 1;
   opacity: 0;
-  transform: scale(0.985);
-  transform-origin: top center;
-  will-change: transform, opacity;
-  transition:
-    opacity var(--d-base) var(--ease-out),
-    transform var(--d-slow) var(--ease-out);
+  transition: opacity var(--d-base) var(--ease-out);
 }
 
 #app.expanded .panel {
@@ -318,10 +313,7 @@ body {
 #app.expanded .panel > .topbar,
 #app.expanded .panel > .panels {
   opacity: 1;
-  transform: scale(1);
-  transition:
-    opacity var(--d-base) var(--ease-out) 110ms,
-    transform var(--d-slow) var(--ease-out) 90ms;
+  transition: opacity var(--d-base) var(--ease-out) 110ms;
 }
 
 /* 收起先退内容，再让岛体的宽、高同步向屏幕顶部中心收拢。 */
@@ -351,10 +343,7 @@ body {
 #app.closing .panel > .topbar,
 #app.closing .panel > .panels {
   opacity: 0;
-  transform: scale(0.985);
-  transition:
-    opacity var(--d-fast) var(--ease-out),
-    transform var(--d-base) var(--ease-out);
+  transition: opacity var(--d-fast) var(--ease-out);
 }
 
 /* ============ 顶栏 ============ */
@@ -2843,19 +2832,6 @@ body {
   font-size: 16px;
   opacity: 0;
 }
-.home-bento.masonry-reveal .home-character img { animation: character-hello 920ms 520ms var(--ease-out) both; }
-.home-bento.masonry-reveal .character-wave { animation: character-spark 820ms 650ms var(--ease-out) both; }
-@keyframes character-hello {
-  0% { opacity: 0; transform: translateY(22px) rotate(0); }
-  48% { opacity: 1; transform: translateY(0) rotate(-3deg); }
-  72% { transform: translateY(-2px) rotate(2.2deg); }
-  100% { opacity: 1; transform: translateY(0) rotate(0); }
-}
-@keyframes character-spark {
-  0%, 100% { opacity: 0; transform: scale(.4) rotate(-35deg); }
-  36%, 72% { opacity: 1; transform: scale(1) rotate(8deg); }
-}
-
 .home-bento.layout-dragging { cursor: grabbing; }
 .home-bento.layout-dragging > .tile:not(.is-dragging) { opacity: .72; }
 .home-bento > .tile.is-dragging {
@@ -2870,16 +2846,6 @@ body {
 .home-bento > .tile.layout-drop-target {
   border-color: rgba(143, 182, 255, .5);
   box-shadow: inset 0 0 0 1px rgba(143,182,255,.18), 0 14px 34px rgba(0,0,0,.3);
-}
-
-@keyframes bento-masonry-in {
-  0% { opacity: 0; transform: translateY(34px) scale(.965); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.home-bento.masonry-reveal > [data-home-module] {
-  animation: bento-masonry-in 560ms var(--ease-out) both;
-  animation-delay: calc(85ms + var(--bento-index, 0) * 54ms);
 }
 
 /* 镜子是纯图像卡片，第二层图像只在指针附近参与折射。 */
@@ -5189,16 +5155,6 @@ body {
   overflow: hidden;
 }
 .home-bento > [data-home-module][hidden] { display: none !important; }
-.home-layout-ghost {
-  position: absolute;
-  z-index: 30;
-  box-sizing: border-box;
-  overflow: hidden;
-  pointer-events: none;
-  transform-origin: top left;
-  will-change: transform, opacity;
-  contain: strict;
-}
 .home-bento > [data-home-module] button,
 .home-bento > [data-home-module] input,
 .home-bento > [data-home-module] textarea { flex-shrink: 0; }

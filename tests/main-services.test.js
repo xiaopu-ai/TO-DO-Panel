@@ -8,6 +8,7 @@ const {
   recordingExtension,
   normalizeWindowRows,
   todoReminderState,
+  todoReminderTimerDelay,
   taskNotificationIdentity,
   normalizeCredentialInput,
   parseSmartLinkMetadata,
@@ -153,6 +154,14 @@ test('todoReminderState fires once within the final hour and expires after the D
   });
   assert.equal(todoReminderState({ ...todo, remindedAt: deadline - 60 * 60 * 1000 }, deadline - 30 * 60 * 1000).state, 'notified');
   assert.equal(todoReminderState(todo, deadline + 1).state, 'expired');
+});
+
+test('todo reminder timers checkpoint far-future deadlines without overflowing Node timers', () => {
+  const maximumNodeTimerDelay = (2 ** 31) - 1;
+  assert.equal(todoReminderTimerDelay(0), 250);
+  assert.equal(todoReminderTimerDelay(60 * 60 * 1000), 60 * 60 * 1000);
+  assert.equal(todoReminderTimerDelay(maximumNodeTimerDelay + 1), maximumNodeTimerDelay);
+  assert.equal(todoReminderTimerDelay(2672140134), maximumNodeTimerDelay);
 });
 
 test('task notification identifies the repository and concrete finished work', () => {

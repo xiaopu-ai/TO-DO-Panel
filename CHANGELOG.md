@@ -4,6 +4,14 @@
 
 ## [未发布]
 
+## [1.0.5] - 2026-08-31
+
+### 修复
+
+- 修复超长待办提醒被 Node 定时器溢出压缩为 1ms，导致主进程持续循环与 `TimeoutOverflowWarning` 的问题；超过上限的延迟现在分段检查。
+- 修复首页组件尺寸切换时的大面积黑块与动画堆积，改为可取消的真实卡片 FLIP 过渡，切换中内容保持可见。
+- 减少首页冷启动展开时的重复合成工作，不再同时缩放整个内容层并重播七张卡片的错峰入场。
+
 ## [1.0.4] - 2026-08-30
 
 ### 修复
@@ -56,7 +64,8 @@
 
 - 首个稳定版本，建立固定命名的 Apple Silicon DMG 发布流程。
 
-[未发布]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.4...HEAD
+[未发布]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.1...v1.0.2

@@ -166,6 +166,16 @@ function todoReminderState(todo, now = Date.now(), leadMs = 60 * 60 * 1000) {
   return { state: 'scheduled', delayMs: triggerAt - current };
 }
 
+const MAX_NODE_TIMER_DELAY_MS = (2 ** 31) - 1;
+
+function todoReminderTimerDelay(delayMs) {
+  const normalizedDelay = Number(delayMs);
+  if (!Number.isFinite(normalizedDelay)) return 250;
+  // Larger delays are coerced to 1ms by Node. Wake at the longest safe delay
+  // and let the reminder scheduler recalculate the remaining time.
+  return Math.min(MAX_NODE_TIMER_DELAY_MS, Math.max(250, normalizedDelay));
+}
+
 function firstPayloadText(payload, keys) {
   for (const key of keys) {
     const value = payload && payload[key];
@@ -503,6 +513,7 @@ module.exports = {
   recordingExtension,
   normalizeWindowRows,
   todoReminderState,
+  todoReminderTimerDelay,
   taskNotificationIdentity,
   normalizeCredentialInput,
   parseSmartLinkMetadata,

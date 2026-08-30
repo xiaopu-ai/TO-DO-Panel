@@ -657,11 +657,56 @@ async function main() {
     await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
     });
+    const panelMotionAudit = await window.webContents.executeJavaScript(`
+      (async () => {
+        const appSurface = document.getElementById('app');
+        appSurface.classList.remove('expanded', 'opening', 'closing');
+        appSurface.classList.add('collapsed');
+        const waitForClass = async (name) => {
+          const deadline = performance.now() + 5000;
+          while (performance.now() < deadline) {
+            if (appSurface.classList.contains(name)) return true;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          return false;
+        };
+        document.getElementById('notch').click();
+        const opened = await waitForClass('expanded');
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const tileEntranceAnimations = [...document.querySelectorAll('#home-bento [data-home-module]')]
+          .flatMap((tile) => tile.getAnimations())
+          .filter((animation) => animation.animationName === 'bento-masonry-in').length;
+        const contentLayerHasScale = [
+          document.querySelector('.panel > .topbar'),
+          document.querySelector('.panel > .panels'),
+        ].filter(Boolean).some((layer) => layer.getAnimations().some((animation) => (
+          animation.effect?.getKeyframes?.().some((frame) => {
+            if (!frame.transform || frame.transform === 'none') return false;
+            const matrix = new DOMMatrixReadOnly(frame.transform);
+            const scaleX = Math.hypot(matrix.a, matrix.b);
+            const scaleY = Math.hypot(matrix.c, matrix.d);
+            return Math.abs(scaleX - 1) > 0.001 || Math.abs(scaleY - 1) > 0.001;
+          })
+        )));
+        const masonryReveal = document.getElementById('home-bento').classList.contains('masonry-reveal');
+        document.getElementById('notch').click();
+        const collapsed = await waitForClass('collapsed');
+        return { opened, collapsed, tileEntranceAnimations, contentLayerHasScale, masonryReveal };
+      })()
+    `);
+    assert.equal(panelMotionAudit.opened, true);
+    assert.equal(panelMotionAudit.collapsed, true);
+    assert.equal(panelMotionAudit.tileEntranceAnimations, 0, '展开时不得再同时启动七张卡片的错峰缩放入场');
+    assert.equal(panelMotionAudit.masonryReveal, false, '首页卡片不应在每次展开时重播入场');
+    assert.equal(panelMotionAudit.contentLayerHasScale, false, '展开/收起不应缩放整个大面积内容层');
+
     const lifecycleAudit = await window.webContents.executeJavaScript(`
       (async () => {
         const ids = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands'];
         ids.forEach((id) => window.NotchHome.setModuleVisible(id, true));
         document.getElementById('tab-button-home').click();
+        document.getElementById('app').classList.remove('collapsed', 'closing', 'opening');
+        document.getElementById('app').classList.add('expanded');
         document.dispatchEvent(new CustomEvent('notch:modechange', { detail: { expanded: true } }));
         let windowScans = 0;
         window.notchAPI = {
@@ -773,8 +818,15 @@ async function main() {
         sizeButton.click();
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const ghosts = [...document.querySelectorAll('.home-layout-ghost')];
-        const ghostDurations = ghosts.flatMap((ghost) => ghost.getAnimations()
-          .map((animation) => Number(animation.effect?.getTiming?.().duration) || 0));
+        const tileAnimations = [...document.querySelectorAll('#home-bento [data-home-module]:not([hidden])')]
+          .flatMap((tile) => tile.getAnimations());
+        const tileDurations = tileAnimations
+          .map((animation) => Number(animation.effect?.getTiming?.().duration) || 0)
+          .filter((duration) => duration > 0);
+        const animatedOpacities = tileAnimations.flatMap((animation) => (
+          animation.effect?.getKeyframes?.().map((frame) => Number(frame.opacity)).filter(Number.isFinite) || []
+        ));
+        const minimumTileOpacity = animatedOpacities.length ? Math.min(...animatedOpacities) : 1;
         const realTileHasScale = [...document.querySelectorAll('#home-bento [data-home-module]:not([hidden])')]
           .some((tile) => tile.getAnimations().some((animation) => (
             animation.effect?.getKeyframes?.().some((frame) => /scale/.test(String(frame.transform || '')))
@@ -783,34 +835,46 @@ async function main() {
           beforeSize,
           afterSize: sizeButton.dataset.currentSize,
           ghostCount: ghosts.length,
-          ghostPointerSafe: ghosts.every((ghost) => getComputedStyle(ghost).pointerEvents === 'none'),
-          ghostDurations,
+          tileDurations,
+          minimumTileOpacity,
           realTileHasScale,
         };
-        await new Promise((resolve) => setTimeout(resolve, 760));
+        await new Promise((resolve) => setTimeout(resolve, 700));
         const ghostsAfter = document.querySelectorAll('.home-layout-ghost').length;
+        const tileAnimationsAfter = [...document.querySelectorAll('#home-bento [data-home-module]:not([hidden])')]
+          .reduce((count, tile) => count + tile.getAnimations().length, 0);
         sizeButton.click();
         sizeButton.click();
         await new Promise((resolve) => requestAnimationFrame(resolve));
         const rapidGhostIds = [...document.querySelectorAll('.home-layout-ghost')]
           .map((ghost) => ghost.dataset.homeLayoutGhost);
         const rapidDuplicateGhosts = new Set(rapidGhostIds).size !== rapidGhostIds.length;
-        await new Promise((resolve) => setTimeout(resolve, 760));
+        const rapidMaxTileAnimations = Math.max(...[...document.querySelectorAll('#home-bento [data-home-module]:not([hidden])')]
+          .map((tile) => tile.getAnimations().length));
+        await new Promise((resolve) => setTimeout(resolve, 700));
         return {
           ...during,
           ghostsAfter,
+          tileAnimationsAfter,
           rapidDuplicateGhosts,
+          rapidMaxTileAnimations,
           rapidGhostsAfter: document.querySelectorAll('.home-layout-ghost').length,
         };
       })()
     `);
     assert.notEqual(autoLayoutMotionAudit.afterSize, autoLayoutMotionAudit.beforeSize);
-    assert.ok(autoLayoutMotionAudit.ghostCount > 0, '尺寸切换应产生 Auto Layout 外壳重排');
-    assert.ok(autoLayoutMotionAudit.ghostDurations.every((duration) => duration >= 600), 'Auto Layout 重排节奏不得过快');
-    assert.equal(autoLayoutMotionAudit.ghostPointerSafe, true);
-    assert.equal(autoLayoutMotionAudit.realTileHasScale, false, '真实组件内容不得参与缩放');
+    assert.equal(autoLayoutMotionAudit.ghostCount, 0, '尺寸切换不得用空外壳遮成黑块');
+    assert.ok(
+      autoLayoutMotionAudit.tileDurations.length > 0
+        && autoLayoutMotionAudit.tileDurations.every((duration) => duration >= 500 && duration <= 650),
+      'Auto Layout 应保留过程感，也不得拖沓'
+    );
+    assert.ok(autoLayoutMotionAudit.minimumTileOpacity >= 0.72, '重排期间真实卡片不得熄灭成黑块');
+    assert.equal(autoLayoutMotionAudit.realTileHasScale, true, '真实卡片应恢复连续 FLIP 几何过渡');
     assert.equal(autoLayoutMotionAudit.ghostsAfter, 0, 'Auto Layout ghost 必须在动画后清理');
+    assert.equal(autoLayoutMotionAudit.tileAnimationsAfter, 0, '重排动画结束后不得残留组件动画');
     assert.equal(autoLayoutMotionAudit.rapidDuplicateGhosts, false, '连续切换必须先清理上一轮 Auto Layout ghost');
+    assert.ok(autoLayoutMotionAudit.rapidMaxTileAnimations <= 1, '连续切换不得叠加多轮组件动画');
     assert.equal(autoLayoutMotionAudit.rapidGhostsAfter, 0, '连续切换结束后不得残留 Auto Layout ghost');
   } finally {
     if (window.webContents.debugger.isAttached()) window.webContents.debugger.detach();

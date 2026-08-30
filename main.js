@@ -29,6 +29,7 @@ const {
   recordingExtension,
   normalizeWindowRows,
   todoReminderState,
+  todoReminderTimerDelay,
   taskNotificationIdentity,
   normalizeCredentialInput,
   parseSmartLinkMetadata,
@@ -626,7 +627,7 @@ function scheduleNextTodoReminder() {
     if (status.state === 'scheduled') nextDelay = Math.min(nextDelay, status.delayMs);
   }
   if (Number.isFinite(nextDelay)) {
-    todoReminderTimer = setTimeout(scheduleNextTodoReminder, Math.max(250, nextDelay));
+    todoReminderTimer = setTimeout(scheduleNextTodoReminder, todoReminderTimerDelay(nextDelay));
   }
 }
 
