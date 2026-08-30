@@ -2481,7 +2481,9 @@ const loadedHomeVisibility = loadHiddenHomeModules();
 let hiddenHomeModules = loadedHomeVisibility.hiddenIds;
 let homeVisibilityPersisted = true;
 let homeLayoutReadOnly = false;
-let homeVisibilityAnimation = null;
+let homeLayoutMotionGeneration = 0;
+let homeLayoutMotionAnimations = [];
+let homeLayoutMotionGhosts = [];
 
 function saveHomeLayout() {
   try {
@@ -2513,25 +2515,139 @@ function resolveValidatedHomeLayout(hiddenIds, order = homeOrder, sizes = homeSi
     : null;
 }
 
-function animateCommittedHomeLayout(reason) {
-  homeVisibilityAnimation?.cancel();
-  homeVisibilityAnimation = null;
-  if (!homeBento || reason === 'initial' || reason === 'rollback'
+function cancelHomeLayoutMotion() {
+  homeLayoutMotionGeneration += 1;
+  homeLayoutMotionAnimations.forEach((animation) => animation.cancel());
+  homeLayoutMotionGhosts.forEach((ghost) => ghost.remove());
+  homeLayoutMotionAnimations = [];
+  homeLayoutMotionGhosts = [];
+  homeBento?.classList.remove('layout-motion-active');
+}
+
+function captureHomeLayoutVisualState() {
+  if (!homeBento) return null;
+  const surface = homeBento.getBoundingClientRect();
+  if (!surface.width || !surface.height) return null;
+  const tiles = new Map();
+  homeTiles.forEach((tile) => {
+    if (tile.hidden) return;
+    const rect = tile.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const style = getComputedStyle(tile);
+    tiles.set(tile.dataset.homeModule, {
+      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      visual: {
+        background: style.background,
+        border: style.border,
+        borderRadius: style.borderRadius,
+        boxShadow: style.boxShadow,
+        backdropFilter: style.backdropFilter,
+      },
+      mirrorImage: tile.querySelector('.mirror-photo')?.src || '',
+    });
+  });
+  return { surface: { left: surface.left, top: surface.top }, tiles };
+}
+
+function createHomeLayoutGhost(moduleId, visualState, rect) {
+  const ghost = document.createElement('div');
+  ghost.className = 'home-layout-ghost';
+  ghost.dataset.homeLayoutGhost = moduleId;
+  ghost.setAttribute('aria-hidden', 'true');
+  ghost.style.left = `${rect.left}px`;
+  ghost.style.top = `${rect.top}px`;
+  ghost.style.width = `${rect.width}px`;
+  ghost.style.height = `${rect.height}px`;
+  ghost.style.background = visualState.visual.background;
+  ghost.style.border = visualState.visual.border;
+  ghost.style.borderRadius = visualState.visual.borderRadius;
+  ghost.style.boxShadow = visualState.visual.boxShadow;
+  ghost.style.backdropFilter = visualState.visual.backdropFilter;
+  if (moduleId === 'mirror' && visualState.mirrorImage) {
+    ghost.style.backgroundImage = `url("${visualState.mirrorImage.replace(/"/g, '%22')}")`;
+    ghost.style.backgroundPosition = 'center';
+    ghost.style.backgroundSize = 'cover';
+  }
+  homeBento.appendChild(ghost);
+  homeLayoutMotionGhosts.push(ghost);
+  return ghost;
+}
+
+function animateCommittedHomeLayout(reason, beforeState) {
+  if (!homeBento || !beforeState || reason === 'initial' || reason === 'rollback'
     || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  homeVisibilityAnimation = homeBento.animate(
-    [{ opacity: reason === 'visibility' ? 0.72 : 0.84 }, { opacity: 1 }],
-    { duration: reason === 'visibility' ? 140 : 180, easing: 'ease-out' }
-  );
-  const currentAnimation = homeVisibilityAnimation;
-  currentAnimation.finished
-    .catch(() => {})
-    .finally(() => {
-      if (homeVisibilityAnimation === currentAnimation) homeVisibilityAnimation = null;
+  const generation = homeLayoutMotionGeneration;
+  const surface = homeBento.getBoundingClientRect();
+  const finalTiles = new Map();
+  homeTiles.forEach((tile) => {
+    if (tile.hidden) return;
+    const rect = tile.getBoundingClientRect();
+    if (rect.width && rect.height) finalTiles.set(tile.dataset.homeModule, { tile, rect });
+  });
+  homeBento.classList.add('layout-motion-active');
+
+  finalTiles.forEach(({ tile, rect }, moduleId) => {
+    const previous = beforeState.tiles.get(moduleId);
+    const contentAnimation = tile.animate(
+      [{ opacity: 0.16 }, { opacity: 0.22, offset: 0.62 }, { opacity: 1 }],
+      { duration: 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
+    );
+    homeLayoutMotionAnimations.push(contentAnimation);
+    if (!previous) return;
+    const dx = previous.rect.left - rect.left;
+    const dy = previous.rect.top - rect.top;
+    const scaleX = previous.rect.width / Math.max(1, rect.width);
+    const scaleY = previous.rect.height / Math.max(1, rect.height);
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5
+      && Math.abs(scaleX - 1) < 0.01 && Math.abs(scaleY - 1) < 0.01) return;
+    const ghost = createHomeLayoutGhost(moduleId, previous, {
+      left: rect.left - surface.left,
+      top: rect.top - surface.top,
+      width: rect.width,
+      height: rect.height,
+    });
+    const ghostAnimation = ghost.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px) scale(${scaleX}, ${scaleY})`, opacity: 1 },
+        { transform: 'translate(0, 0) scale(1, 1)', opacity: 0.9, offset: 0.7 },
+        { transform: 'translate(0, 0) scale(1, 1)', opacity: 0 },
+      ],
+      { duration: 460, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' }
+    );
+    homeLayoutMotionAnimations.push(ghostAnimation);
+  });
+
+  beforeState.tiles.forEach((previous, moduleId) => {
+    if (finalTiles.has(moduleId)) return;
+    const ghost = createHomeLayoutGhost(moduleId, previous, {
+      left: previous.rect.left - beforeState.surface.left,
+      top: previous.rect.top - beforeState.surface.top,
+      width: previous.rect.width,
+      height: previous.rect.height,
+    });
+    const outgoingAnimation = ghost.animate(
+      [{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(0.96)' }],
+      { duration: 220, easing: 'ease-out' }
+    );
+    homeLayoutMotionAnimations.push(outgoingAnimation);
+  });
+
+  Promise.allSettled(homeLayoutMotionAnimations.map((animation) => animation.finished))
+    .then(() => {
+      if (generation !== homeLayoutMotionGeneration) return;
+      homeLayoutMotionGhosts.forEach((ghost) => ghost.remove());
+      homeLayoutMotionGhosts = [];
+      homeLayoutMotionAnimations = [];
+      homeBento.classList.remove('layout-motion-active');
     });
 }
 
 function applyHomeLayout(layout, { reason = 'initial' } = {}) {
   if (!homeBento || !layout) throw new Error('A validated homepage layout is required.');
+  cancelHomeLayoutMotion();
+  const beforeState = reason === 'initial' || reason === 'rollback'
+    ? null
+    : captureHomeLayoutVisualState();
   const automaticLayout = !homeLayoutReadOnly && hiddenHomeModules.length > 0;
   homeBento.dataset.layoutMode = homeLayoutReadOnly ? 'safe' : automaticLayout ? 'automatic' : 'preferred';
   homeTiles.forEach((tile) => {
@@ -2571,7 +2687,7 @@ function applyHomeLayout(layout, { reason = 'initial' } = {}) {
       sizeButton.tabIndex = automaticLayout || homeLayoutReadOnly ? -1 : 0;
     }
   });
-  animateCommittedHomeLayout(reason);
+  animateCommittedHomeLayout(reason, beforeState);
 }
 
 function replayHomeMasonryReveal() {

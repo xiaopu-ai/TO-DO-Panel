@@ -1,6 +1,12 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { app, BrowserWindow } = require('electron');
+
+const isolatedUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'to-do-panel-electron-test-'));
+app.setPath('userData', isolatedUserData);
+app.once('will-quit', () => fs.rmSync(isolatedUserData, { recursive: true, force: true }));
 
 async function main() {
   await app.whenReady();
@@ -170,7 +176,13 @@ async function main() {
                   && child.top >= rect.top - 1 && child.bottom <= rect.bottom + 1
                 );
               })
-              .map((control) => control.id || control.className || control.tagName);
+              .map((control) => {
+                const controlRect = control.getBoundingClientRect();
+                return {
+                  name: control.id || control.className || control.tagName,
+                  rect: { left: controlRect.left, top: controlRect.top, right: controlRect.right, bottom: controlRect.bottom },
+                };
+              });
             return {
               id: tile.dataset.homeModule,
               rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
@@ -191,6 +203,7 @@ async function main() {
             size: control.dataset.currentSize,
           })),
           reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+          ghostCount: document.querySelectorAll('.home-layout-ghost').length,
           animations: document.getElementById('home-bento').getAnimations().map((animation) => ({
             name: animation.animationName || '',
             playState: animation.playState,
@@ -206,9 +219,10 @@ async function main() {
       assert.equal(measurement.tiles.length, visibleCount);
       assert.equal(measurement.tiles.reduce((total, tile) => total + tile.area, 0), 48);
       const outside = measurement.tiles.filter((tile) => !tile.controlsInside)
-        .map((tile) => `${tile.id}: ${tile.outsideControls.join(', ')}`);
+        .map((tile) => `${tile.id}(${tile.variant}): ${JSON.stringify(tile.outsideControls)} tile=${JSON.stringify(tile.rect)}`);
       assert.deepEqual(outside, [], `组件控件必须保持在各自卡片内：${outside.join('; ')}`);
       assert.equal(measurement.reducedMotion, true);
+      assert.equal(measurement.ghostCount, 0, '减弱动态效果时不得创建 Auto Layout ghost');
       assert.ok(
         measurement.animations.every((animation) => Number(animation.duration) <= 0.01),
         `减弱动态效果时不得创建有感布局动画：${JSON.stringify(measurement.animations)}`
@@ -495,6 +509,53 @@ async function main() {
     assert.equal(lifecycleAudit.musicRestarted, true);
     assert.ok(lifecycleAudit.whileHidden < lifecycleAudit.before, '番茄钟隐藏后应继续计时');
     assert.equal(lifecycleAudit.after, lifecycleAudit.whileHidden);
+
+    const autoLayoutMotionAudit = await window.webContents.executeJavaScript(`
+      (async () => {
+        const ids = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands'];
+        ids.forEach((id) => window.NotchHome.setModuleVisible(id, true));
+        document.getElementById('tab-button-home').click();
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const sizeButton = document.querySelector('[data-widget-size-cycle="music"]');
+        const beforeSize = sizeButton.dataset.currentSize;
+        sizeButton.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const ghosts = [...document.querySelectorAll('.home-layout-ghost')];
+        const realTileHasScale = [...document.querySelectorAll('#home-bento [data-home-module]:not([hidden])')]
+          .some((tile) => tile.getAnimations().some((animation) => (
+            animation.effect?.getKeyframes?.().some((frame) => /scale/.test(String(frame.transform || '')))
+          )));
+        const during = {
+          beforeSize,
+          afterSize: sizeButton.dataset.currentSize,
+          ghostCount: ghosts.length,
+          ghostPointerSafe: ghosts.every((ghost) => getComputedStyle(ghost).pointerEvents === 'none'),
+          realTileHasScale,
+        };
+        await new Promise((resolve) => setTimeout(resolve, 520));
+        const ghostsAfter = document.querySelectorAll('.home-layout-ghost').length;
+        sizeButton.click();
+        sizeButton.click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const rapidGhostIds = [...document.querySelectorAll('.home-layout-ghost')]
+          .map((ghost) => ghost.dataset.homeLayoutGhost);
+        const rapidDuplicateGhosts = new Set(rapidGhostIds).size !== rapidGhostIds.length;
+        await new Promise((resolve) => setTimeout(resolve, 520));
+        return {
+          ...during,
+          ghostsAfter,
+          rapidDuplicateGhosts,
+          rapidGhostsAfter: document.querySelectorAll('.home-layout-ghost').length,
+        };
+      })()
+    `);
+    assert.notEqual(autoLayoutMotionAudit.afterSize, autoLayoutMotionAudit.beforeSize);
+    assert.ok(autoLayoutMotionAudit.ghostCount > 0, '尺寸切换应产生 Auto Layout 外壳重排');
+    assert.equal(autoLayoutMotionAudit.ghostPointerSafe, true);
+    assert.equal(autoLayoutMotionAudit.realTileHasScale, false, '真实组件内容不得参与缩放');
+    assert.equal(autoLayoutMotionAudit.ghostsAfter, 0, 'Auto Layout ghost 必须在动画后清理');
+    assert.equal(autoLayoutMotionAudit.rapidDuplicateGhosts, false, '连续切换必须先清理上一轮 Auto Layout ghost');
+    assert.equal(autoLayoutMotionAudit.rapidGhostsAfter, 0, '连续切换结束后不得残留 Auto Layout ghost');
   } finally {
     if (window.webContents.debugger.isAttached()) window.webContents.debugger.detach();
     window.destroy();
