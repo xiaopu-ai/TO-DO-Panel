@@ -233,6 +233,68 @@ async function main() {
       autoLaunch: true,
     });
 
+    const credentialSelectionAudit = await window.webContents.executeJavaScript(`
+      (async () => {
+        const originalApi = window.notchAPI;
+        const item = {
+          id: 'credential-selection-test',
+          service: 'Example',
+          account: 'me@example.com',
+          password: 'secret',
+          passwordMask: '**********',
+        };
+        window.notchAPI = {
+          saveCredential: async () => ({ ok: true }),
+          listCredentials: async () => ({ items: [item], secureStorage: true }),
+          getCredential: async () => ({ ok: true, item }),
+          deleteCredentials: async () => ({ ok: true }),
+          copyCredential: async () => true,
+        };
+        document.getElementById('tab-button-credentials').click();
+        document.getElementById('credential-service').value = item.service;
+        document.getElementById('credential-account').value = item.account;
+        document.getElementById('credential-password').value = item.password;
+        document.getElementById('credential-save').click();
+        const deadline = performance.now() + 2000;
+        while (!document.querySelector('.credential-item[data-id="credential-selection-test"]')
+          && performance.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        let row = document.querySelector('.credential-item[data-id="credential-selection-test"]');
+        row.querySelector('.credential-copy').dispatchEvent(new MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+          shiftKey: true,
+        }));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const bulkDelete = document.getElementById('credential-bulk-delete');
+        const selected = document.querySelector('.credential-item[data-id="credential-selection-test"]');
+        const searchRect = document.getElementById('credential-search').getBoundingClientRect();
+        const deleteRect = bulkDelete.getBoundingClientRect();
+        const selectedState = {
+          card: selected.classList.contains('multi-selected'),
+          deleteVisible: !bulkDelete.hidden && getComputedStyle(bulkDelete).display !== 'none',
+          actionsShareOneRow: Math.abs(
+            (searchRect.top + searchRect.bottom) / 2 - (deleteRect.top + deleteRect.bottom) / 2
+          ) < 2 && deleteRect.left >= searchRect.right,
+        };
+        selected.querySelector('.credential-copy').click();
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        row = document.querySelector('.credential-item[data-id="credential-selection-test"]');
+        const clearedState = {
+          card: row.classList.contains('multi-selected'),
+          deleteHidden: bulkDelete.hidden && getComputedStyle(bulkDelete).display === 'none',
+          editing: row.classList.contains('editing'),
+        };
+        window.notchAPI = originalApi;
+        return { selectedState, clearedState };
+      })()
+    `);
+    assert.deepEqual(credentialSelectionAudit, {
+      selectedState: { card: true, deleteVisible: true, actionsShareOneRow: true },
+      clearedState: { card: false, deleteHidden: true, editing: false },
+    }, '密钥批量删除应与搜索框同行，并在取消选中后隐藏');
+
     const todoCalendarNavigation = await window.webContents.executeJavaScript(`
       new Promise((resolve) => {
         document.getElementById('tab-button-todo').click();

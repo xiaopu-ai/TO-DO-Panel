@@ -425,6 +425,7 @@ test('credential row routes its trailing action to delete while its body still o
   assert.deepEqual(credentialRowAction({ copyField: 'account' }), { type: 'copy', field: 'account' });
   assert.deepEqual(credentialRowAction({ rowBody: true }), { type: 'edit' });
   assert.deepEqual(credentialRowAction({ rowBody: true, shiftKey: true }), { type: 'select' });
+  assert.deepEqual(credentialRowAction({ rowBody: true, selected: true }), { type: 'select' });
 });
 
 test('settings stays at the far right when optional tabs are hidden', () => {
@@ -823,5 +824,13 @@ test('Shift range selection selects contiguous rows while plain selection resets
   assert.deepEqual(updateRangeSelection(ids, ['a'], 'missing', 'a', true), {
     selected: ['a'],
     anchor: 'a',
+  });
+});
+
+test('credential selection can toggle its only selected row off', () => {
+  const ids = ['a', 'b', 'c'];
+  assert.deepEqual(updateRangeSelection(ids, ['b'], 'b', 'b', false, true), {
+    selected: [],
+    anchor: null,
   });
 });

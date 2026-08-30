@@ -1,6 +1,6 @@
 {
   "name": "to-do-panel",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "TO-DO Panel - a local workspace that lives under the Mac notch",
   "main": "main.js",
   "author": "xiaopu-ai",

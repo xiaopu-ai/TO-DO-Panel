@@ -8,7 +8,7 @@
 
 ## 技术栈
 
-- 桌面端：Electron 33 + 原生 HTML/CSS/JavaScript，无渲染层构建步骤
+- 桌面端：Electron 44 + 原生 HTML/CSS/JavaScript，无渲染层构建步骤
 - 官网：React 19 + Vinext + 原生 CSS，位于 `website/`
 - 数据：LocalStorage + `userData/clipboard-images/` + `userData/recordings/`，无后端和云同步
 - 包管理器：npm
@@ -58,6 +58,12 @@
 - 渲染逻辑放在 `renderer/`，与主进程隔离
 - IPC 必须通过 `preload.js` 的 contextBridge 暴露
 - 视觉取值集中在 CSS 自定义属性中
+
+## GitHub 推送与发布联动
+
+- 任何产品更新推送到 GitHub 前，必须联动检查版本号、`CHANGELOG.md`、README 当前稳定版本与下载入口、GitHub Pages 下载按钮。
+- 正式发布必须保证 `package.json` 与 `package-lock.json` 版本一致，推送匹配的 `v*.*.*` 标签，并在 GitHub Actions 完成后验证 Release 的 DMG / SHA-256 资产与 Pages 实际下载指向。
+- 官网下载按钮应始终从 GitHub `releases/latest` 动态解析当前版本的 `arm64.dmg`，不得留下过期的固定版本链接。
 
 ## NEVER
 

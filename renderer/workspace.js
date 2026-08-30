@@ -2498,6 +2498,7 @@
       copyField,
       rowBody: Boolean(event.target.closest('.credential-copy')),
       shiftKey: event.shiftKey,
+      selected: credentialSelection.has(row.dataset.id),
     });
     if (action.type === 'delete') {
       const deleteButton = event.target.closest('[data-credential-delete]');
@@ -2548,7 +2549,8 @@
       [...credentialSelection],
       row.dataset.id,
       credentialAnchor,
-      event.shiftKey
+      event.shiftKey,
+      true
     );
     credentialSelection = new Set(result.selected);
     credentialAnchor = result.anchor;

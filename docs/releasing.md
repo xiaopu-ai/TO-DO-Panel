@@ -59,6 +59,8 @@ git push origin "v${version}"
 ## 发布前检查
 
 - 不提交 `node_modules/`、`dist/`、`.env`、录音、剪贴板图片或本地工作区数据。
+- 任何产品更新推送到 GitHub 前，都要同步核对 `package.json` / `package-lock.json`、`CHANGELOG.md`、README 当前稳定版本与下载入口。
+- 确认 GitHub Pages 下载按钮仍通过 `releases/latest` 选择当前标签的 `TO-DO-Panel-<版本>-arm64.dmg`；推送后必须在线验证最新 Release 资产和 Pages 入口。
 - 确认 `scripts/codex-notify.js` 与 `scripts/claude-notify.js` 已随包装入（在 `build.files` 白名单内），
   否则装了 DMG 的用户按 README 注册钩子时会指向空路径。
 - 不把 API Key、密码、Apple ID 或其他凭据写入源码和 Release。

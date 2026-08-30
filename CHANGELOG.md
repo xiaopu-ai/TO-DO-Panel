@@ -4,6 +4,13 @@
 
 ## [未发布]
 
+## [1.0.4] - 2026-08-30
+
+### 修复
+
+- 修复密钥页选中状态无法再次点击取消的问题；取消后批量删除按钮会立即隐藏。
+- 修复密钥页批量「删除」按钮错位到搜索框下方的布局问题，选中时保持在搜索框右侧同一行。
+
 ## [1.0.3] - 2026-08-30
 
 ### 桌面端
@@ -49,7 +56,8 @@
 
 - 首个稳定版本，建立固定命名的 Apple Silicon DMG 发布流程。
 
-[未发布]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.3...HEAD
+[未发布]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.0...v1.0.1

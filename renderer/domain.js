@@ -364,7 +364,7 @@
     if (options.copyField === 'account' || options.copyField === 'password') {
       return { type: 'copy', field: options.copyField };
     }
-    if (options.rowBody && !options.shiftKey) return { type: 'edit' };
+    if (options.rowBody && !options.shiftKey && !options.selected) return { type: 'edit' };
     return { type: 'select' };
   }
 
@@ -546,20 +546,23 @@
     };
   }
 
-  function updateRangeSelection(ids, selectedIds, clickedId, anchorId, shiftKey) {
+  function updateRangeSelection(ids, selectedIds, clickedId, anchorId, shiftKey, toggleSelected = false) {
     const ordered = Array.isArray(ids) ? ids.map(String) : [];
     const clicked = String(clickedId || '');
     const anchor = String(anchorId || '');
     if (!clicked || !ordered.includes(clicked)) {
       return { selected: [...new Set((selectedIds || []).map(String))], anchor: anchor || null };
     }
+    const existing = new Set((selectedIds || []).map(String));
     if (!shiftKey || !anchor || !ordered.includes(anchor)) {
+      if (toggleSelected && existing.size === 1 && existing.has(clicked)) {
+        return { selected: [], anchor: null };
+      }
       return { selected: [clicked], anchor: clicked };
     }
     const start = ordered.indexOf(anchor);
     const end = ordered.indexOf(clicked);
     const range = ordered.slice(Math.min(start, end), Math.max(start, end) + 1);
-    const existing = new Set((selectedIds || []).map(String));
     range.forEach((id) => existing.add(id));
     return { selected: ordered.filter((id) => existing.has(id)), anchor };
   }
