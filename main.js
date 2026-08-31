@@ -204,6 +204,7 @@ const CLIP_IMAGES_DIR_NAME = 'clipboard-images';
 
 const RECORDINGS_DIR_NAME = 'recordings';
 const TRANSCRIPTION_SETTINGS_FILE = 'transcription-settings.json';
+const CHAT_SETTINGS_FILE = 'chat-settings.json';
 const CREDENTIALS_VAULT_FILE = 'credentials.vault.json';
 const APP_SETTINGS_FILE = 'app-settings.json';
 const WORKSPACE_SETTINGS_FILE = 'workspace-settings.json';
@@ -1869,8 +1870,10 @@ ipcMain.handle('smart:organize-material', async (event, payload) => {
 });
 
 ipcMain.handle('chat:complete', async (event, payload) => {
-  const config = resolveLlmConfig();
-  if (!config.apiKey || !config.model) return { ok: false, error: 'not_configured' };
+  const config = resolveChatLlmConfig();
+  const requestModel = String(payload && payload.model || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const model = requestModel || config.model;
+  if (!config.apiKey || !model) return { ok: false, error: 'not_configured' };
   const requestId = String(payload && payload.requestId || crypto.randomUUID()).slice(0, 80);
   const systemPrompt = String(payload && payload.systemPrompt || '').trim().slice(0, 4000);
   const history = Array.isArray(payload && payload.messages) ? payload.messages : [];
@@ -1907,7 +1910,7 @@ ipcMain.handle('chat:complete', async (event, payload) => {
         Accept: 'text/event-stream',
       },
       body: JSON.stringify({
-        model: config.model,
+        model,
         temperature: 0.7,
         stream: true,
         messages,
@@ -2616,6 +2619,104 @@ function resolveLlmConfig() {
   };
 }
 
+function getChatSettingsPath() {
+  return path.join(app.getPath('userData'), CHAT_SETTINGS_FILE);
+}
+
+function readStoredChatSettings() {
+  try {
+    const value = JSON.parse(fs.readFileSync(getChatSettingsPath(), 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function resolveChatLlmConfig() {
+  const settings = readStoredChatSettings();
+  return {
+    apiKey: String(process.env.NOTCH_CHAT_API_KEY || decryptStoredSecret(settings.encryptedChatApiKey)).trim(),
+    baseUrl: String(settings.chatBaseUrl || 'https://api.deepseek.com').trim(),
+    model: String(settings.chatModel || 'deepseek-chat').trim(),
+  };
+}
+
+function publicChatConfig() {
+  const config = resolveChatLlmConfig();
+  const settings = readStoredChatSettings();
+  const models = Array.isArray(settings.chatModels)
+    ? [...new Set(settings.chatModels.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 200)
+    : [];
+  return {
+    configured: Boolean(config.apiKey),
+    needsReentry: Boolean(settings.encryptedChatApiKey && !config.apiKey),
+    baseUrl: config.baseUrl,
+    model: config.model,
+    models,
+  };
+}
+
+function normalizeChatBaseUrl(value, fallback = 'https://api.deepseek.com') {
+  let parsed;
+  try { parsed = new URL(String(value || fallback).trim()); } catch (error) { parsed = null; }
+  if (!parsed || parsed.protocol !== 'https:' || parsed.username || parsed.password) return null;
+  return parsed.toString().replace(/\/$/, '');
+}
+
+function buildOpenAiModelsUrls(baseUrl) {
+  const base = String(baseUrl || '').replace(/\/$/, '');
+  const urls = [];
+  if (base.endsWith('/v1')) {
+    urls.push(`${base}/models`);
+  } else {
+    urls.push(`${base}/v1/models`, `${base}/models`);
+  }
+  return [...new Set(urls)];
+}
+
+async function fetchOpenAiModelIds(config) {
+  const apiKey = String(config?.apiKey || '').trim();
+  const baseUrl = normalizeChatBaseUrl(config?.baseUrl);
+  if (!apiKey || !baseUrl) return { ok: false, error: 'not_configured' };
+  let lastError = 'request_failed';
+  for (const endpoint of buildOpenAiModelsUrls(baseUrl)) {
+    const safeEndpoint = await validatePublicHttpUrl(endpoint);
+    if (!safeEndpoint) continue;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(safeEndpoint.toString(), {
+        method: 'GET',
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: 'application/json',
+        },
+      });
+      if (!response.ok) {
+        lastError = `http_${response.status}`;
+        continue;
+      }
+      const result = await response.json().catch(() => null);
+      const models = Array.isArray(result?.data)
+        ? result.data
+          .map((item) => String(item?.id || '').trim())
+          .filter(Boolean)
+        : [];
+      if (!models.length) {
+        lastError = 'empty_models';
+        continue;
+      }
+      return { ok: true, models: [...new Set(models)].sort((a, b) => a.localeCompare(b)).slice(0, 200) };
+    } catch (error) {
+      lastError = error && error.name === 'AbortError' ? 'timeout' : 'request_failed';
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  return { ok: false, error: lastError };
+}
+
 function resolveTranscriptionConfig() {
   const settings = readStoredTranscriptionSettings();
   const environmentWorkspace = String(process.env.DASHSCOPE_WORKSPACE_ID || process.env.DASHSCOPE_WORKSPACE || '').trim();
@@ -2770,6 +2871,51 @@ ipcMain.handle('transcription:set-config', (event, payload) => {
   } catch (error) {
     return { ok: false, error: 'save_failed' };
   }
+});
+
+ipcMain.handle('chat:get-config', () => publicChatConfig());
+
+ipcMain.handle('chat:set-config', (event, payload) => {
+  const previous = readStoredChatSettings();
+  const chatApiKey = String(payload && payload.apiKey || '').trim();
+  const chatBaseUrl = normalizeChatBaseUrl(
+    payload && payload.baseUrl,
+    previous.chatBaseUrl || 'https://api.deepseek.com'
+  );
+  const chatModel = String(payload && payload.model || previous.chatModel || 'deepseek-chat')
+    .replace(/\s+/g, ' ').trim().slice(0, 120);
+  const chatModels = Array.isArray(payload && payload.models)
+    ? [...new Set(payload.models.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 200)
+    : Array.isArray(previous.chatModels) ? previous.chatModels : [];
+  if (!chatBaseUrl) return { ok: false, error: 'invalid_chat_url' };
+  if (chatApiKey && !safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: 'secure_storage_unavailable' };
+  }
+  const next = {
+    chatBaseUrl,
+    chatModel,
+    chatModels,
+    encryptedChatApiKey: chatApiKey
+      ? safeStorage.encryptString(chatApiKey).toString('base64')
+      : String(previous.encryptedChatApiKey || ''),
+  };
+  try {
+    fs.mkdirSync(path.dirname(getChatSettingsPath()), { recursive: true });
+    fs.writeFileSync(getChatSettingsPath(), JSON.stringify(next), { mode: 0o600 });
+    return { ok: true, ...publicChatConfig() };
+  } catch (error) {
+    return { ok: false, error: 'save_failed' };
+  }
+});
+
+ipcMain.handle('chat:list-models', async (event, payload) => {
+  const stored = readStoredChatSettings();
+  const inlineKey = String(payload && payload.apiKey || '').trim();
+  const config = {
+    apiKey: inlineKey || String(process.env.NOTCH_CHAT_API_KEY || decryptStoredSecret(stored.encryptedChatApiKey)).trim(),
+    baseUrl: normalizeChatBaseUrl(payload && payload.baseUrl, stored.chatBaseUrl || 'https://api.deepseek.com'),
+  };
+  return fetchOpenAiModelIds(config);
 });
 
 ipcMain.handle('transcription:start', (event) => {

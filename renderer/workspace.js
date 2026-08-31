@@ -722,8 +722,22 @@
   const llmBaseUrl = document.getElementById('llm-base-url');
   const llmModel = document.getElementById('llm-model');
   const transcriptionSettingsNote = document.getElementById('transcription-settings-note');
+  const chatSettingsBackdrop = document.getElementById('chat-settings-backdrop');
+  const chatSettingsClose = document.getElementById('chat-settings-close');
+  const chatSettingsCancel = document.getElementById('chat-settings-cancel');
+  const chatSettingsSave = document.getElementById('chat-settings-save');
+  const chatSettingsNote = document.getElementById('chat-settings-note');
+  const chatApiKey = document.getElementById('chat-api-key');
+  const chatApiStatus = document.getElementById('chat-api-status');
+  const chatApiHelp = document.getElementById('chat-api-help');
+  const chatBaseUrl = document.getElementById('chat-base-url');
+  const chatFetchModels = document.getElementById('chat-fetch-models');
+  const chatFetchModelsStatus = document.getElementById('chat-fetch-models-status');
+  const chatModelSelect = document.getElementById('chat-model-select');
   const settingsApiConfigure = document.getElementById('settings-api-configure');
+  const settingsChatConfigure = document.getElementById('settings-chat-configure');
   const settingsTranscriptionStatus = document.getElementById('settings-transcription-status');
+  const settingsChatStatus = document.getElementById('settings-chat-status');
   const settingsLlmStatus = document.getElementById('settings-llm-status');
   const settingsFeatureList = document.getElementById('settings-feature-list');
   const settingsHomeModuleList = document.getElementById('settings-home-module-list');
@@ -769,6 +783,14 @@
     llmBaseUrl: 'https://api.deepseek.com',
     llmModel: 'deepseek-v4-flash',
   };
+  let chatConfig = {
+    configured: false,
+    needsReentry: false,
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    models: [],
+  };
+  let chatModelsDraft = [];
   let settingsAppSettings = null;
   let settingsWorkspace = null;
   let transcriptionStatus = 'idle';
@@ -899,7 +921,11 @@
   }
 
   function updateTranscriptionConfigUi() {
-    const statuses = Domain.apiCredentialStatuses(transcriptionConfig);
+    const statuses = Domain.apiCredentialStatuses({
+      ...transcriptionConfig,
+      chatConfigured: chatConfig.configured,
+      chatNeedsReentry: chatConfig.needsReentry,
+    });
     if (transcriptionApiStatus) {
       transcriptionApiStatus.textContent = statuses.transcription.label;
       transcriptionApiStatus.dataset.state = statuses.transcription.state;
@@ -908,10 +934,40 @@
       llmApiStatus.textContent = statuses.llm.label;
       llmApiStatus.dataset.state = statuses.llm.state;
     }
+    if (chatApiStatus) {
+      chatApiStatus.textContent = statuses.chat.label;
+      chatApiStatus.dataset.state = statuses.chat.state;
+    }
     if (transcriptionRegion) transcriptionRegion.value = transcriptionConfig.region || 'beijing';
     if (transcriptionWorkspace) transcriptionWorkspace.value = transcriptionConfig.workspaceId || '';
     if (llmBaseUrl) llmBaseUrl.value = transcriptionConfig.llmBaseUrl || 'https://api.deepseek.com';
     if (llmModel) llmModel.value = transcriptionConfig.llmModel || 'deepseek-v4-flash';
+    if (chatBaseUrl) chatBaseUrl.value = chatConfig.baseUrl || 'https://api.deepseek.com';
+    populateChatModelSelect(chatModelSelect, chatModelsDraft.length ? chatModelsDraft : chatConfig.models, chatConfig.model);
+  }
+
+  function populateChatModelSelect(selectEl, models, selectedModel = '') {
+    if (!selectEl) return;
+    const ids = [...new Set((Array.isArray(models) ? models : []).map((item) => String(item || '').trim()).filter(Boolean))];
+    const current = String(selectedModel || '').trim();
+    if (current && !ids.includes(current)) ids.unshift(current);
+    selectEl.replaceChildren();
+    if (!ids.length) {
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '请先获取模型列表';
+      selectEl.append(empty);
+      selectEl.disabled = true;
+      return;
+    }
+    ids.forEach((id) => {
+      const option = document.createElement('option');
+      option.value = id;
+      option.textContent = id;
+      selectEl.append(option);
+    });
+    selectEl.disabled = false;
+    selectEl.value = current && ids.includes(current) ? current : ids[0];
   }
 
   function setSettingsNote(message, error = false) {
@@ -931,6 +987,7 @@
       appSettings: settingsAppSettings,
       workspace: settingsWorkspace,
       transcription: transcriptionConfig,
+      chat: chatConfig,
     });
     if (settingsTranscriptionStatus) {
       settingsTranscriptionStatus.textContent = summary.transcription.label;
@@ -939,6 +996,10 @@
     if (settingsLlmStatus) {
       settingsLlmStatus.textContent = summary.llm.label;
       settingsLlmStatus.dataset.state = summary.llm.state;
+    }
+    if (settingsChatStatus) {
+      settingsChatStatus.textContent = summary.chat.label;
+      settingsChatStatus.dataset.state = summary.chat.state;
     }
     if (settingsShortcutValue) settingsShortcutValue.textContent = summary.shortcut;
     if (settingsWorkspaceKind) settingsWorkspaceKind.textContent = summary.workspaceLabel;
@@ -978,28 +1039,40 @@
 
   async function refreshSettingsPanel() {
     if (!window.notchAPI) return;
-    const [appSettings, workspace, config, mirrorImage] = await Promise.all([
+    const [appSettings, workspace, config, chat, mirrorImage] = await Promise.all([
       window.notchAPI.getAppSettings?.().catch(() => null),
       window.notchAPI.getWorkspace?.().catch(() => null),
       window.notchAPI.getTranscriptionConfig?.().catch(() => null),
+      window.notchAPI.getChatConfig?.().catch(() => null),
       window.notchAPI.getMirrorImage?.().catch(() => null),
     ]);
     if (appSettings) settingsAppSettings = appSettings;
     if (workspace) settingsWorkspace = workspace;
     if (config) {
       transcriptionConfig = config;
-      updateTranscriptionConfigUi();
       updateRecordingUi();
     }
+    if (chat) {
+      chatConfig = chat;
+      chatModelsDraft = Array.isArray(chat.models) ? [...chat.models] : [];
+    }
+    updateTranscriptionConfigUi();
     applySettingsMirrorCover(mirrorImage);
     renderSettingsPanel();
   }
 
   async function loadTranscriptionConfig() {
-    if (!window.notchAPI || typeof window.notchAPI.getTranscriptionConfig !== 'function') return;
+    if (!window.notchAPI) return;
     try {
-      const config = await window.notchAPI.getTranscriptionConfig();
+      const [config, chat] = await Promise.all([
+        window.notchAPI.getTranscriptionConfig?.(),
+        window.notchAPI.getChatConfig?.(),
+      ]);
       if (config) transcriptionConfig = config;
+      if (chat) {
+        chatConfig = chat;
+        chatModelsDraft = Array.isArray(chat.models) ? [...chat.models] : [];
+      }
     } catch (error) {}
     updateTranscriptionConfigUi();
     updateRecordingUi();
@@ -1023,6 +1096,78 @@
 
   function closeTranscriptionSettings() {
     if (transcriptionSettingsBackdrop) transcriptionSettingsBackdrop.hidden = true;
+  }
+
+  function openChatSettings() {
+    if (!chatSettingsBackdrop) return;
+    chatSettingsBackdrop.hidden = false;
+    chatModelsDraft = Array.isArray(chatConfig.models) ? [...chatConfig.models] : [];
+    if (chatSettingsNote) {
+      chatSettingsNote.classList.remove('error', 'success');
+      chatSettingsNote.textContent = chatConfig.needsReentry
+        ? '检测到旧版加密密钥，但升级后无法解密。请重新输入 AI 对话 API Key。'
+        : chatConfig.configured
+          ? '已配置的 API Key 可留空；填写 Key 与 URL 后可重新获取模型列表。'
+          : '请配置 AI 对话 API Key 与 Base URL，然后获取模型列表。';
+    }
+    if (chatApiKey) chatApiKey.value = '';
+    if (chatFetchModelsStatus) chatFetchModelsStatus.textContent = '';
+    updateTranscriptionConfigUi();
+    setTimeout(() => chatApiKey?.focus(), 0);
+  }
+
+  function closeChatSettings() {
+    if (chatSettingsBackdrop) chatSettingsBackdrop.hidden = true;
+  }
+
+  function notifyChatConfigUpdated() {
+    document.dispatchEvent(new CustomEvent('notch:chat-config-updated', {
+      detail: {
+        configured: chatConfig.configured,
+        model: chatConfig.model,
+        baseUrl: chatConfig.baseUrl,
+        models: chatConfig.models,
+      },
+    }));
+  }
+
+  async function fetchChatModels() {
+    if (!window.notchAPI?.listChatModels) return;
+    const inlineKey = String(chatApiKey?.value || '').trim();
+    const baseUrl = String(chatBaseUrl?.value || chatConfig.baseUrl || '').trim();
+    if (!inlineKey && !chatConfig.configured) {
+      if (chatFetchModelsStatus) chatFetchModelsStatus.textContent = '请先填写 API Key';
+      return;
+    }
+    if (!baseUrl) {
+      if (chatFetchModelsStatus) chatFetchModelsStatus.textContent = '请先填写 Base URL';
+      return;
+    }
+    if (chatFetchModels) chatFetchModels.disabled = true;
+    if (chatFetchModelsStatus) chatFetchModelsStatus.textContent = '正在获取…';
+    let result;
+    try {
+      result = await window.notchAPI.listChatModels({
+        apiKey: inlineKey,
+        baseUrl,
+      });
+    } catch (error) {
+      result = { ok: false, error: 'request_failed' };
+    }
+    if (chatFetchModels) chatFetchModels.disabled = false;
+    if (!result?.ok || !Array.isArray(result.models) || !result.models.length) {
+      if (chatFetchModelsStatus) {
+        chatFetchModelsStatus.textContent = result?.error === 'not_configured'
+          ? '请先填写 API Key'
+          : result?.error === 'timeout'
+            ? '请求超时'
+            : '获取失败，请检查 Key 与 URL';
+      }
+      return;
+    }
+    chatModelsDraft = result.models;
+    populateChatModelSelect(chatModelSelect, chatModelsDraft, chatModelSelect?.value || chatConfig.model);
+    if (chatFetchModelsStatus) chatFetchModelsStatus.textContent = `已获取 ${result.models.length} 个模型`;
   }
 
   async function saveTranscriptionSettings() {
@@ -1060,9 +1205,9 @@
         ? 'Workspace ID 格式不正确。'
         : result && result.error === 'invalid_llm_url'
           ? '大语言模型 Base URL 必须是有效的 HTTPS 地址。'
-        : result && result.error === 'secure_storage_unavailable'
-          ? '当前系统安全存储不可用，可改用 DASHSCOPE_API_KEY 环境变量。'
-          : '配置保存失败，请重试。';
+          : result && result.error === 'secure_storage_unavailable'
+            ? '当前系统安全存储不可用，可改用 DASHSCOPE_API_KEY 环境变量。'
+            : '配置保存失败，请重试。';
       return;
     }
     transcriptionConfig = result;
@@ -1087,6 +1232,68 @@
     }
     updateRecordingUi();
     renderSettingsPanel();
+  }
+
+  async function saveChatSettings() {
+    if (!window.notchAPI || !chatSettingsSave) return;
+    const selectedModel = String(chatModelSelect?.value || '').trim();
+    if (!chatConfig.configured && !chatApiKey.value.trim()) {
+      if (chatSettingsNote) {
+        chatSettingsNote.classList.add('error');
+        chatSettingsNote.textContent = '请配置 AI 对话 API Key。';
+      }
+      return;
+    }
+    if (!selectedModel) {
+      if (chatSettingsNote) {
+        chatSettingsNote.classList.add('error');
+        chatSettingsNote.textContent = '请先获取模型列表并选择默认模型。';
+      }
+      return;
+    }
+    chatSettingsSave.disabled = true;
+    if (chatSettingsNote) {
+      chatSettingsNote.classList.remove('error');
+      chatSettingsNote.textContent = '正在安全保存…';
+    }
+    let result;
+    try {
+      result = await window.notchAPI.setChatConfig({
+        apiKey: chatApiKey.value,
+        baseUrl: chatBaseUrl.value,
+        model: selectedModel,
+        models: chatModelsDraft,
+      });
+    } catch (error) {
+      result = { ok: false, error: 'save_failed' };
+    }
+    chatSettingsSave.disabled = false;
+    if (!result?.ok) {
+      if (chatSettingsNote) {
+        chatSettingsNote.classList.add('error');
+        chatSettingsNote.textContent = result?.error === 'invalid_chat_url'
+          ? 'Base URL 必须是有效的 HTTPS 地址。'
+          : result?.error === 'secure_storage_unavailable'
+            ? '当前系统安全存储不可用，可改用 NOTCH_CHAT_API_KEY 环境变量。'
+            : '配置保存失败，请重试。';
+      }
+      return;
+    }
+    chatConfig = result;
+    chatModelsDraft = Array.isArray(result.models) ? [...result.models] : [];
+    if (chatApiKey) chatApiKey.value = '';
+    updateTranscriptionConfigUi();
+    if (chatSettingsNote) {
+      chatSettingsNote.classList.remove('error');
+      chatSettingsNote.classList.add('success');
+      chatSettingsNote.textContent = 'AI 对话配置已安全保存。';
+    }
+    chatSettingsSave.textContent = '已保存';
+    setTimeout(() => {
+      if (chatSettingsSave) chatSettingsSave.textContent = '保存';
+    }, 1200);
+    renderSettingsPanel();
+    notifyChatConfigUpdated();
   }
 
   function persistRecordings() {
@@ -1615,9 +1822,14 @@
   if (recordingNew) recordingNew.addEventListener('click', startRecording);
   if (recordingConfigure) recordingConfigure.addEventListener('click', openTranscriptionSettings);
   if (settingsApiConfigure) settingsApiConfigure.addEventListener('click', openTranscriptionSettings);
+  if (settingsChatConfigure) settingsChatConfigure.addEventListener('click', openChatSettings);
   if (transcriptionSettingsClose) transcriptionSettingsClose.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsCancel) transcriptionSettingsCancel.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsSave) transcriptionSettingsSave.addEventListener('click', saveTranscriptionSettings);
+  if (chatSettingsClose) chatSettingsClose.addEventListener('click', closeChatSettings);
+  if (chatSettingsCancel) chatSettingsCancel.addEventListener('click', closeChatSettings);
+  if (chatSettingsSave) chatSettingsSave.addEventListener('click', saveChatSettings);
+  if (chatFetchModels) chatFetchModels.addEventListener('click', fetchChatModels);
   if (transcriptionApiHelp) {
     transcriptionApiHelp.addEventListener('click', () => {
       window.notchAPI?.openExternal('https://bailian.console.aliyun.com/cn-beijing/?tab=app#/api-key');
@@ -1628,14 +1840,25 @@
       window.notchAPI?.openExternal('https://platform.deepseek.com/api_keys');
     });
   }
+  if (chatApiHelp) {
+    chatApiHelp.addEventListener('click', () => {
+      window.notchAPI?.openExternal('https://platform.deepseek.com/api_keys');
+    });
+  }
   if (transcriptionSettingsBackdrop) {
     transcriptionSettingsBackdrop.addEventListener('click', (event) => {
       if (event.target === transcriptionSettingsBackdrop) closeTranscriptionSettings();
     });
   }
+  if (chatSettingsBackdrop) {
+    chatSettingsBackdrop.addEventListener('click', (event) => {
+      if (event.target === chatSettingsBackdrop) closeChatSettings();
+    });
+  }
   if (window.notchAPI && typeof window.notchAPI.onOpenApiSettings === 'function') {
     window.notchAPI.onOpenApiSettings(async () => {
       if (!document.getElementById('app')?.classList.contains('expanded')) await setMode(true);
+      if (typeof setActiveTab === 'function') setActiveTab('settings');
       openTranscriptionSettings();
     });
   }

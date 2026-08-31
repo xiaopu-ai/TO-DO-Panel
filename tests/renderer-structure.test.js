@@ -34,6 +34,14 @@ test('chat tab supports roles, sessions, and save-to-notes', () => {
   assert.match(chatJs, /onChatChunk/);
   assert.match(chatJs, /replaceChatFromIndex|replaceIndex/);
   assert.match(chatJs, /buildPreview|NotchMarkdown/);
+  assert.match(html, /id="chat-role-model"/);
+  assert.match(html, /id="chat-settings-backdrop"/);
+  assert.match(html, /id="settings-chat-configure"/);
+  assert.match(html, /id="settings-api-configure"/);
+  const preloadJs = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf8');
+  assert.match(chatJs, /getChatConfig/);
+  assert.match(preloadJs, /listChatModels/);
+  assert.match(preloadJs, /getChatConfig/);
   assert.match(appJs, /groupNotesForLibrary/);
   assert.match(appJs, /notes-preview/);
   assert.match(appJs, /toggle-note-mode/);

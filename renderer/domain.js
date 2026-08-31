@@ -462,6 +462,7 @@
       id: 'role-default',
       name: '通用助手',
       systemPrompt: '你是简洁实用的中文助手。回答清晰、有条理，必要时使用 Markdown 列表。',
+      model: '',
       createdAt: 0,
       updatedAt: 0,
     },
@@ -469,6 +470,7 @@
       id: 'role-code',
       name: '代码顾问',
       systemPrompt: '你是资深软件工程师。专注代码审查、调试与架构建议，回答带可执行步骤，代码用 Markdown 代码块。',
+      model: '',
       createdAt: 0,
       updatedAt: 0,
     },
@@ -476,10 +478,17 @@
       id: 'role-writer',
       name: '写作教练',
       systemPrompt: '你是中文写作教练。帮助润色文字、优化结构，保持作者原意，给出具体修改建议。',
+      model: '',
       createdAt: 0,
       updatedAt: 0,
     },
   ];
+
+  const CHAT_MODEL_PRESETS = ['deepseek-chat', 'deepseek-reasoner', 'deepseek-v4-flash'];
+
+  function normalizeChatRoleModel(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  }
 
   function normalizeChatRoles(value) {
     const source = Array.isArray(value) && value.length ? value : DEFAULT_CHAT_ROLES;
@@ -489,10 +498,11 @@
         const id = String(item.id || '').trim();
         const name = Array.from(String(item.name || '').replace(/\s+/g, ' ').trim()).slice(0, 32).join('');
         const systemPrompt = String(item.systemPrompt || '').trim().slice(0, 4000);
+        const model = normalizeChatRoleModel(item.model);
         if (!id || !name || !systemPrompt) return null;
         const createdAt = Math.max(0, Number(item.createdAt) || Date.now());
         const updatedAt = Math.max(createdAt, Number(item.updatedAt) || createdAt);
-        return { id, name, systemPrompt, createdAt, updatedAt };
+        return { id, name, systemPrompt, model, createdAt, updatedAt };
       })
       .filter(Boolean);
   }
@@ -531,6 +541,7 @@
     const timestamp = Math.max(0, Number(now) || Date.now());
     const name = Array.from(String(payload && payload.name || '').replace(/\s+/g, ' ').trim()).slice(0, 32).join('');
     const systemPrompt = String(payload && payload.systemPrompt || '').trim().slice(0, 4000);
+    const model = normalizeChatRoleModel(payload && payload.model);
     if (!name || !systemPrompt) return normalizeChatRoles(roles);
     const existingId = String(payload && payload.id || '').trim();
     const previous = normalizeChatRoles(roles);
@@ -541,6 +552,7 @@
       id,
       name,
       systemPrompt,
+      model,
       createdAt: current ? current.createdAt : timestamp,
       updatedAt: timestamp,
     });
@@ -684,13 +696,23 @@
     return {
       transcription: status(Boolean(value.configured), Boolean(value.asrNeedsReentry)),
       llm: status(Boolean(value.llmConfigured), Boolean(value.llmNeedsReentry)),
+      chat: status(Boolean(value.chatConfigured), Boolean(value.chatNeedsReentry)),
     };
   }
 
   function settingsSummary(input = {}) {
     const appSettings = input.appSettings && typeof input.appSettings === 'object' ? input.appSettings : {};
     const workspace = input.workspace && typeof input.workspace === 'object' ? input.workspace : {};
-    const statuses = apiCredentialStatuses(input.transcription);
+    const transcription = input.transcription && typeof input.transcription === 'object' ? input.transcription : {};
+    const chat = input.chat && typeof input.chat === 'object' ? input.chat : {};
+    const statuses = apiCredentialStatuses({
+      configured: transcription.configured,
+      asrNeedsReentry: transcription.asrNeedsReentry,
+      llmConfigured: transcription.llmConfigured,
+      llmNeedsReentry: transcription.llmNeedsReentry,
+      chatConfigured: chat.configured,
+      chatNeedsReentry: chat.needsReentry,
+    });
     return {
       shortcut: String(appSettings.shortcut || 'Space'),
       autoLaunch: appSettings.autoLaunch === true,
@@ -698,6 +720,7 @@
       workspaceLabel: workspace.portable ? '自定义文件夹' : '默认文件夹',
       transcription: statuses.transcription,
       llm: statuses.llm,
+      chat: statuses.chat,
     };
   }
 
@@ -1129,6 +1152,8 @@
     updateNoteTitle,
     applyGeneratedNoteTitle,
     DEFAULT_CHAT_ROLES,
+    CHAT_MODEL_PRESETS,
+    normalizeChatRoleModel,
     normalizeChatRoles,
     normalizeChatSessions,
     upsertChatRole,

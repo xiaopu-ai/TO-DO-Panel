@@ -451,6 +451,7 @@ test('settings summary combines safe API status with local device settings', () 
     appSettings: { shortcut: 'Command+Shift+P', autoLaunch: true },
     workspace: { path: '/Users/test/Panel', portable: true },
     transcription: { configured: true, llmConfigured: false },
+    chat: { configured: true },
   }), {
     shortcut: 'Command+Shift+P',
     autoLaunch: true,
@@ -458,6 +459,7 @@ test('settings summary combines safe API status with local device settings', () 
     workspaceLabel: '自定义文件夹',
     transcription: { label: '已安全保存', state: 'saved' },
     llm: { label: '未配置', state: 'empty' },
+    chat: { label: '已安全保存', state: 'saved' },
   });
   assert.doesNotMatch(JSON.stringify(settingsSummary({
     transcription: { configured: true, apiKey: 'api-secret' },
@@ -542,8 +544,10 @@ test('chat roles and sessions support role replies and note grouping', () => {
   const roles = upsertChatRole(normalizeChatRoles(null), {
     name: '产品经理',
     systemPrompt: '用简洁产品视角回答',
+    model: 'deepseek-chat',
   }, 1000);
   assert.equal(roles[0].name, '产品经理');
+  assert.equal(roles[0].model, 'deepseek-chat');
 
   let sessions = createChatSession([], roles[0].id, 1100);
   sessions = appendChatMessage(sessions, sessions[0].id, { role: 'user', content: '帮我拆需求' }, 1200);
@@ -593,10 +597,12 @@ test('API credential statuses distinguish saved, missing, and legacy keys that n
   }), {
     transcription: { label: '已安全保存', state: 'saved' },
     llm: { label: '需重新输入', state: 'warning' },
+    chat: { label: '未配置', state: 'empty' },
   });
   assert.deepEqual(apiCredentialStatuses({}), {
     transcription: { label: '未配置', state: 'empty' },
     llm: { label: '未配置', state: 'empty' },
+    chat: { label: '未配置', state: 'empty' },
   });
 });
 

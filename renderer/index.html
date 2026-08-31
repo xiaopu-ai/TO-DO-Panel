@@ -457,7 +457,7 @@
                   <textarea id="chat-input" rows="2" placeholder="输入问题，Enter 发送 · Shift+Enter 换行" maxlength="8000" spellcheck="false"></textarea>
                   <button class="workspace-button primary" id="chat-send" type="submit">发送</button>
                 </form>
-                <p class="chat-status" id="chat-status">使用设置里的 DeepSeek / OpenAI 兼容 API。保存对话会按角色写入笔记分组。</p>
+                <p class="chat-status" id="chat-status">在设置 → AI 对话 中单独配置 API；每个角色可覆盖默认模型。保存对话会按角色写入笔记分组。</p>
               </section>
 
               <aside class="chat-role-editor tile" id="chat-role-editor" hidden>
@@ -471,6 +471,13 @@
                 <label>
                   <span>角色名称</span>
                   <input id="chat-role-name" maxlength="32" placeholder="例如：产品经理" autocomplete="off" />
+                </label>
+                <label>
+                  <span>模型</span>
+                  <select id="chat-role-model" aria-label="选择对话模型">
+                    <option value="">使用对话默认模型</option>
+                  </select>
+                  <small id="chat-role-model-default" class="chat-role-model-hint"></small>
                 </label>
                 <label>
                   <span>系统提示词</span>
@@ -490,13 +497,24 @@
                 <section class="tile settings-card settings-api-card">
                   <div class="settings-card-heading">
                     <div><span class="tile-label">智能能力</span><strong>API 配置</strong></div>
-                    <button class="workspace-button compact" id="settings-api-configure" type="button">配置或替换</button>
+                    <button class="workspace-button compact" id="settings-api-configure" type="button">配置转写与命名</button>
                   </div>
-                  <div class="settings-status-list">
-                    <div><span>通义百炼实时转写</span><small id="settings-transcription-status" data-state="empty">未配置</small></div>
-                    <div><span>DeepSeek 智能命名</span><small id="settings-llm-status" data-state="empty">未配置</small></div>
+                  <div class="settings-status-list settings-api-status-list">
+                    <div>
+                      <span>通义百炼实时转写</span>
+                      <small id="settings-transcription-status" data-state="empty">未配置</small>
+                    </div>
+                    <div>
+                      <span>DeepSeek 智能命名</span>
+                      <small id="settings-llm-status" data-state="empty">未配置</small>
+                    </div>
+                    <div>
+                      <span>AI 对话</span>
+                      <small id="settings-chat-status" data-state="empty">未配置</small>
+                      <button class="workspace-button compact" id="settings-chat-configure" type="button">配置</button>
+                    </div>
                   </div>
-                  <p>密钥由 macOS 安全存储加密，面板不会读取或回显已保存的明文。</p>
+                  <p>转写与智能命名共用上方入口；AI 对话使用独立 API，填写 Key 与 URL 后可拉取模型列表。</p>
                 </section>
 
                 <section class="tile settings-card settings-features-card">
@@ -637,6 +655,45 @@
             <div class="transcription-settings-actions">
               <button class="workspace-button compact" id="transcription-settings-cancel" type="button">取消</button>
               <button class="workspace-button compact primary" id="transcription-settings-save" type="button">保存</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="transcription-settings-backdrop" id="chat-settings-backdrop" hidden>
+          <section class="transcription-settings-card" role="dialog" aria-modal="true" aria-labelledby="chat-settings-title">
+            <div class="transcription-settings-head">
+              <div>
+                <strong id="chat-settings-title">AI 对话配置</strong>
+                <span>独立 API · OpenAI 兼容接口</span>
+              </div>
+              <button id="chat-settings-close" type="button" aria-label="关闭对话设置">×</button>
+            </div>
+            <div class="transcription-field api-key-field">
+              <div class="api-field-heading">
+                <label for="chat-api-key">API Key</label>
+                <small id="chat-api-status" data-state="empty">未配置</small>
+              </div>
+              <input id="chat-api-key" type="password" placeholder="已配置时留空即可" autocomplete="off" spellcheck="false" />
+              <button class="api-key-help" id="chat-api-help" type="button">前往 DeepSeek 创建或管理 API Key <span aria-hidden="true">↗</span></button>
+            </div>
+            <label class="transcription-field">
+              <span>Base URL</span>
+              <input id="chat-base-url" type="url" placeholder="https://api.deepseek.com" autocomplete="off" spellcheck="false" />
+            </label>
+            <div class="chat-model-fetch-row">
+              <button class="workspace-button compact" id="chat-fetch-models" type="button">获取模型列表</button>
+              <small id="chat-fetch-models-status" class="chat-fetch-models-status"></small>
+            </div>
+            <label class="transcription-field">
+              <span>默认模型</span>
+              <select id="chat-model-select" aria-label="选择对话默认模型" disabled>
+                <option value="">请先获取模型列表</option>
+              </select>
+            </label>
+            <p class="transcription-settings-note" id="chat-settings-note">填写 Key 与 URL 后获取模型列表再保存。密钥由 macOS 安全存储加密。</p>
+            <div class="transcription-settings-actions">
+              <button class="workspace-button compact" id="chat-settings-cancel" type="button">取消</button>
+              <button class="workspace-button compact primary" id="chat-settings-save" type="button">保存</button>
             </div>
           </section>
         </div>

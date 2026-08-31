@@ -23,6 +23,8 @@
   const roleEditor = document.getElementById('chat-role-editor');
   const roleEditorTitle = document.getElementById('chat-role-editor-title');
   const roleNameInput = document.getElementById('chat-role-name');
+  const roleModelSelect = document.getElementById('chat-role-model');
+  const roleModelDefaultHint = document.getElementById('chat-role-model-default');
   const rolePromptInput = document.getElementById('chat-role-prompt');
   const roleDeleteButton = document.getElementById('chat-role-delete');
   const roleSaveButton = document.getElementById('chat-role-save');
@@ -49,6 +51,57 @@
   let streamBuffer = '';
   let streamRenderTimer = null;
   let unsubscribeChunk = null;
+  let chatDefaultModel = 'deepseek-chat';
+  let chatAvailableModels = [];
+
+  function populateRoleModelOptions(models, selectedModel = '') {
+    if (!roleModelSelect) return;
+    const ids = [...new Set((Array.isArray(models) ? models : []).map((item) => String(item || '').trim()).filter(Boolean))];
+    const current = Domain.normalizeChatRoleModel(selectedModel);
+    if (current && !ids.includes(current)) ids.unshift(current);
+    roleModelSelect.replaceChildren();
+    const fallback = document.createElement('option');
+    fallback.value = '';
+    fallback.textContent = '使用对话默认模型';
+    roleModelSelect.append(fallback);
+    ids.forEach((id) => {
+      const option = document.createElement('option');
+      option.value = id;
+      option.textContent = id;
+      roleModelSelect.append(option);
+    });
+    roleModelSelect.value = current && ids.includes(current) ? current : '';
+  }
+
+  function updateRoleModelDefaultHint() {
+    if (!roleModelDefaultHint) return;
+    roleModelDefaultHint.textContent = chatDefaultModel
+      ? `对话默认：${chatDefaultModel}`
+      : '请先在设置 → AI 对话 中配置默认模型';
+  }
+
+  function syncRoleModelEditor(role) {
+    populateRoleModelOptions(chatAvailableModels, role?.model || '');
+  }
+
+  function readRoleModelFromEditor() {
+    return Domain.normalizeChatRoleModel(roleModelSelect?.value || '');
+  }
+
+  async function refreshChatDefaults() {
+    try {
+      const config = await window.notchAPI?.getChatConfig?.();
+      if (config?.model) chatDefaultModel = String(config.model);
+      chatAvailableModels = Array.isArray(config?.models) ? [...config.models] : [];
+    } catch (error) {
+      // ignore
+    }
+    updateRoleModelDefaultHint();
+    if (!roleEditor?.hidden) {
+      const role = roles.find((item) => item.id === editingRoleId);
+      syncRoleModelEditor(role);
+    }
+  }
 
   function readJson(key, fallback) {
     try {
@@ -148,6 +201,12 @@
       const prompt = document.createElement('span');
       prompt.textContent = role.systemPrompt;
       select.append(name, prompt);
+      if (role.model) {
+        const model = document.createElement('em');
+        model.className = 'chat-role-model-tag';
+        model.textContent = role.model;
+        select.append(model);
+      }
       const edit = document.createElement('button');
       edit.type = 'button';
       edit.className = 'chat-role-edit';
@@ -378,6 +437,8 @@
     const role = roles.find((item) => item.id === editingRoleId);
     if (roleEditorTitle) roleEditorTitle.textContent = role ? '编辑角色' : '新建角色';
     if (roleNameInput) roleNameInput.value = role ? role.name : '';
+    syncRoleModelEditor(role);
+    updateRoleModelDefaultHint();
     if (rolePromptInput) rolePromptInput.value = role ? role.systemPrompt : '';
     if (roleDeleteButton) roleDeleteButton.hidden = !role;
     if (roleEditor) roleEditor.hidden = false;
@@ -418,6 +479,7 @@
     const result = await window.notchAPI.chatComplete({
       requestId: streamRequestId,
       systemPrompt: role.systemPrompt,
+      model: role.model || '',
       messages: history,
     }).catch(() => ({ ok: false, error: 'request_failed' }));
 
@@ -437,7 +499,7 @@
 
     if (!result?.ok || !finalText) {
       const map = {
-        not_configured: '请先在设置中配置 DeepSeek / LLM API Key',
+        not_configured: '请先在设置 → AI 对话 中配置 API Key 与默认模型',
         timeout: '请求超时，请稍后重试',
         empty_response: '模型返回为空',
         invalid_endpoint: 'API 地址无效',
@@ -565,6 +627,7 @@
   roleSaveButton?.addEventListener('click', () => {
     const name = String(roleNameInput?.value || '').trim();
     const prompt = String(rolePromptInput?.value || '').trim();
+    const model = readRoleModelFromEditor();
     if (!name || !prompt) {
       setStatus('角色名称和提示词不能为空', 'error');
       return;
@@ -574,6 +637,7 @@
       id: previousId,
       name,
       systemPrompt: prompt,
+      model,
     }, Date.now());
     if (!previousId) activeRoleId = roles[0]?.id || activeRoleId;
     else activeRoleId = previousId;
@@ -667,7 +731,19 @@
     if (typeof setActiveTab === 'function') setActiveTab('chat');
   });
 
+  document.addEventListener('notch:chat-config-updated', (event) => {
+    const detail = event?.detail || {};
+    if (detail.model) chatDefaultModel = String(detail.model);
+    chatAvailableModels = Array.isArray(detail.models) ? [...detail.models] : chatAvailableModels;
+    updateRoleModelDefaultHint();
+    if (!roleEditor?.hidden) {
+      const role = roles.find((item) => item.id === editingRoleId);
+      syncRoleModelEditor(role);
+    }
+  });
+
   loadState();
+  refreshChatDefaults();
   if (!readJson(CHAT_ROLES_KEY, null)) writeJson(CHAT_ROLES_KEY, roles);
   persistState();
   renderAll();
