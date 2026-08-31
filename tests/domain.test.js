@@ -52,7 +52,7 @@ const {
   prependClipboardHistory,
 } = domain;
 
-const HOME_MODULES = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands'];
+const HOME_MODULES = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands'];
 
 function assertExactHomeCover(layout, expectedIds) {
   assert.ok(layout);
@@ -490,6 +490,7 @@ test('editing a saved note updates content and timestamp without losing its iden
     id: 'selected',
     title: '',
     titleSource: '',
+    group: '',
     content: '新内容\n第二行',
     createdAt: 100,
     updatedAt: 400,
@@ -519,10 +520,54 @@ test('users can rename a note without changing its content', () => {
     id: 'note-1',
     title: '用户自己的标题',
     titleSource: 'user',
+    group: '',
     content: '正文',
     createdAt: 100,
     updatedAt: 300,
   });
+});
+
+test('chat roles and sessions support role replies and note grouping', () => {
+  const {
+    normalizeChatRoles,
+    upsertChatRole,
+    createChatSession,
+    appendChatMessage,
+    formatChatSessionMarkdown,
+    createNoteFromChat,
+    groupNotesForLibrary,
+    chatNoteGroupName,
+  } = domain;
+
+  const roles = upsertChatRole(normalizeChatRoles(null), {
+    name: '产品经理',
+    systemPrompt: '用简洁产品视角回答',
+  }, 1000);
+  assert.equal(roles[0].name, '产品经理');
+
+  let sessions = createChatSession([], roles[0].id, 1100);
+  sessions = appendChatMessage(sessions, sessions[0].id, { role: 'user', content: '帮我拆需求' }, 1200);
+  sessions = appendChatMessage(sessions, sessions[0].id, { role: 'assistant', content: '先定义用户故事' }, 1300);
+  assert.equal(sessions[0].title, '帮我拆需求');
+  assert.equal(sessions[0].messages.length, 2);
+
+  const { replaceChatFromIndex } = domain;
+  sessions = replaceChatFromIndex(sessions, sessions[0].id, 0, '改成拆优先级', 1400);
+  assert.equal(sessions[0].messages.length, 1);
+  assert.equal(sessions[0].messages[0].content, '改成拆优先级');
+  assert.equal(sessions[0].title, '改成拆优先级');
+
+  const markdown = formatChatSessionMarkdown(sessions[0], roles[0].name);
+  assert.match(markdown, /产品经理/);
+  assert.match(markdown, /改成拆优先级/);
+
+  const notes = createNoteFromChat([], {
+    title: sessions[0].title,
+    content: markdown,
+    roleName: roles[0].name,
+  }, 1400);
+  assert.equal(notes[0].group, chatNoteGroupName('产品经理'));
+  assert.equal(groupNotesForLibrary(notes)[0].group, 'AI · 产品经理');
 });
 
 test('generated note titles never overwrite user titles or stale content', () => {
@@ -665,10 +710,10 @@ test('hidden homepage modules are deduplicated and normalized to module order', 
 });
 
 test('homepage visibility refuses to hide the final visible module', () => {
-  const sixHidden = HOME_MODULES.slice(0, 6);
+  const almostAllHidden = HOME_MODULES.slice(0, HOME_MODULES.length - 1);
   assert.deepEqual(
-    updateHomeModuleVisibility(sixHidden, HOME_MODULES, 'commands', false),
-    { ok: false, error: 'at_least_one_required', hiddenIds: sixHidden }
+    updateHomeModuleVisibility(almostAllHidden, HOME_MODULES, 'commands', false),
+    { ok: false, error: 'at_least_one_required', hiddenIds: almostAllHidden }
   );
   assert.deepEqual(
     updateHomeModuleVisibility(['mirror'], HOME_MODULES, 'mirror', true),
@@ -681,10 +726,10 @@ test('homepage visibility refuses to hide the final visible module', () => {
 });
 
 test('every non-empty homepage widget subset exactly covers the bento grid', () => {
-  const order = ['music', 'pomodoro', 'windows', 'recorder', 'mirror', 'note', 'commands'];
+  const order = ['music', 'pomodoro', 'windows', 'recorder', 'mirror', 'note', 'chat', 'commands'];
   const sizes = {
     music: 'medium', pomodoro: 'mini', windows: 'large', recorder: 'small',
-    mirror: 'medium', note: 'medium', commands: 'mini',
+    mirror: 'small', note: 'small', chat: 'medium', commands: 'mini',
   };
   for (let visibleMask = 1; visibleMask < 2 ** order.length; visibleMask += 1) {
     const hiddenIds = order.filter((id, index) => (visibleMask & (1 << index)) === 0);

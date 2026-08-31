@@ -77,6 +77,12 @@
               </svg>
               <span class="tab-label">密钥</span>
             </button>
+            <button class="tab" id="tab-button-chat" type="button" data-tab="chat" role="tab" aria-controls="tab-chat" aria-selected="false" tabindex="-1">
+              <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6A2.5 2.5 0 0 1 16.5 15H12l-4 3.5V15H7.5A2.5 2.5 0 0 1 5 12.5z" />
+              </svg>
+              <span class="tab-label">对话</span>
+            </button>
             <button class="tab" id="tab-button-settings" type="button" data-tab="settings" role="tab" aria-controls="tab-settings" aria-selected="false" tabindex="-1">
               <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3" />
@@ -207,6 +213,19 @@
                     spellcheck="false"
                   ></textarea>
                 </div>
+              </section>
+
+              <section class="tile home-chat" data-home-module="chat" data-widget-size="medium" aria-label="AI 对话">
+                <div class="tile-head">
+                  <span class="tile-label">AI 对话</span>
+                  <select id="home-chat-role" aria-label="选择对话角色"></select>
+                  <button class="workspace-button compact" id="home-chat-open" type="button">展开</button>
+                </div>
+                <div class="home-chat-messages" id="home-chat-messages" aria-live="polite"></div>
+                <form class="home-chat-composer" id="home-chat-composer">
+                  <input id="home-chat-input" type="text" maxlength="8000" placeholder="问点什么…" autocomplete="off" spellcheck="false" />
+                  <button class="workspace-button primary" id="home-chat-send" type="submit">发送</button>
+                </form>
               </section>
 
               <!-- 常用指令 -->
@@ -401,6 +420,70 @@
             </div>
           </section>
 
+          <section id="tab-chat" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-chat" aria-hidden="true" inert>
+            <div class="chat-page">
+              <aside class="chat-sidebar tile">
+                <div class="chat-sidebar-head">
+                  <div>
+                    <span class="tile-label">角色</span>
+                    <strong id="chat-role-count">0 个</strong>
+                  </div>
+                  <button class="workspace-button compact" id="chat-role-new" type="button">新建角色</button>
+                </div>
+                <div class="chat-role-list" id="chat-role-list"></div>
+                <div class="chat-session-head">
+                  <div>
+                    <span class="tile-label">会话</span>
+                    <strong id="chat-session-count">0 条</strong>
+                  </div>
+                  <button class="workspace-button compact" id="chat-session-new" type="button">新对话</button>
+                </div>
+                <div class="chat-session-list" id="chat-session-list"></div>
+              </aside>
+
+              <section class="chat-main tile">
+                <div class="chat-main-head">
+                  <div class="chat-main-title">
+                    <strong id="chat-current-role">选择角色开始对话</strong>
+                    <span id="chat-current-session">尚未开始会话</span>
+                  </div>
+                  <div class="chat-main-actions">
+                    <button class="workspace-button compact" id="chat-save-note" type="button" disabled>保存到笔记</button>
+                    <button class="workspace-button compact" id="chat-clear-session" type="button" disabled>清空</button>
+                  </div>
+                </div>
+                <div class="chat-messages" id="chat-messages" aria-live="polite"></div>
+                <form class="chat-composer" id="chat-composer">
+                  <textarea id="chat-input" rows="2" placeholder="输入问题，Enter 发送 · Shift+Enter 换行" maxlength="8000" spellcheck="false"></textarea>
+                  <button class="workspace-button primary" id="chat-send" type="submit">发送</button>
+                </form>
+                <p class="chat-status" id="chat-status">使用设置里的 DeepSeek / OpenAI 兼容 API。保存对话会按角色写入笔记分组。</p>
+              </section>
+
+              <aside class="chat-role-editor tile" id="chat-role-editor" hidden>
+                <div class="chat-role-editor-head">
+                  <div>
+                    <span class="tile-label">角色设定</span>
+                    <strong id="chat-role-editor-title">新建角色</strong>
+                  </div>
+                  <button id="chat-role-editor-close" type="button" aria-label="关闭角色编辑">×</button>
+                </div>
+                <label>
+                  <span>角色名称</span>
+                  <input id="chat-role-name" maxlength="32" placeholder="例如：产品经理" autocomplete="off" />
+                </label>
+                <label>
+                  <span>系统提示词</span>
+                  <textarea id="chat-role-prompt" rows="10" maxlength="4000" placeholder="描述这个角色应如何回答…" spellcheck="false"></textarea>
+                </label>
+                <div class="chat-role-editor-actions">
+                  <button class="workspace-button" id="chat-role-delete" type="button" hidden>删除</button>
+                  <button class="workspace-button primary" id="chat-role-save" type="button">保存角色</button>
+                </div>
+              </aside>
+            </div>
+          </section>
+
           <section id="tab-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-settings" aria-hidden="true" inert>
             <div class="settings-page" id="settings-page" aria-label="TO-DO Panel 设置">
               <div class="settings-column settings-column-primary">
@@ -427,6 +510,7 @@
                     <label><span><b>链接</b><small>收藏与分组</small></span><input type="checkbox" data-settings-feature="links" aria-label="显示链接" /><i aria-hidden="true"></i></label>
                     <label><span><b>录制</b><small>录音与转写</small></span><input type="checkbox" data-settings-feature="recordings" aria-label="显示录制" /><i aria-hidden="true"></i></label>
                     <label><span><b>密钥</b><small>本机安全存储</small></span><input type="checkbox" data-settings-feature="credentials" aria-label="显示密钥" /><i aria-hidden="true"></i></label>
+                    <label><span><b>对话</b><small>角色化 AI 聊天</small></span><input type="checkbox" data-settings-feature="chat" aria-label="显示对话" /><i aria-hidden="true"></i></label>
                     <label><span><b>剪贴板</b><small>默认关闭</small></span><input type="checkbox" data-settings-feature="clip" aria-label="显示剪贴板" /><i aria-hidden="true"></i></label>
                   </div>
                 </section>
@@ -443,6 +527,7 @@
                     <label><span><b>当前窗口</b><small>窗口快速切换</small></span><input type="checkbox" data-settings-home-module="windows" aria-label="显示当前窗口" /><i aria-hidden="true"></i></label>
                     <label><span><b>镜子</b><small>相机与封面</small></span><input type="checkbox" data-settings-home-module="mirror" aria-label="显示镜子" /><i aria-hidden="true"></i></label>
                     <label><span><b>随笔记</b><small>首页快速记录</small></span><input type="checkbox" data-settings-home-module="note" aria-label="显示随笔记" /><i aria-hidden="true"></i></label>
+                    <label><span><b>AI 对话</b><small>角色化快速问答</small></span><input type="checkbox" data-settings-home-module="chat" aria-label="显示 AI 对话" /><i aria-hidden="true"></i></label>
                     <label><span><b>常用指令</b><small>提示词快捷入口</small></span><input type="checkbox" data-settings-home-module="commands" aria-label="显示常用指令" /><i aria-hidden="true"></i></label>
                   </div>
                 </section>
@@ -564,6 +649,7 @@
     <script src="domain.js"></script>
     <script src="effects.js"></script>
     <script src="app.js"></script>
+    <script src="chat.js"></script>
     <script src="workspace.js"></script>
     <script src="icon-motion.js"></script>
   </body>

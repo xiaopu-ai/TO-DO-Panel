@@ -21,6 +21,24 @@ test('notes have a dedicated top-level tab and management panel', () => {
   assert.match(html, /id="notes-detail"/);
 });
 
+test('chat tab supports roles, sessions, and save-to-notes', () => {
+  assert.match(html, /data-tab="chat"/);
+  assert.match(html, /id="tab-chat"/);
+  assert.match(html, /id="chat-role-list"/);
+  assert.match(html, /id="chat-messages"/);
+  assert.match(html, /id="chat-save-note"/);
+  assert.match(html, /data-settings-feature="chat"/);
+  const chatJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'chat.js'), 'utf8');
+  assert.match(chatJs, /chatComplete/);
+  assert.match(chatJs, /saveFromChat/);
+  assert.match(chatJs, /onChatChunk/);
+  assert.match(chatJs, /replaceChatFromIndex|replaceIndex/);
+  assert.match(chatJs, /buildPreview|NotchMarkdown/);
+  assert.match(appJs, /groupNotesForLibrary/);
+  assert.match(appJs, /notes-preview/);
+  assert.match(appJs, /toggle-note-mode/);
+});
+
 test('home scratch note keeps only the save action', () => {
   const homeNote = html.match(/<section class="tile home-note"[\s\S]*?<\/section>/)?.[0] || '';
   assert.match(homeNote, /id="note-save-btn"/);
@@ -56,7 +74,7 @@ test('settings exposes exactly one switch for every homepage widget', () => {
   const switches = [...html.matchAll(/data-settings-home-module="([^"]+)"/g)]
     .map((match) => match[1]);
   assert.deepEqual(switches, [
-    'music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands',
+    'music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands',
   ]);
   assert.match(workspaceJs, /isRecordingActive/);
   assert.match(workspaceJs, /recording_active/);

@@ -711,7 +711,7 @@ if (window.notchAPI && typeof window.notchAPI.onMetricsChanged === 'function') {
 
 // ============ Tab 切换 ============
 const TAB_KEY = 'notch-active-tab';
-const ALL_TABS = ['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'];
+const ALL_TABS = ['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'chat', 'clip', 'settings'];
 let TABS = ALL_TABS.filter((name) => name !== 'clip');
 let tabButtons = Array.from(document.querySelectorAll('.tab:not([hidden])'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
@@ -845,6 +845,8 @@ async function setActiveTab(name) {
     }
   }
 }
+
+window.setActiveTab = setActiveTab;
 
 // 胶囊滑动结束后兜底再校准一次（窗口变形期间布局可能回流）
 if (tabIndicator) {
@@ -1725,6 +1727,10 @@ function buildMarkdownPreview(source) {
   return fragment;
 }
 
+window.NotchMarkdown = {
+  buildPreview: buildMarkdownPreview,
+};
+
 function renderNotePreview() {
   if (!noteInput || !notePreview) return;
   notePreview.replaceChildren(buildMarkdownPreview(noteInput.value));
@@ -2115,10 +2121,17 @@ function renderNotesDetail(notes = loadNoteArchive()) {
   title.setAttribute('aria-label', '笔记标题，可直接修改');
   const time = document.createElement('time');
   time.className = 'notes-detail-time';
-  time.textContent = `更新于 ${noteArchiveTime(note.updatedAt)}`;
+  time.textContent = note.group
+    ? `${note.group} · 更新于 ${noteArchiveTime(note.updatedAt)}`
+    : `更新于 ${noteArchiveTime(note.updatedAt)}`;
   heading.append(title, time);
   const actions = document.createElement('div');
   actions.className = 'notes-detail-actions';
+  const modeToggle = document.createElement('button');
+  modeToggle.type = 'button';
+  modeToggle.className = 'notes-mode-toggle workspace-button compact';
+  modeToggle.dataset.action = 'toggle-note-mode';
+  modeToggle.textContent = '编辑 Markdown';
   const remove = document.createElement('button');
   remove.type = 'button';
   remove.className = 'notes-delete';
@@ -2126,18 +2139,26 @@ function renderNotesDetail(notes = loadNoteArchive()) {
   remove.setAttribute('aria-label', '删除笔记');
   remove.title = '删除笔记';
   remove.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M7 7l1 12h10l1-12"/></svg>';
-  actions.append(remove);
+  actions.append(modeToggle, remove);
   header.append(heading, actions);
+
+  const preview = document.createElement('div');
+  preview.id = 'notes-preview';
+  preview.className = 'notes-preview md-preview';
+  preview.replaceChildren(buildMarkdownPreview(note.content));
 
   const editor = document.createElement('textarea');
   editor.id = 'notes-editor';
   editor.className = 'notes-editor';
   editor.dataset.noteId = note.id;
   editor.value = note.content;
-  editor.placeholder = '直接输入笔记内容…';
+  editor.placeholder = '直接输入 Markdown…';
   editor.setAttribute('aria-label', `编辑笔记：${noteArchiveTitle(note)}`);
   editor.spellcheck = false;
-  notesDetail.append(header, editor);
+  editor.hidden = true;
+
+  notesDetail.dataset.mode = 'preview';
+  notesDetail.append(header, preview, editor);
   requestNoteTitle(note);
 }
 
@@ -2209,6 +2230,10 @@ function persistNotesEditor(editor) {
     renderNotePreview();
   }
   updateSavedNotePresentation(updated);
+  const preview = notesDetail?.querySelector('#notes-preview');
+  if (preview && notesDetail?.dataset.mode === 'preview') {
+    preview.replaceChildren(buildMarkdownPreview(editor.value));
+  }
   if (pendingNotesEditor === editor) pendingNotesEditor = null;
 }
 
@@ -2248,24 +2273,49 @@ function renderNotesLibrary() {
     renderNotesDetail(notes);
     return;
   }
-  notes.forEach((note) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `notes-list-item${note.id === selectedNoteId ? ' active' : ''}`;
-    button.dataset.noteId = note.id;
-    button.dataset.lineSidebarItem = '';
-    button.setAttribute('aria-pressed', String(note.id === selectedNoteId));
-    const title = document.createElement('strong');
-    title.textContent = noteArchiveTitle(note);
-    const excerpt = document.createElement('span');
-    excerpt.textContent = noteArchiveExcerpt(note);
-    const time = document.createElement('time');
-    time.textContent = noteArchiveTime(note.updatedAt);
-    button.append(title, excerpt, time);
-    notesList.append(button);
+  const groups = window.NotchDomain.groupNotesForLibrary(notes);
+  groups.forEach((bucket) => {
+    if (bucket.group) {
+      const label = document.createElement('div');
+      label.className = 'notes-group-label';
+      label.textContent = bucket.group;
+      notesList.append(label);
+    }
+    bucket.items.forEach((note) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `notes-list-item${note.id === selectedNoteId ? ' active' : ''}`;
+      button.dataset.noteId = note.id;
+      button.dataset.lineSidebarItem = '';
+      button.setAttribute('aria-pressed', String(note.id === selectedNoteId));
+      const title = document.createElement('strong');
+      title.textContent = noteArchiveTitle(note);
+      const excerpt = document.createElement('span');
+      excerpt.textContent = noteArchiveExcerpt(note);
+      const time = document.createElement('time');
+      time.textContent = noteArchiveTime(note.updatedAt);
+      button.append(title, excerpt, time);
+      notesList.append(button);
+    });
   });
   renderNotesDetail(notes);
 }
+
+function saveNoteFromChat(payload) {
+  const next = window.NotchDomain.createNoteFromChat(loadNoteArchive(), payload, Date.now());
+  const created = next[0];
+  if (!created) return null;
+  localStorage.setItem(NOTE_ARCHIVE_KEY, JSON.stringify(next.slice(0, 200)));
+  selectedNoteId = created.id;
+  renderNotesLibrary();
+  showStatusToast(`已保存到笔记 · ${created.group || '未分组'}`);
+  return created;
+}
+
+window.NotchNotes = {
+  saveFromChat: saveNoteFromChat,
+  refresh: renderNotesLibrary,
+};
 
 noteSaveButton?.addEventListener('click', () => {
   const content = noteInput?.value.trim() || '';
@@ -2334,6 +2384,23 @@ notesDetail?.addEventListener('click', (event) => {
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (!action) return;
   flushNotesEditorSave();
+  if (action === 'toggle-note-mode') {
+    const editor = notesDetail.querySelector('#notes-editor');
+    const preview = notesDetail.querySelector('#notes-preview');
+    const toggle = notesDetail.querySelector('[data-action="toggle-note-mode"]');
+    if (!editor || !preview) return;
+    const editing = notesDetail.dataset.mode !== 'edit';
+    notesDetail.dataset.mode = editing ? 'edit' : 'preview';
+    editor.hidden = !editing;
+    preview.hidden = editing;
+    if (toggle) toggle.textContent = editing ? '预览排版' : '编辑 Markdown';
+    if (editing) {
+      editor.focus({ preventScroll: true });
+    } else {
+      preview.replaceChildren(buildMarkdownPreview(editor.value));
+    }
+    return;
+  }
   const notes = loadNoteArchive();
   const note = notes.find((item) => item.id === selectedNoteId);
   if (!note) return;
@@ -2398,14 +2465,15 @@ if (notePreview) {
 const HOME_ORDER_KEY = 'notch-home-order-v3';
 const HOME_SIZES_KEY = 'notch-home-widget-sizes-v2';
 const HOME_HIDDEN_MODULES_KEY = 'notch-home-hidden-modules-v1';
-const HOME_MODULE_REGISTRY = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands'];
-const HOME_ORDER_DEFAULTS = ['music', 'pomodoro', 'windows', 'recorder', 'mirror', 'note', 'commands'];
+const HOME_MODULE_REGISTRY = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands'];
+const HOME_ORDER_DEFAULTS = ['music', 'pomodoro', 'windows', 'recorder', 'mirror', 'note', 'chat', 'commands'];
 const HOME_SIZE_DEFAULTS = {
   music: 'medium',
   windows: 'large',
   recorder: 'small',
-  mirror: 'medium',
-  note: 'medium',
+  mirror: 'small',
+  note: 'small',
+  chat: 'medium',
   commands: 'mini',
   pomodoro: 'mini',
 };
@@ -2421,12 +2489,11 @@ function loadHomeOrder() {
     const saved = Array.isArray(rawSaved)
       ? rawSaved.map((id) => id === 'character' ? 'music' : id)
       : rawSaved;
-    if (
-      Array.isArray(saved)
-      && saved.length === HOME_ORDER_DEFAULTS.length
-      && new Set(saved).size === HOME_ORDER_DEFAULTS.length
-      && saved.every((id) => HOME_ORDER_DEFAULTS.includes(id))
-    ) return saved;
+    if (Array.isArray(saved) && saved.length && new Set(saved).size === saved.length
+      && saved.every((id) => HOME_ORDER_DEFAULTS.includes(id))) {
+      const missing = HOME_ORDER_DEFAULTS.filter((id) => !saved.includes(id));
+      return [...saved, ...missing];
+    }
 
     // 从旧固定槽位布局平滑迁移；原时钟 / 人物位置由音乐组件接管。
     const legacy = JSON.parse(localStorage.getItem('notch-home-layout-v2') || 'null');
@@ -2436,8 +2503,9 @@ function loadHomeOrder() {
         .sort((a, b) => legacySlots.indexOf(a[1]) - legacySlots.indexOf(b[1]))
         .map(([id]) => id === 'clock' || id === 'character' ? 'music' : id)
         .filter((id) => HOME_ORDER_DEFAULTS.includes(id));
-      if (migrated.length === HOME_ORDER_DEFAULTS.length && new Set(migrated).size === migrated.length) {
-        return migrated;
+      if (migrated.length && new Set(migrated).size === migrated.length) {
+        const missing = HOME_ORDER_DEFAULTS.filter((id) => !migrated.includes(id));
+        return [...migrated, ...missing];
       }
     }
   } catch (error) {
@@ -2671,6 +2739,9 @@ function setHomeModuleVisible(moduleId, visible) {
   const current = [...hiddenHomeModules];
   if (homeLayoutReadOnly) {
     return { ok: false, changed: false, error: 'layout_read_only', hiddenIds: current, persisted: homeVisibilityPersisted };
+  }
+  if (!homeVisibilityPersisted && !saveHiddenHomeModules()) {
+    return { ok: false, changed: false, error: 'persist_dirty', hiddenIds: current, persisted: false };
   }
   const next = window.NotchDomain.updateHomeModuleVisibility(
     current,

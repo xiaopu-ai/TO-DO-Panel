@@ -388,9 +388,10 @@
         if (!id) return null;
         const title = Array.from(String(item.title || '').replace(/\s+/g, ' ').trim()).slice(0, 80).join('');
         const titleSource = ['model', 'user'].includes(item.titleSource) ? item.titleSource : '';
+        const group = Array.from(String(item.group || '').replace(/\s+/g, ' ').trim()).slice(0, 40).join('');
         const createdAt = Math.max(0, Number(item.createdAt) || Date.now());
         const updatedAt = Math.max(createdAt, Number(item.updatedAt) || createdAt);
-        return { id, title, titleSource, content, createdAt, updatedAt };
+        return { id, title, titleSource, group, content, createdAt, updatedAt };
       })
       .filter(Boolean)
       .sort((left, right) => right.updatedAt - left.updatedAt);
@@ -417,7 +418,7 @@
     const keyword = String(query || '').trim().toLocaleLowerCase();
     if (!keyword) return rows.slice();
     return rows.filter((note) => (
-      `${String(note && note.title || '')}\n${String(note && note.content || '')}`
+      `${String(note && note.title || '')}\n${String(note && note.group || '')}\n${String(note && note.content || '')}`
         .toLocaleLowerCase()
         .includes(keyword)
     ));
@@ -454,6 +455,223 @@
       ) return note;
       return { ...note, title: nextTitle, titleSource: 'model' };
     });
+  }
+
+  const DEFAULT_CHAT_ROLES = [
+    {
+      id: 'role-default',
+      name: '通用助手',
+      systemPrompt: '你是简洁实用的中文助手。回答清晰、有条理，必要时使用 Markdown 列表。',
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    {
+      id: 'role-code',
+      name: '代码顾问',
+      systemPrompt: '你是资深软件工程师。专注代码审查、调试与架构建议，回答带可执行步骤，代码用 Markdown 代码块。',
+      createdAt: 0,
+      updatedAt: 0,
+    },
+    {
+      id: 'role-writer',
+      name: '写作教练',
+      systemPrompt: '你是中文写作教练。帮助润色文字、优化结构，保持作者原意，给出具体修改建议。',
+      createdAt: 0,
+      updatedAt: 0,
+    },
+  ];
+
+  function normalizeChatRoles(value) {
+    const source = Array.isArray(value) && value.length ? value : DEFAULT_CHAT_ROLES;
+    return source
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const id = String(item.id || '').trim();
+        const name = Array.from(String(item.name || '').replace(/\s+/g, ' ').trim()).slice(0, 32).join('');
+        const systemPrompt = String(item.systemPrompt || '').trim().slice(0, 4000);
+        if (!id || !name || !systemPrompt) return null;
+        const createdAt = Math.max(0, Number(item.createdAt) || Date.now());
+        const updatedAt = Math.max(createdAt, Number(item.updatedAt) || createdAt);
+        return { id, name, systemPrompt, createdAt, updatedAt };
+      })
+      .filter(Boolean);
+  }
+
+  function normalizeChatMessage(item) {
+    if (!item || typeof item !== 'object') return null;
+    const role = item.role === 'assistant' ? 'assistant' : 'user';
+    const content = String(item.content || '').trim().slice(0, 12000);
+    if (!content) return null;
+    const createdAt = Math.max(0, Number(item.createdAt) || Date.now());
+    return { role, content, createdAt };
+  }
+
+  function normalizeChatSessions(value) {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null;
+        const id = String(item.id || '').trim();
+        const roleId = String(item.roleId || '').trim();
+        if (!id || !roleId) return null;
+        const title = Array.from(String(item.title || '').replace(/\s+/g, ' ').trim()).slice(0, 80).join('');
+        const messages = (Array.isArray(item.messages) ? item.messages : [])
+          .map(normalizeChatMessage)
+          .filter(Boolean)
+          .slice(-80);
+        const createdAt = Math.max(0, Number(item.createdAt) || Date.now());
+        const updatedAt = Math.max(createdAt, Number(item.updatedAt) || createdAt);
+        return { id, roleId, title, messages, createdAt, updatedAt };
+      })
+      .filter(Boolean)
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  function upsertChatRole(roles, payload, now = Date.now()) {
+    const timestamp = Math.max(0, Number(now) || Date.now());
+    const name = Array.from(String(payload && payload.name || '').replace(/\s+/g, ' ').trim()).slice(0, 32).join('');
+    const systemPrompt = String(payload && payload.systemPrompt || '').trim().slice(0, 4000);
+    if (!name || !systemPrompt) return normalizeChatRoles(roles);
+    const existingId = String(payload && payload.id || '').trim();
+    const previous = normalizeChatRoles(roles);
+    const current = previous.find((role) => role.id === existingId);
+    const id = existingId || `role-${timestamp.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const next = previous.filter((role) => role.id !== id);
+    next.unshift({
+      id,
+      name,
+      systemPrompt,
+      createdAt: current ? current.createdAt : timestamp,
+      updatedAt: timestamp,
+    });
+    return next;
+  }
+
+  function deleteChatRole(roles, roleId) {
+    const id = String(roleId || '').trim();
+    return normalizeChatRoles(roles).filter((role) => role.id !== id);
+  }
+
+  function createChatSession(sessions, roleId, now = Date.now()) {
+    const timestamp = Math.max(0, Number(now) || Date.now());
+    const id = `chat-${timestamp.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const session = {
+      id,
+      roleId: String(roleId || '').trim(),
+      title: '',
+      messages: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    return normalizeChatSessions([session, ...sessions]);
+  }
+
+  function appendChatMessage(sessions, sessionId, message, now = Date.now()) {
+    const id = String(sessionId || '').trim();
+    const normalized = normalizeChatMessage({ ...message, createdAt: now });
+    if (!id || !normalized) return normalizeChatSessions(sessions);
+    let found = false;
+    const next = normalizeChatSessions(sessions).map((session) => {
+      if (session.id !== id) return session;
+      found = true;
+      const messages = [...session.messages, normalized];
+      const title = session.title || (normalized.role === 'user'
+        ? Array.from(normalized.content.replace(/\s+/g, ' ').trim()).slice(0, 24).join('')
+        : session.title);
+      return {
+        ...session,
+        title,
+        messages,
+        updatedAt: Math.max(session.createdAt, Number(now) || Date.now()),
+      };
+    });
+    return found ? next : normalizeChatSessions(sessions);
+  }
+
+  function replaceChatFromIndex(sessions, sessionId, messageIndex, content, now = Date.now()) {
+    const id = String(sessionId || '').trim();
+    const index = Math.round(Number(messageIndex));
+    const text = String(content || '').trim().slice(0, 12000);
+    const timestamp = Math.max(0, Number(now) || Date.now());
+    if (!id || !Number.isInteger(index) || index < 0 || !text) return normalizeChatSessions(sessions);
+    let found = false;
+    const next = normalizeChatSessions(sessions).map((session) => {
+      if (session.id !== id) return session;
+      if (index >= session.messages.length) return session;
+      if (session.messages[index].role !== 'user') return session;
+      found = true;
+      const messages = session.messages
+        .slice(0, index)
+        .concat([{ role: 'user', content: text, createdAt: timestamp }]);
+      const title = Array.from(text.replace(/\s+/g, ' ').trim()).slice(0, 24).join('') || session.title;
+      return {
+        ...session,
+        title,
+        messages,
+        updatedAt: Math.max(session.createdAt, timestamp),
+      };
+    });
+    return found ? next : normalizeChatSessions(sessions);
+  }
+
+  function deleteChatSession(sessions, sessionId) {
+    const id = String(sessionId || '').trim();
+    return normalizeChatSessions(sessions).filter((session) => session.id !== id);
+  }
+
+  function formatChatSessionMarkdown(session, roleName) {
+    const name = String(roleName || 'AI').trim() || 'AI';
+    const title = String(session && session.title || '').trim() || `${name} 对话`;
+    const savedAt = new Date().toLocaleString('zh-CN');
+    const lines = [`# ${title}`, '', `> 角色：${name}`, `> 保存时间：${savedAt}`, ''];
+    (session && Array.isArray(session.messages) ? session.messages : []).forEach((message) => {
+      const label = message.role === 'assistant' ? name : '我';
+      lines.push(`## ${label}`, '', message.content, '');
+    });
+    return lines.join('\n').trim();
+  }
+
+  function chatNoteGroupName(roleName) {
+    const name = Array.from(String(roleName || '').replace(/\s+/g, ' ').trim()).slice(0, 40).join('');
+    return name ? `AI · ${name}` : 'AI 对话';
+  }
+
+  function createNoteFromChat(notes, payload, now = Date.now()) {
+    const timestamp = Math.max(0, Number(now) || Date.now());
+    const title = Array.from(String(payload && payload.title || '').replace(/\s+/g, ' ').trim()).slice(0, 80).join('');
+    const content = String(payload && payload.content || '');
+    const group = chatNoteGroupName(payload && payload.roleName);
+    if (!content.trim()) return normalizeNoteArchive(notes);
+    const id = `note-${timestamp.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const note = {
+      id,
+      title: title || `${group} 记录`,
+      titleSource: 'user',
+      group,
+      content,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    return normalizeNoteArchive([note, ...notes]).slice(0, 200);
+  }
+
+  function groupNotesForLibrary(notes) {
+    const rows = Array.isArray(notes) ? notes : [];
+    const buckets = new Map();
+    rows.forEach((note) => {
+      const key = String(note.group || '').trim() || '__ungrouped__';
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(note);
+    });
+    const keys = [...buckets.keys()].sort((left, right) => {
+      if (left === '__ungrouped__') return 1;
+      if (right === '__ungrouped__') return -1;
+      return left.localeCompare(right, 'zh-CN');
+    });
+    return keys.map((key) => ({
+      group: key === '__ungrouped__' ? '' : key,
+      items: buckets.get(key),
+    }));
   }
 
   function apiCredentialStatuses(config) {
@@ -720,6 +938,15 @@
       { column: 4, row: 2, width: 4, height: 2 },
       { column: 8, row: 2, width: 4, height: 2 },
     ],
+    7: [
+      { column: 0, row: 0, width: 4, height: 2 },
+      { column: 4, row: 0, width: 4, height: 2 },
+      { column: 8, row: 0, width: 4, height: 2 },
+      { column: 0, row: 2, width: 4, height: 2 },
+      { column: 4, row: 2, width: 2, height: 2 },
+      { column: 6, row: 2, width: 2, height: 2 },
+      { column: 8, row: 2, width: 4, height: 2 },
+    ],
   };
 
   function normalizeHiddenHomeModules(value, moduleIds) {
@@ -794,7 +1021,7 @@
     if (!visibleOrder.length) return null;
 
     let placements;
-    if (visibleOrder.length === 7) {
+    if (visibleOrder.length === ids.length && !HOME_GAPLESS_TEMPLATES[visibleOrder.length]) {
       placements = packHomeWidgetLayout(visibleOrder, sizes, columns, rows);
     } else {
       const template = HOME_GAPLESS_TEMPLATES[visibleOrder.length];
@@ -901,6 +1128,19 @@
     updateNoteInArchive,
     updateNoteTitle,
     applyGeneratedNoteTitle,
+    DEFAULT_CHAT_ROLES,
+    normalizeChatRoles,
+    normalizeChatSessions,
+    upsertChatRole,
+    deleteChatRole,
+    createChatSession,
+    appendChatMessage,
+    replaceChatFromIndex,
+    deleteChatSession,
+    formatChatSessionMarkdown,
+    chatNoteGroupName,
+    createNoteFromChat,
+    groupNotesForLibrary,
     apiCredentialStatuses,
     settingsSummary,
     currentMonthDeadline,

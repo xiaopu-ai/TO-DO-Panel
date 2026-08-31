@@ -186,6 +186,7 @@ const TAB_SIZES = {
   links: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   recordings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   credentials: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
+  chat: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   settings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
 };
 // 与渲染层结构常量对应：panel padding-top(--s-2 8) + 顶栏(--topbar-h 40)
@@ -1089,6 +1090,7 @@ const DEFAULT_FEATURES = {
   links: true,
   recordings: true,
   credentials: true,
+  chat: true,
   clip: false,
 };
 
@@ -1319,7 +1321,7 @@ function refreshTrayMenu() {
   if (!tray) return;
   const autoLaunch = isAutoLaunchEnabled();
   const settings = readAppSettings();
-  const featureLabels = { todo: '待办', notes: '笔记', links: '链接', recordings: '录制', credentials: '密钥', clip: '剪贴板' };
+  const featureLabels = { todo: '待办', notes: '笔记', links: '链接', recordings: '录制', credentials: '密钥', chat: '对话', clip: '剪贴板' };
   const menu = Menu.buildFromTemplate([
     {
       label: 'API 配置…',
@@ -1859,6 +1861,123 @@ ipcMain.handle('smart:organize-material', async (event, payload) => {
     const content = result && result.choices && result.choices[0] && result.choices[0].message && result.choices[0].message.content;
     const metadata = parseSmartMaterialMetadata(content);
     return metadata && metadata.title ? { ok: true, ...metadata } : { ok: false, error: 'invalid_response' };
+  } catch (error) {
+    return { ok: false, error: error && error.name === 'AbortError' ? 'timeout' : 'request_failed' };
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
+ipcMain.handle('chat:complete', async (event, payload) => {
+  const config = resolveLlmConfig();
+  if (!config.apiKey || !config.model) return { ok: false, error: 'not_configured' };
+  const requestId = String(payload && payload.requestId || crypto.randomUUID()).slice(0, 80);
+  const systemPrompt = String(payload && payload.systemPrompt || '').trim().slice(0, 4000);
+  const history = Array.isArray(payload && payload.messages) ? payload.messages : [];
+  const messages = [];
+  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+  for (const item of history.slice(-40)) {
+    if (!item || typeof item !== 'object') continue;
+    const role = item.role === 'assistant' ? 'assistant' : 'user';
+    const content = String(item.content || '').trim().slice(0, 12000);
+    if (!content) continue;
+    messages.push({ role, content });
+  }
+  if (messages.filter((item) => item.role !== 'system').length === 0) {
+    return { ok: false, error: 'empty_messages' };
+  }
+  const endpoint = config.baseUrl.endsWith('/chat/completions')
+    ? config.baseUrl
+    : `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
+  const safeEndpoint = await validatePublicHttpUrl(endpoint);
+  if (!safeEndpoint) return { ok: false, error: 'invalid_endpoint' };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+  const emitChunk = (delta) => {
+    if (!delta || event.sender.isDestroyed()) return;
+    event.sender.send('chat:chunk', { requestId, delta: String(delta) });
+  };
+  try {
+    const response = await fetch(safeEndpoint, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.7,
+        stream: true,
+        messages,
+        ...(config.baseUrl.includes('deepseek.com') ? { thinking: { type: 'disabled' } } : {}),
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      return { ok: false, error: `http_${response.status}`, detail: String(detail || '').slice(0, 240) };
+    }
+
+    // 兼容无流式回退：部分代理会直接返回 JSON。
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('text/event-stream') && response.body) {
+      const result = await response.json().catch(() => null);
+      const content = result
+        && result.choices
+        && result.choices[0]
+        && result.choices[0].message
+        && result.choices[0].message.content;
+      const text = String(content || '').trim();
+      if (!text) return { ok: false, error: 'empty_response' };
+      emitChunk(text);
+      return { ok: true, content: text, requestId };
+    }
+
+    const reader = response.body && typeof response.body.getReader === 'function'
+      ? response.body.getReader()
+      : null;
+    if (!reader) {
+      const raw = await response.text();
+      const text = String(raw || '').trim();
+      if (!text) return { ok: false, error: 'empty_response' };
+      emitChunk(text);
+      return { ok: true, content: text, requestId };
+    }
+
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let full = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split(/\r?\n/);
+      buffer = parts.pop() || '';
+      for (const line of parts) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed
+            && parsed.choices
+            && parsed.choices[0]
+            && parsed.choices[0].delta
+            && parsed.choices[0].delta.content;
+          if (delta) {
+            full += String(delta);
+            emitChunk(delta);
+          }
+        } catch (error) {
+          // 忽略残缺 SSE 行
+        }
+      }
+    }
+    const text = full.trim();
+    if (!text) return { ok: false, error: 'empty_response' };
+    return { ok: true, content: text, requestId };
   } catch (error) {
     return { ok: false, error: error && error.name === 'AbortError' ? 'timeout' : 'request_failed' };
   } finally {
