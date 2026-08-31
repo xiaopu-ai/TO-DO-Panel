@@ -49,6 +49,8 @@ const {
   selectTranscriptionSettings,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
+  collapsedDisplayFollowPolicy,
+  shouldFollowCollapsedToCursorDisplay,
   reduceClipboardObservation,
 } = require('./main-services');
 
@@ -353,7 +355,7 @@ function getExpandedSize(display) {
   };
 }
 
-// display 不传时锚定窗口当前所在屏；只有"召唤"类动作（启动/重新居中/显示）才传光标屏。
+// display 不传时锚定窗口当前所在屏；展开召唤与折叠态跟屏才传光标屏。
 // 一律瞬时 setBounds：系统动画 resize 会持续重绘 web 内容（卡顿）。
 // 原生窗口只提供透明画布，用户可见的岛体形变交给渲染层 CSS。
 function getBoundsForMode(mode, display) {
@@ -1233,7 +1235,7 @@ function setPanelShortcut(shortcut) {
   }
   if (shortcut === 'Space') {
     configuredShortcut = shortcut;
-    startHoverSpaceShortcut();
+    syncHoverSpacePolling();
     return true;
   }
   let registered = false;
@@ -1241,6 +1243,8 @@ function setPanelShortcut(shortcut) {
     registered = globalShortcut.register(shortcut, () => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       hideWhenCollapsed = false;
+      // 自定义快捷键也是召唤：先落到光标所在屏再展开/切换。
+      if (currentMode === 'collapsed') repositionWindow(getTargetDisplay());
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
       mainWindow.webContents.send('shortcut:toggle-panel');
@@ -1248,10 +1252,12 @@ function setPanelShortcut(shortcut) {
   } catch (error) {}
   if (registered) {
     configuredShortcut = shortcut;
+    // 非 Space 快捷键仍需折叠态跟屏，否则外接屏看不到刘海条。
+    syncHoverSpacePolling();
     return true;
   }
   configuredShortcut = previousShortcut;
-  startHoverSpaceShortcut();
+  syncHoverSpacePolling();
   return false;
 }
 
@@ -1413,8 +1419,14 @@ function createTray() {
 }
 
 ipcMain.handle('window:set-mode', async (event, mode) => {
-  if (mode === 'expanded') await rememberPasteTarget();
-  applyMode(mode === 'expanded' ? 'expanded' : 'collapsed');
+  if (mode === 'expanded') {
+    await rememberPasteTarget();
+    // 展开是召唤：跟光标所在屏，外接屏上触发就在外接屏展开。
+    applyMode('expanded', getTargetDisplay());
+    return;
+  }
+  // 收起锚定窗口当前屏，避免失焦瞬间跨屏瞬移。
+  applyMode('collapsed');
 });
 
 ipcMain.handle('window:begin-collapse', () => {
@@ -3307,6 +3319,8 @@ function setHoverSpaceShortcut(enabled) {
       }
       await rememberPasteTarget();
       hideWhenCollapsed = false;
+      // 先落到光标屏再展开，保证 Hover + Space 开在触发那块屏。
+      repositionWindow(getTargetDisplay());
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
       mainWindow.webContents.send('shortcut:toggle-panel');
@@ -3317,22 +3331,48 @@ function setHoverSpaceShortcut(enabled) {
   }
 }
 
+function syncCollapsedWindowToCursorDisplay() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (currentMode !== 'collapsed' || !mainWindow.isVisible()) return;
+  const cursorDisplay = getTargetDisplay();
+  const windowDisplay = getWindowDisplay();
+  if (!shouldFollowCollapsedToCursorDisplay({
+    mode: currentMode,
+    visible: true,
+    windowDisplayId: windowDisplay && windowDisplay.id,
+    cursorDisplayId: cursorDisplay && cursorDisplay.id,
+  })) return;
+  repositionWindow(cursorDisplay);
+}
+
 function startHoverSpaceShortcut() {
-  const policy = hoverSpacePollingPolicy({
-    shortcut: configuredShortcut,
+  const followPolicy = collapsedDisplayFollowPolicy({
     visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
     mode: currentMode,
   });
-  if (!policy.enabled) return;
+  const spacePolicy = hoverSpacePollingPolicy({
+    shortcut: configuredShortcut,
+    visible: followPolicy.enabled,
+    mode: currentMode,
+  });
+  // 折叠可见时始终跟屏；Space 快捷键时额外检测刘海悬停。
+  if (!followPolicy.enabled && !spacePolicy.enabled) return;
   if (spaceShortcutTimer) return;
   spaceShortcutTimer = setInterval(() => {
-    const currentPolicy = hoverSpacePollingPolicy({
+    const visible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
+    const currentFollow = collapsedDisplayFollowPolicy({ visible, mode: currentMode });
+    const currentSpace = hoverSpacePollingPolicy({
       shortcut: configuredShortcut,
-      visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
+      visible,
       mode: currentMode,
     });
-    if (!currentPolicy.enabled) {
+    if (!currentFollow.enabled && !currentSpace.enabled) {
       stopHoverSpaceShortcut();
+      return;
+    }
+    if (currentFollow.enabled) syncCollapsedWindowToCursorDisplay();
+    if (!currentSpace.enabled) {
+      setHoverSpaceShortcut(false);
       return;
     }
     const point = screen.getCursorScreenPoint();
@@ -3340,7 +3380,7 @@ function startHoverSpaceShortcut() {
     const hovering = point.x >= bounds.x && point.x < bounds.x + bounds.width
       && point.y >= bounds.y && point.y < bounds.y + bounds.height;
     setHoverSpaceShortcut(hovering);
-  }, policy.intervalMs);
+  }, Math.min(followPolicy.intervalMs, spacePolicy.intervalMs || followPolicy.intervalMs));
 }
 
 function stopHoverSpaceShortcut() {
@@ -3350,12 +3390,16 @@ function stopHoverSpaceShortcut() {
 }
 
 function syncHoverSpacePolling() {
-  const policy = hoverSpacePollingPolicy({
+  const followPolicy = collapsedDisplayFollowPolicy({
+    visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
+    mode: currentMode,
+  });
+  const spacePolicy = hoverSpacePollingPolicy({
     shortcut: configuredShortcut,
     visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
     mode: currentMode,
   });
-  if (policy.enabled) startHoverSpaceShortcut();
+  if (followPolicy.enabled || spacePolicy.enabled) startHoverSpaceShortcut();
   else stopHoverSpaceShortcut();
 }
 
@@ -3493,7 +3537,8 @@ function watchDisplayChanges() {
     clearTimeout(timer);
     timer = setTimeout(() => {
       if (!mainWindow) return;
-      repositionWindow();
+      // 折叠态跟光标屏；展开态锚窗口当前屏，避免插拔屏时瞬移。
+      repositionWindow(currentMode === 'collapsed' ? getTargetDisplay() : undefined);
       if (!mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('window:metrics-changed', getLayoutMetrics());
       }

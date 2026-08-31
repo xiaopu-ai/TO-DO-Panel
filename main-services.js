@@ -444,6 +444,21 @@ function hoverSpacePollingPolicy({ shortcut, visible, mode } = {}) {
   };
 }
 
+// 折叠态可见时始终轮询：把刘海条跟到光标所在屏，这样外接屏也能 Hover/点击触发。
+// 展开态不跟——收起/切 Tab 必须锚窗口当前屏，避免失焦瞬间跨屏瞬移。
+function collapsedDisplayFollowPolicy({ visible, mode } = {}) {
+  return {
+    enabled: visible === true && mode === 'collapsed',
+    intervalMs: 60,
+  };
+}
+
+function shouldFollowCollapsedToCursorDisplay({ mode, visible, windowDisplayId, cursorDisplayId } = {}) {
+  if (mode !== 'collapsed' || visible !== true) return false;
+  if (windowDisplayId == null || cursorDisplayId == null) return false;
+  return windowDisplayId !== cursorDisplayId;
+}
+
 const CONFIGURABLE_FEATURES = new Set(['todo', 'notes', 'links', 'recordings', 'credentials', 'chat', 'clip']);
 
 function updateFeaturePreference(features, featureId, enabled) {
@@ -530,6 +545,8 @@ module.exports = {
   reduceClipboardObservation,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
+  collapsedDisplayFollowPolicy,
+  shouldFollowCollapsedToCursorDisplay,
   updateFeaturePreference,
   sodaShortcutSpec,
   controlSodaMusic,

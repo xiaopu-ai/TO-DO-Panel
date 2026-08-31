@@ -27,6 +27,8 @@ const {
   selectTranscriptionSettings,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
+  collapsedDisplayFollowPolicy,
+  shouldFollowCollapsedToCursorDisplay,
   reduceClipboardObservation,
 } = require('../main-services');
 
@@ -50,6 +52,42 @@ test('Hover + Space polls only while the collapsed strip is visible', () => {
   assert.equal(hoverSpacePollingPolicy({ shortcut: 'Space', visible: true, mode: 'expanded' }).enabled, false);
   assert.equal(hoverSpacePollingPolicy({ shortcut: 'Space', visible: false, mode: 'collapsed' }).enabled, false);
   assert.equal(hoverSpacePollingPolicy({ shortcut: 'Command+Shift+P', visible: true, mode: 'collapsed' }).enabled, false);
+});
+
+test('collapsed display follow runs whenever the strip is visible, independent of shortcut', () => {
+  assert.deepEqual(collapsedDisplayFollowPolicy({ visible: true, mode: 'collapsed' }), {
+    enabled: true,
+    intervalMs: 60,
+  });
+  assert.equal(collapsedDisplayFollowPolicy({ visible: true, mode: 'expanded' }).enabled, false);
+  assert.equal(collapsedDisplayFollowPolicy({ visible: false, mode: 'collapsed' }).enabled, false);
+});
+
+test('collapsed strip only relocates when the cursor is on another display', () => {
+  assert.equal(shouldFollowCollapsedToCursorDisplay({
+    mode: 'collapsed',
+    visible: true,
+    windowDisplayId: 1,
+    cursorDisplayId: 2,
+  }), true);
+  assert.equal(shouldFollowCollapsedToCursorDisplay({
+    mode: 'collapsed',
+    visible: true,
+    windowDisplayId: 1,
+    cursorDisplayId: 1,
+  }), false);
+  assert.equal(shouldFollowCollapsedToCursorDisplay({
+    mode: 'expanded',
+    visible: true,
+    windowDisplayId: 1,
+    cursorDisplayId: 2,
+  }), false);
+  assert.equal(shouldFollowCollapsedToCursorDisplay({
+    mode: 'collapsed',
+    visible: false,
+    windowDisplayId: 1,
+    cursorDisplayId: 2,
+  }), false);
 });
 
 test('isPrivateAddress blocks loopback, private, link-local and unique-local ranges', () => {
