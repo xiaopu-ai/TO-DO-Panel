@@ -2123,7 +2123,8 @@ body {
 .record-control.resume svg { transform: rotate(90deg); }
 
 .home-windows,
-.home-commands {
+.home-commands,
+.home-apps {
   position: relative;
   padding: var(--s-3);
   display: flex;
@@ -2719,6 +2720,7 @@ body {
 .home-windows,
 .home-recorder,
 .home-commands,
+.home-apps,
 .home-note,
 .home-mirror {
   grid-area: auto;
@@ -3496,7 +3498,15 @@ body {
   gap: var(--s-3);
 }
 .settings-column-primary { grid-template-rows: 154px minmax(0, 1fr); }
-.settings-column-secondary { grid-template-rows: 190px minmax(0, 1fr); }
+/* 右栏现为镜子 + 常用应用 + 本机，改为纵向自然堆叠并可滚动，避免第三张被裁切。 */
+.settings-column-secondary {
+  grid-template-rows: none;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+.settings-column-secondary > .settings-card { flex: 0 0 auto; }
 .settings-card {
   min-width: 0;
   min-height: 0;
@@ -3556,6 +3566,266 @@ body {
 .settings-mirror-card img { width: 154px; height: 154px; border-radius: 16px; object-fit: cover; box-shadow: inset 0 0 0 1px rgba(255,255,255,.08), 0 12px 32px rgba(0,0,0,.28); }
 .settings-mirror-card > div { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 7px; }
 .settings-mirror-card p { max-width: 250px; }
+
+.settings-apps-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: visible;
+}
+.settings-apps-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 52px;
+  max-height: 96px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.03);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+}
+.settings-apps-empty {
+  width: 100%;
+  color: var(--text-4);
+  font-size: 10px;
+  line-height: 1.45;
+  padding: 6px 2px;
+}
+.settings-apps-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-apps-actions .settings-inline-note {
+  flex: 1 1 auto;
+  margin: 0 !important;
+  padding: 0;
+  min-height: 0;
+}
+.settings-apps-search-label {
+  color: var(--text-4);
+  font-size: 9px;
+}
+.settings-apps-search {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255,255,255,.06);
+  color: var(--text-1);
+  font: 11px var(--font);
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+}
+.settings-apps-search:focus {
+  box-shadow: inset 0 0 0 1px rgba(115,166,255,.45);
+}
+.settings-apps-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 140px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 2px 2px 4px 0;
+}
+.settings-app-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0,1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.settings-app-row:hover { background: rgba(255,255,255,.05); }
+.settings-app-row-icon,
+.settings-app-row-icon img,
+.settings-app-chip-main img,
+.home-app-item img,
+.home-app-fallback {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+.settings-app-row-icon,
+.home-app-fallback {
+  display: grid;
+  place-items: center;
+  background: rgba(255,255,255,.08);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 650;
+}
+.settings-app-row-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.settings-app-row-copy b {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-app-row input {
+  width: 14px;
+  height: 14px;
+  accent-color: #6ea0ff;
+}
+.settings-app-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 4px 4px 4px 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.06);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.settings-app-chip.is-dragging { opacity: .45; }
+.settings-app-chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 160px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: 10px var(--font);
+  cursor: pointer;
+}
+.settings-app-chip-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-app-chip-remove {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-4);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.settings-app-chip-remove:hover {
+  color: var(--text-1);
+  background: rgba(255,255,255,.08);
+}
+
+.home-apps {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--s-3);
+  background: var(--surface-1);
+}
+.home-apps > .tile-head {
+  flex: 0 0 auto;
+  padding-right: 28px; /* 避开右上角尺寸控件 */
+}
+.home-apps-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 10px 8px;
+  align-content: start;
+  overflow: auto;
+  padding: 2px 4px 6px 2px;
+  margin: 0 -2px;
+}
+.home-app-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--d-fast) var(--ease);
+}
+.home-app-item:hover { background: rgba(255,255,255,.06); }
+.home-app-item img,
+.home-app-item .home-app-fallback {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+}
+.home-app-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 9px;
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-apps-empty {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  margin: 2px;
+  padding: 12px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255,255,255,.03);
+  color: var(--text-4);
+  font: 10px var(--font);
+  text-align: left;
+  cursor: pointer;
+}
+.home-apps-empty:hover { color: var(--text-2); background: rgba(255,255,255,.055); }
+
+.home-apps[data-widget-size='mini'] .home-app-name,
+.home-apps[data-widget-size='small'] .home-app-name,
+.home-apps[data-layout-variant='mini'] .home-app-name,
+.home-apps[data-layout-variant='compact'] .home-app-name { display: none; }
+.home-apps[data-widget-size='mini'] .home-apps-grid,
+.home-apps[data-layout-variant='mini'] .home-apps-grid {
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 6px;
+  padding: 2px;
+}
+.home-apps[data-widget-size='mini'] .home-app-item,
+.home-apps[data-layout-variant='mini'] .home-app-item {
+  padding: 4px;
+}
+.home-apps[data-widget-size='mini'] .home-app-item img,
+.home-apps[data-widget-size='mini'] .home-app-item .home-app-fallback,
+.home-apps[data-layout-variant='mini'] .home-app-item img,
+.home-apps[data-layout-variant='mini'] .home-app-item .home-app-fallback {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.home-apps[data-widget-size='mini'] .tile-head,
+.home-apps[data-layout-variant='mini'] .tile-head { display: none; }
+.home-apps[data-widget-size='small'] .home-apps-grid,
+.home-apps[data-layout-variant='compact'] .home-apps-grid {
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 8px 6px;
+}
 
 .settings-device-card { display: flex; flex-direction: column; }
 .settings-device-row { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; border-bottom: 1px solid var(--hairline-soft); }
@@ -5251,10 +5521,21 @@ body {
 
 .home-bento > .home-windows[data-layout-variant],
 .home-bento > .home-commands[data-layout-variant],
+.home-bento > .home-apps[data-layout-variant],
 .home-bento > .home-note[data-layout-variant],
-.home-bento > .home-chat[data-layout-variant] { display: flex; flex-direction: column; }
+.home-bento > .home-chat[data-layout-variant] {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.home-bento > .home-apps[data-layout-variant] {
+  padding: var(--s-3);
+}
 .home-bento > .home-windows[data-layout-variant] .window-list,
-.home-bento > .home-commands[data-layout-variant] .command-list {
+.home-bento > .home-commands[data-layout-variant] .command-list,
+.home-bento > .home-apps[data-layout-variant] .home-apps-grid {
   min-width: 0;
   min-height: 0;
   overflow: auto;

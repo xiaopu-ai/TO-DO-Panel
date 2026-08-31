@@ -461,6 +461,78 @@ function shouldFollowCollapsedToCursorDisplay({ mode, visible, windowDisplayId, 
 
 const CONFIGURABLE_FEATURES = new Set(['todo', 'notes', 'links', 'recordings', 'credentials', 'chat', 'clip']);
 
+const APP_FAVORITES_MAX = 24;
+
+function normalizeAppBundlePath(value) {
+  const raw = String(value || '').trim().replace(/\/+$/, '');
+  if (!raw.startsWith('/') || raw.includes('\0') || raw.includes('/../') || raw.endsWith('/..')) {
+    return '';
+  }
+  if (raw === '..' || raw.includes('\\')) return '';
+  return /\.app$/i.test(raw) ? raw : '';
+}
+
+function isLaunchableAppPath(appPath, { existsSync } = {}) {
+  const normalized = normalizeAppBundlePath(appPath);
+  if (!normalized) return false;
+  if (typeof existsSync === 'function' && !existsSync(normalized)) return false;
+  return true;
+}
+
+function normalizeAppFavorites(value, max = APP_FAVORITES_MAX) {
+  const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : APP_FAVORITES_MAX;
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of value) {
+    const candidate = typeof item === 'string'
+      ? item
+      : (item && typeof item.path === 'string' ? item.path : '');
+    const normalized = normalizeAppBundlePath(candidate);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function appDisplayNameFromPath(appPath) {
+  const normalized = normalizeAppBundlePath(appPath) || String(appPath || '').trim().replace(/\/+$/, '');
+  const base = normalized.split('/').pop() || '';
+  return base.replace(/\.app$/i, '') || base;
+}
+
+function toggleAppFavorite(favorites, appPath, enabled, max = APP_FAVORITES_MAX) {
+  const current = normalizeAppFavorites(favorites, max);
+  const normalized = normalizeAppBundlePath(appPath);
+  if (!normalized) return { ok: false, error: 'invalid_path', favorites: current };
+  if (enabled === true) {
+    if (current.includes(normalized)) return { ok: true, favorites: current };
+    if (current.length >= max) return { ok: false, error: 'limit_reached', favorites: current };
+    return { ok: true, favorites: [...current, normalized] };
+  }
+  if (enabled === false) {
+    return { ok: true, favorites: current.filter((path) => path !== normalized) };
+  }
+  return { ok: false, error: 'invalid_toggle', favorites: current };
+}
+
+function reorderAppFavorites(favorites, fromIndex, toIndex, max = APP_FAVORITES_MAX) {
+  const current = normalizeAppFavorites(favorites, max);
+  const from = Number(fromIndex);
+  const to = Number(toIndex);
+  if (!Number.isInteger(from) || !Number.isInteger(to)
+    || from < 0 || to < 0 || from >= current.length || to >= current.length) {
+    return { ok: false, error: 'invalid_index', favorites: current };
+  }
+  if (from === to) return { ok: true, favorites: current };
+  const next = [...current];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return { ok: true, favorites: next };
+}
+
 function updateFeaturePreference(features, featureId, enabled) {
   if (!CONFIGURABLE_FEATURES.has(featureId) || typeof enabled !== 'boolean') return null;
   const source = features && typeof features === 'object' && !Array.isArray(features) ? features : {};
@@ -550,4 +622,11 @@ module.exports = {
   updateFeaturePreference,
   sodaShortcutSpec,
   controlSodaMusic,
+  APP_FAVORITES_MAX,
+  normalizeAppBundlePath,
+  isLaunchableAppPath,
+  normalizeAppFavorites,
+  appDisplayNameFromPath,
+  toggleAppFavorite,
+  reorderAppFavorites,
 };

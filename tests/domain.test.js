@@ -50,9 +50,14 @@ const {
   applyGeneratedNoteTitle,
   apiCredentialStatuses,
   prependClipboardHistory,
+  normalizeAppFavorites,
+  appDisplayNameFromPath,
+  toggleAppFavorite,
+  reorderAppFavorites,
+  APP_FAVORITES_MAX,
 } = domain;
 
-const HOME_MODULES = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands'];
+const HOME_MODULES = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands', 'apps'];
 
 function assertExactHomeCover(layout, expectedIds) {
   assert.ok(layout);
@@ -239,6 +244,26 @@ test('createCommand and createRecording normalize user-authored metadata', () =>
   assert.equal(recording.transcript, '第一段录音');
   assert.notEqual(recording.title, recording.transcript);
   assert.equal(recording.category, '未分类');
+});
+
+test('favorite apps helpers normalize, toggle, and reorder safely', () => {
+  assert.equal(APP_FAVORITES_MAX, 24);
+  assert.deepEqual(normalizeAppFavorites([
+    '/Applications/Safari.app/',
+    '/Applications/Safari.app',
+    '../evil.app',
+    '/Applications/Notes.app',
+  ]), ['/Applications/Safari.app', '/Applications/Notes.app']);
+  assert.equal(appDisplayNameFromPath('/Applications/Notes.app'), 'Notes');
+  assert.deepEqual(toggleAppFavorite([], '/Applications/Notes.app', true), {
+    ok: true,
+    favorites: ['/Applications/Notes.app'],
+  });
+  assert.equal(toggleAppFavorite(['/Applications/Notes.app'], 'bad', true).error, 'invalid_path');
+  assert.deepEqual(
+    reorderAppFavorites(['/Applications/A.app', '/Applications/B.app'], 1, 0),
+    { ok: true, favorites: ['/Applications/B.app', '/Applications/A.app'] }
+  );
 });
 
 test('single recording deletion removes only its row and keeps a valid active recording', () => {
@@ -718,7 +743,7 @@ test('hidden homepage modules are deduplicated and normalized to module order', 
 test('homepage visibility refuses to hide the final visible module', () => {
   const almostAllHidden = HOME_MODULES.slice(0, HOME_MODULES.length - 1);
   assert.deepEqual(
-    updateHomeModuleVisibility(almostAllHidden, HOME_MODULES, 'commands', false),
+    updateHomeModuleVisibility(almostAllHidden, HOME_MODULES, 'apps', false),
     { ok: false, error: 'at_least_one_required', hiddenIds: almostAllHidden }
   );
   assert.deepEqual(

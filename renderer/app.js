@@ -2465,8 +2465,8 @@ if (notePreview) {
 const HOME_ORDER_KEY = 'notch-home-order-v3';
 const HOME_SIZES_KEY = 'notch-home-widget-sizes-v2';
 const HOME_HIDDEN_MODULES_KEY = 'notch-home-hidden-modules-v1';
-const HOME_MODULE_REGISTRY = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands'];
-const HOME_ORDER_DEFAULTS = ['music', 'pomodoro', 'windows', 'recorder', 'mirror', 'note', 'chat', 'commands'];
+const HOME_MODULE_REGISTRY = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands', 'apps'];
+const HOME_ORDER_DEFAULTS = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'note', 'chat', 'commands'];
 const HOME_SIZE_DEFAULTS = {
   music: 'medium',
   windows: 'large',
@@ -2476,6 +2476,7 @@ const HOME_SIZE_DEFAULTS = {
   chat: 'medium',
   commands: 'mini',
   pomodoro: 'mini',
+  apps: 'medium',
 };
 const HOME_SIZE_LABELS = { mini: '迷你', small: '小', medium: '中', large: '大' };
 const homeBento = document.getElementById('home-bento');

@@ -52,6 +52,9 @@ const {
   collapsedDisplayFollowPolicy,
   shouldFollowCollapsedToCursorDisplay,
   reduceClipboardObservation,
+  isLaunchableAppPath,
+  appDisplayNameFromPath,
+  normalizeAppBundlePath,
 } = require('./main-services');
 
 // Keep the historical data directory so upgrading users retain notes, links,
@@ -1580,6 +1583,133 @@ ipcMain.handle('shell:openPath', (event, p) => {
   if (typeof p === 'string' && path.isAbsolute(p)) {
     return shell.openPath(p);
   }
+});
+
+const APP_SCAN_ROOTS = [
+  '/Applications',
+  '/System/Applications',
+  '/System/Applications/Utilities',
+];
+
+let appCatalogCache = null;
+let appCatalogInflight = null;
+
+async function readAppDirectoryEntries(dirPath) {
+  try {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    return entries;
+  } catch (error) {
+    return [];
+  }
+}
+
+async function collectInstalledApps() {
+  const found = new Map();
+  for (const root of APP_SCAN_ROOTS) {
+    const entries = await readAppDirectoryEntries(root);
+    for (const entry of entries) {
+      if (!entry.name.toLowerCase().endsWith('.app')) continue;
+      const appPath = path.join(root, entry.name);
+      const normalized = normalizeAppBundlePath(appPath);
+      if (!normalized || found.has(normalized)) continue;
+      try {
+        const stat = await fs.promises.stat(normalized);
+        if (!stat.isDirectory()) continue;
+      } catch (error) {
+        continue;
+      }
+      found.set(normalized, {
+        path: normalized,
+        name: appDisplayNameFromPath(normalized),
+      });
+    }
+  }
+  return [...found.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans'));
+}
+
+async function listInstalledApps() {
+  if (appCatalogCache) return appCatalogCache;
+  if (appCatalogInflight) return appCatalogInflight;
+  appCatalogInflight = collectInstalledApps()
+    .then((apps) => {
+      appCatalogCache = apps;
+      return apps;
+    })
+    .finally(() => {
+      appCatalogInflight = null;
+    });
+  return appCatalogInflight;
+}
+
+async function resolveAppIcons(paths) {
+  const list = Array.isArray(paths) ? paths : [];
+  const result = {};
+  const unique = [...new Set(list.map((item) => normalizeAppBundlePath(item)).filter(Boolean))];
+  await Promise.all(unique.map(async (appPath) => {
+    if (windowIconCache.has(appPath)) {
+      result[appPath] = windowIconCache.get(appPath);
+      return;
+    }
+    const icon = await readWindowAppIcon(appPath);
+    if (icon) windowIconCache.set(appPath, icon);
+    result[appPath] = icon || null;
+  }));
+  return result;
+}
+
+ipcMain.handle('apps:list', async () => {
+  const apps = await listInstalledApps();
+  return apps.map((item) => ({
+    path: item.path,
+    name: item.name,
+    icon: windowIconCache.get(item.path) || null,
+  }));
+});
+
+ipcMain.handle('apps:icons', async (event, paths) => resolveAppIcons(paths));
+
+ipcMain.handle('apps:pick', async () => {
+  const result = await showOwnedOpenDialog({
+    title: '选择应用程序',
+    buttonLabel: '添加',
+    properties: ['openFile'],
+    filters: [{ name: 'Applications', extensions: ['app'] }],
+    defaultPath: '/Applications',
+  });
+  if (result.canceled || !result.filePaths || !result.filePaths[0]) {
+    return { ok: false, canceled: true };
+  }
+  let selected = result.filePaths[0];
+  // 用户可能点进 .app 包内部；向上找到最近的 .app bundle。
+  while (selected && selected !== '/' && !/\.app$/i.test(selected)) {
+    selected = path.dirname(selected);
+  }
+  const normalized = normalizeAppBundlePath(selected);
+  if (!normalized || !isLaunchableAppPath(normalized, { existsSync: fs.existsSync })) {
+    return { ok: false, error: 'invalid_app' };
+  }
+  if (!windowIconCache.has(normalized)) {
+    const icon = await readWindowAppIcon(normalized);
+    if (icon) windowIconCache.set(normalized, icon);
+  }
+  return {
+    ok: true,
+    app: {
+      path: normalized,
+      name: appDisplayNameFromPath(normalized),
+      icon: windowIconCache.get(normalized) || null,
+    },
+  };
+});
+
+ipcMain.handle('apps:launch', async (event, appPath) => {
+  const normalized = normalizeAppBundlePath(appPath);
+  if (!isLaunchableAppPath(normalized, { existsSync: fs.existsSync })) {
+    return { ok: false, error: 'invalid_app' };
+  }
+  const errorMessage = await shell.openPath(normalized);
+  if (errorMessage) return { ok: false, error: 'launch_failed', message: errorMessage };
+  return { ok: true, path: normalized };
 });
 
 // 只放行固定的几个隐私面板，渲染层传来的值只能当作枚举的键来查，

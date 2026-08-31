@@ -28,6 +28,12 @@ const {
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
   collapsedDisplayFollowPolicy,
+  isLaunchableAppPath,
+  normalizeAppFavorites,
+  appDisplayNameFromPath,
+  toggleAppFavorite,
+  reorderAppFavorites,
+  APP_FAVORITES_MAX,
   shouldFollowCollapsedToCursorDisplay,
   reduceClipboardObservation,
 } = require('../main-services');
@@ -544,4 +550,34 @@ test('Soda Music play uses the play/pause toggle instead of the next-track key',
   assert.deepEqual(sodaShortcutSpec('previous'), { keyCode: 123, command: true, dismissOverlays: true });
   assert.notDeepEqual(sodaShortcutSpec('play'), sodaShortcutSpec('next'));
   assert.equal(sodaShortcutSpec('invalid'), null);
+});
+
+test('favorite apps normalize paths, enforce launch guards, and honor the 24 cap', () => {
+  assert.equal(APP_FAVORITES_MAX, 24);
+  assert.deepEqual(normalizeAppFavorites([
+    '/Applications/Safari.app',
+    '/Applications/Safari.app/',
+    'Applications/Relative.app',
+    '/tmp/notes.txt',
+    { path: '/Applications/Visual Studio Code.app' },
+    null,
+  ]), [
+    '/Applications/Safari.app',
+    '/Applications/Visual Studio Code.app',
+  ]);
+  assert.equal(appDisplayNameFromPath('/Applications/Visual Studio Code.app'), 'Visual Studio Code');
+  assert.equal(isLaunchableAppPath('/Applications/Safari.app', { existsSync: () => true }), true);
+  assert.equal(isLaunchableAppPath('/Applications/Safari.app', { existsSync: () => false }), false);
+  assert.equal(isLaunchableAppPath('/tmp/file.txt', { existsSync: () => true }), false);
+  assert.equal(isLaunchableAppPath('/Applications/../Etc.app', { existsSync: () => true }), false);
+
+  const added = toggleAppFavorite([], '/Applications/Safari.app', true);
+  assert.deepEqual(added, { ok: true, favorites: ['/Applications/Safari.app'] });
+  assert.equal(toggleAppFavorite(added.favorites, '/tmp/x.txt', true).error, 'invalid_path');
+  const full = Array.from({ length: 24 }, (_, index) => `/Applications/App${index}.app`);
+  assert.equal(toggleAppFavorite(full, '/Applications/Extra.app', true).error, 'limit_reached');
+  assert.deepEqual(
+    reorderAppFavorites(['/Applications/A.app', '/Applications/B.app', '/Applications/C.app'], 0, 2),
+    { ok: true, favorites: ['/Applications/B.app', '/Applications/C.app', '/Applications/A.app'] }
+  );
 });

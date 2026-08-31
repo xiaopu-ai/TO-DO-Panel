@@ -82,11 +82,13 @@ test('settings exposes exactly one switch for every homepage widget', () => {
   const switches = [...html.matchAll(/data-settings-home-module="([^"]+)"/g)]
     .map((match) => match[1]);
   assert.deepEqual(switches, [
-    'music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands',
+    'music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands', 'apps',
   ]);
   assert.match(workspaceJs, /isRecordingActive/);
   assert.match(workspaceJs, /recording_active/);
   assert.match(workspaceJs, /at_least_one_required/);
+  assert.match(workspaceJs, /notch-app-favorites/);
+  assert.match(workspaceJs, /launchApp/);
 });
 
 test('hidden visual widgets stop presentation-only background work', () => {

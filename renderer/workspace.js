@@ -751,6 +751,15 @@
   const settingsWorkspaceChoose = document.getElementById('settings-workspace-choose');
   const settingsAutoLaunch = document.getElementById('settings-auto-launch');
   const settingsInlineNote = document.getElementById('settings-inline-note');
+  const settingsAppsCard = document.getElementById('settings-apps-card');
+  const settingsAppsSelected = document.getElementById('settings-apps-selected');
+  const settingsAppsCatalog = document.getElementById('settings-apps-catalog');
+  const settingsAppsSearch = document.getElementById('settings-apps-search');
+  const settingsAppsPick = document.getElementById('settings-apps-pick');
+  const settingsAppsCount = document.getElementById('settings-apps-count');
+  const settingsAppsNote = document.getElementById('settings-apps-note');
+  const homeAppsGrid = document.getElementById('home-apps-grid');
+  const homeAppsOpenSettings = document.getElementById('home-apps-open-settings');
 
   let recordings = loadJson(RECORDINGS_KEY, []).map(Domain.createRecording).filter(Boolean);
   let selectedRecordingId = recordings[0] && recordings[0].id;
@@ -1059,6 +1068,7 @@
     updateTranscriptionConfigUi();
     applySettingsMirrorCover(mirrorImage);
     renderSettingsPanel();
+    ensureAppCatalogLoaded();
   }
 
   async function loadTranscriptionConfig() {
@@ -2828,6 +2838,355 @@
 
   setInterval(() => refreshWindows(), 6000);
 
+  // ============ 常用应用 ============
+  const APP_FAVORITES_KEY = 'notch-app-favorites';
+  const APP_FAVORITES_MAX = Domain.APP_FAVORITES_MAX || 24;
+  let favoriteAppPaths = Domain.normalizeAppFavorites(loadJson(APP_FAVORITES_KEY, []));
+  let appCatalog = [];
+  let appCatalogLoaded = false;
+  let appCatalogLoading = false;
+  let appIconMap = new Map();
+  let appsDragFrom = null;
+
+  function persistFavoriteApps() {
+    saveJson(APP_FAVORITES_KEY, favoriteAppPaths);
+    document.dispatchEvent(new CustomEvent('notch:app-favorites-changed', {
+      detail: { favorites: [...favoriteAppPaths] },
+    }));
+  }
+
+  function setAppsNote(message, error = false) {
+    if (!settingsAppsNote) return;
+    settingsAppsNote.textContent = message || '';
+    settingsAppsNote.classList.toggle('error', Boolean(error));
+  }
+
+  function favoriteAppMeta(appPath) {
+    const fromCatalog = appCatalog.find((item) => item.path === appPath);
+    return {
+      path: appPath,
+      name: fromCatalog?.name || Domain.appDisplayNameFromPath(appPath),
+      icon: appIconMap.get(appPath) || fromCatalog?.icon || null,
+    };
+  }
+
+  async function hydrateAppIcons(paths) {
+    const missing = (paths || []).filter((appPath) => appPath && !appIconMap.has(appPath));
+    if (!missing.length || !window.notchAPI?.getAppIcons) return;
+    const icons = await window.notchAPI.getAppIcons(missing).catch(() => null);
+    if (!icons || typeof icons !== 'object') return;
+    Object.entries(icons).forEach(([appPath, icon]) => {
+      if (typeof icon === 'string' && icon.startsWith('data:image/')) appIconMap.set(appPath, icon);
+      else if (!appIconMap.has(appPath)) appIconMap.set(appPath, null);
+    });
+  }
+
+  async function ensureAppCatalogLoaded() {
+    if (appCatalogLoaded || appCatalogLoading || !window.notchAPI?.listApps) return;
+    appCatalogLoading = true;
+    if (settingsAppsCatalog && !appCatalog.length) {
+      settingsAppsCatalog.innerHTML = '<div class="settings-apps-empty">正在读取本机应用…</div>';
+    }
+    try {
+      const list = await window.notchAPI.listApps();
+      appCatalog = Array.isArray(list) ? list.filter((item) => item && item.path) : [];
+      appCatalog.forEach((item) => {
+        if (typeof item.icon === 'string' && item.icon.startsWith('data:image/')) {
+          appIconMap.set(item.path, item.icon);
+        }
+      });
+      appCatalogLoaded = true;
+      await hydrateAppIcons(favoriteAppPaths);
+      renderFavoriteApps();
+      // 后台补图标给前若干本机应用，避免目录全空白圆
+      const previewPaths = appCatalog.slice(0, 48).map((item) => item.path);
+      hydrateAppIcons(previewPaths).then(() => renderSettingsAppsCatalog());
+    } catch (error) {
+      if (settingsAppsCatalog) {
+        settingsAppsCatalog.innerHTML = '<div class="settings-apps-empty">读取本机应用失败</div>';
+      }
+      setAppsNote('读取本机应用失败，仍可用「选择…」添加。', true);
+    } finally {
+      appCatalogLoading = false;
+    }
+  }
+
+  function renderHomeApps() {
+    if (!homeAppsGrid) return;
+    homeAppsGrid.replaceChildren();
+    if (!favoriteAppPaths.length) {
+      const empty = document.createElement('button');
+      empty.type = 'button';
+      empty.className = 'home-apps-empty';
+      empty.textContent = '去设置添加常用应用 →';
+      empty.addEventListener('click', () => openFavoriteAppsSettings());
+      homeAppsGrid.appendChild(empty);
+      return;
+    }
+    favoriteAppPaths.forEach((appPath) => {
+      const meta = favoriteAppMeta(appPath);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'home-app-item';
+      button.dataset.path = appPath;
+      button.title = meta.name;
+      button.setAttribute('aria-label', `打开 ${meta.name}`);
+      if (meta.icon) {
+        const img = document.createElement('img');
+        img.src = meta.icon;
+        img.alt = '';
+        img.draggable = false;
+        button.appendChild(img);
+      } else {
+        const mark = document.createElement('span');
+        mark.className = 'home-app-fallback';
+        mark.textContent = (meta.name || '?').slice(0, 1).toUpperCase();
+        button.appendChild(mark);
+      }
+      const label = document.createElement('span');
+      label.className = 'home-app-name';
+      label.textContent = meta.name;
+      button.appendChild(label);
+      homeAppsGrid.appendChild(button);
+    });
+  }
+
+  function renderSettingsAppsSelected() {
+    if (!settingsAppsSelected) return;
+    settingsAppsSelected.replaceChildren();
+    if (settingsAppsCount) {
+      settingsAppsCount.textContent = `已选 ${favoriteAppPaths.length} / ${APP_FAVORITES_MAX}`;
+    }
+    if (!favoriteAppPaths.length) {
+      const empty = document.createElement('div');
+      empty.className = 'settings-apps-empty';
+      empty.textContent = '还没有常用应用，从下方列表勾选，或用「选择…」添加';
+      settingsAppsSelected.appendChild(empty);
+      return;
+    }
+    favoriteAppPaths.forEach((appPath, index) => {
+      const meta = favoriteAppMeta(appPath);
+      const row = document.createElement('div');
+      row.className = 'settings-app-chip';
+      row.draggable = true;
+      row.dataset.path = appPath;
+      row.dataset.index = String(index);
+      row.title = '拖拽排序 · 点击启动';
+
+      const launch = document.createElement('button');
+      launch.type = 'button';
+      launch.className = 'settings-app-chip-main';
+      launch.dataset.action = 'launch-favorite';
+      launch.setAttribute('aria-label', `打开 ${meta.name}`);
+      if (meta.icon) {
+        const img = document.createElement('img');
+        img.src = meta.icon;
+        img.alt = '';
+        img.draggable = false;
+        launch.appendChild(img);
+      } else {
+        const mark = document.createElement('span');
+        mark.className = 'home-app-fallback';
+        mark.textContent = (meta.name || '?').slice(0, 1).toUpperCase();
+        launch.appendChild(mark);
+      }
+      const name = document.createElement('span');
+      name.textContent = meta.name;
+      launch.appendChild(name);
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'settings-app-chip-remove';
+      remove.dataset.action = 'remove-favorite';
+      remove.setAttribute('aria-label', `移除 ${meta.name}`);
+      remove.textContent = '×';
+
+      row.append(launch, remove);
+      settingsAppsSelected.appendChild(row);
+    });
+  }
+
+  function renderSettingsAppsCatalog() {
+    if (!settingsAppsCatalog) return;
+    const query = String(settingsAppsSearch?.value || '').trim().toLowerCase();
+    const favoriteSet = new Set(favoriteAppPaths);
+    const rows = appCatalog.filter((item) => {
+      if (!query) return true;
+      return String(item.name || '').toLowerCase().includes(query)
+        || String(item.path || '').toLowerCase().includes(query);
+    });
+    settingsAppsCatalog.replaceChildren();
+    if (!appCatalogLoaded && appCatalogLoading) {
+      settingsAppsCatalog.innerHTML = '<div class="settings-apps-empty">正在读取本机应用…</div>';
+      return;
+    }
+    if (!rows.length) {
+      settingsAppsCatalog.innerHTML = `<div class="settings-apps-empty">${appCatalogLoaded ? '没有匹配的应用' : '打开设置后读取本机应用…'}</div>`;
+      return;
+    }
+    rows.slice(0, 200).forEach((item) => {
+      const label = document.createElement('label');
+      label.className = 'settings-app-row';
+      const iconWrap = document.createElement('span');
+      iconWrap.className = 'settings-app-row-icon';
+      const icon = appIconMap.get(item.path) || item.icon;
+      if (typeof icon === 'string' && icon.startsWith('data:image/')) {
+        const img = document.createElement('img');
+        img.src = icon;
+        img.alt = '';
+        img.draggable = false;
+        iconWrap.appendChild(img);
+      } else {
+        const mark = document.createElement('span');
+        mark.className = 'home-app-fallback';
+        mark.textContent = String(item.name || '?').slice(0, 1).toUpperCase();
+        iconWrap.appendChild(mark);
+      }
+      const copy = document.createElement('span');
+      copy.className = 'settings-app-row-copy';
+      const title = document.createElement('b');
+      title.textContent = item.name || Domain.appDisplayNameFromPath(item.path);
+      copy.appendChild(title);
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = favoriteSet.has(item.path);
+      input.dataset.appPath = item.path;
+      input.setAttribute('aria-label', `收藏 ${item.name || item.path}`);
+      label.append(iconWrap, copy, input);
+      settingsAppsCatalog.appendChild(label);
+    });
+  }
+
+  function renderFavoriteApps() {
+    renderHomeApps();
+    renderSettingsAppsSelected();
+    renderSettingsAppsCatalog();
+  }
+
+  function commitFavoriteApps(nextPaths, note) {
+    favoriteAppPaths = Domain.normalizeAppFavorites(nextPaths, APP_FAVORITES_MAX);
+    persistFavoriteApps();
+    renderFavoriteApps();
+    if (note) setAppsNote(note);
+  }
+
+  async function launchFavoriteApp(appPath) {
+    if (!window.notchAPI?.launchApp) return;
+    const result = await window.notchAPI.launchApp(appPath).catch(() => ({ ok: false }));
+    if (!result?.ok) {
+      const message = result?.error === 'invalid_app' ? '应用已不存在或无法打开' : '启动失败';
+      setAppsNote(message, true);
+      if (typeof showStatusToast === 'function') showStatusToast(message);
+      return;
+    }
+    setAppsNote(`已打开 ${Domain.appDisplayNameFromPath(appPath)}`);
+  }
+
+  function openFavoriteAppsSettings() {
+    if (typeof setActiveTab === 'function') setActiveTab('settings');
+    ensureAppCatalogLoaded();
+    requestAnimationFrame(() => {
+      settingsAppsCard?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }
+
+  homeAppsGrid?.addEventListener('click', (event) => {
+    const item = event.target.closest('.home-app-item');
+    if (!item) return;
+    launchFavoriteApp(item.dataset.path);
+  });
+
+  homeAppsOpenSettings?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openFavoriteAppsSettings();
+  });
+
+  settingsAppsPick?.addEventListener('click', async () => {
+    if (!window.notchAPI?.pickApp) return;
+    settingsAppsPick.disabled = true;
+    const result = await window.notchAPI.pickApp().catch(() => ({ ok: false }));
+    settingsAppsPick.disabled = false;
+    if (result?.canceled) return;
+    if (!result?.ok || !result.app?.path) {
+      setAppsNote(result?.error === 'invalid_app' ? '请选择有效的 .app 应用' : '添加失败', true);
+      return;
+    }
+    if (result.app.icon) appIconMap.set(result.app.path, result.app.icon);
+    const toggled = Domain.toggleAppFavorite(favoriteAppPaths, result.app.path, true, APP_FAVORITES_MAX);
+    if (!toggled.ok) {
+      setAppsNote(toggled.error === 'limit_reached' ? `最多添加 ${APP_FAVORITES_MAX} 个常用应用` : '无法添加该应用', true);
+      return;
+    }
+    commitFavoriteApps(toggled.favorites, `已添加 ${result.app.name || Domain.appDisplayNameFromPath(result.app.path)}`);
+  });
+
+  settingsAppsSearch?.addEventListener('input', () => renderSettingsAppsCatalog());
+
+  settingsAppsCatalog?.addEventListener('change', (event) => {
+    const input = event.target.closest('input[data-app-path]');
+    if (!input) return;
+    const toggled = Domain.toggleAppFavorite(
+      favoriteAppPaths,
+      input.dataset.appPath,
+      input.checked,
+      APP_FAVORITES_MAX
+    );
+    if (!toggled.ok) {
+      input.checked = !input.checked;
+      setAppsNote(toggled.error === 'limit_reached' ? `最多添加 ${APP_FAVORITES_MAX} 个常用应用` : '无法更新常用应用', true);
+      return;
+    }
+    commitFavoriteApps(toggled.favorites, input.checked ? '已加入常用应用' : '已从常用移除');
+  });
+
+  settingsAppsSelected?.addEventListener('click', (event) => {
+    const remove = event.target.closest('[data-action="remove-favorite"]');
+    if (remove) {
+      const chip = remove.closest('.settings-app-chip');
+      const toggled = Domain.toggleAppFavorite(favoriteAppPaths, chip?.dataset.path, false, APP_FAVORITES_MAX);
+      if (toggled.ok) commitFavoriteApps(toggled.favorites, '已从常用移除');
+      return;
+    }
+    const launch = event.target.closest('[data-action="launch-favorite"]');
+    if (launch) {
+      const chip = launch.closest('.settings-app-chip');
+      if (chip?.dataset.path) launchFavoriteApp(chip.dataset.path);
+    }
+  });
+
+  settingsAppsSelected?.addEventListener('dragstart', (event) => {
+    const chip = event.target.closest('.settings-app-chip');
+    if (!chip) return;
+    appsDragFrom = Number(chip.dataset.index);
+    event.dataTransfer.effectAllowed = 'move';
+    chip.classList.add('is-dragging');
+  });
+  settingsAppsSelected?.addEventListener('dragend', (event) => {
+    event.target.closest('.settings-app-chip')?.classList.remove('is-dragging');
+    appsDragFrom = null;
+  });
+  settingsAppsSelected?.addEventListener('dragover', (event) => {
+    const chip = event.target.closest('.settings-app-chip');
+    if (!chip || appsDragFrom == null) return;
+    event.preventDefault();
+  });
+  settingsAppsSelected?.addEventListener('drop', (event) => {
+    const chip = event.target.closest('.settings-app-chip');
+    if (!chip || appsDragFrom == null) return;
+    event.preventDefault();
+    const toIndex = Number(chip.dataset.index);
+    const reordered = Domain.reorderAppFavorites(favoriteAppPaths, appsDragFrom, toIndex, APP_FAVORITES_MAX);
+    appsDragFrom = null;
+    if (reordered.ok) commitFavoriteApps(reordered.favorites, '顺序已更新');
+  });
+
+  document.addEventListener('notch:home-modules-changed', (event) => {
+    const visible = event.detail?.visibleIds;
+    if (Array.isArray(visible) && visible.includes('apps')) {
+      hydrateAppIcons(favoriteAppPaths).then(() => renderHomeApps());
+    }
+  });
+
   window.addEventListener('beforeunload', () => {
     stopSpeechRecognition();
     stopTranscriptionAudioPipeline();
@@ -2845,10 +3204,13 @@
   refreshSettingsPanel();
   refreshMusicStatus();
   loadCredentials();
+  renderFavoriteApps();
+  ensureAppCatalogLoaded();
 
   window.NotchWorkspace = {
     refreshWindows,
     startRecording,
     isRecordingActive,
+    openFavoriteAppsSettings,
   };
 })();

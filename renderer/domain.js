@@ -182,6 +182,71 @@
     };
   }
 
+  const APP_FAVORITES_MAX = 24;
+
+  function normalizeAppBundlePath(value) {
+    const raw = String(value || '').trim().replace(/\/+$/, '');
+    if (!raw.startsWith('/') || raw.includes('\0') || raw.includes('/../') || raw.endsWith('/..')) {
+      return '';
+    }
+    if (raw === '..' || raw.includes('\\')) return '';
+    return /\.app$/i.test(raw) ? raw : '';
+  }
+
+  function normalizeAppFavorites(value, max = APP_FAVORITES_MAX) {
+    const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : APP_FAVORITES_MAX;
+    if (!Array.isArray(value)) return [];
+    const seen = new Set();
+    const out = [];
+    for (const item of value) {
+      const candidate = typeof item === 'string'
+        ? item
+        : (item && typeof item.path === 'string' ? item.path : '');
+      const normalized = normalizeAppBundlePath(candidate);
+      if (!normalized || seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  function appDisplayNameFromPath(appPath) {
+    const normalized = normalizeAppBundlePath(appPath) || String(appPath || '').trim().replace(/\/+$/, '');
+    const base = normalized.split('/').pop() || '';
+    return base.replace(/\.app$/i, '') || base;
+  }
+
+  function toggleAppFavorite(favorites, appPath, enabled, max = APP_FAVORITES_MAX) {
+    const current = normalizeAppFavorites(favorites, max);
+    const normalized = normalizeAppBundlePath(appPath);
+    if (!normalized) return { ok: false, error: 'invalid_path', favorites: current };
+    if (enabled === true) {
+      if (current.includes(normalized)) return { ok: true, favorites: current };
+      if (current.length >= max) return { ok: false, error: 'limit_reached', favorites: current };
+      return { ok: true, favorites: [...current, normalized] };
+    }
+    if (enabled === false) {
+      return { ok: true, favorites: current.filter((path) => path !== normalized) };
+    }
+    return { ok: false, error: 'invalid_toggle', favorites: current };
+  }
+
+  function reorderAppFavorites(favorites, fromIndex, toIndex, max = APP_FAVORITES_MAX) {
+    const current = normalizeAppFavorites(favorites, max);
+    const from = Number(fromIndex);
+    const to = Number(toIndex);
+    if (!Number.isInteger(from) || !Number.isInteger(to)
+      || from < 0 || to < 0 || from >= current.length || to >= current.length) {
+      return { ok: false, error: 'invalid_index', favorites: current };
+    }
+    if (from === to) return { ok: true, favorites: current };
+    const next = [...current];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    return { ok: true, favorites: next };
+  }
+
   function createCommand(text, id, createdAt) {
     const normalized = String(text || '').trim();
     if (!normalized) return null;
@@ -970,6 +1035,16 @@
       { column: 6, row: 2, width: 2, height: 2 },
       { column: 8, row: 2, width: 4, height: 2 },
     ],
+    8: [
+      { column: 0, row: 0, width: 4, height: 2 },
+      { column: 4, row: 0, width: 4, height: 2 },
+      { column: 8, row: 0, width: 4, height: 2 },
+      { column: 0, row: 2, width: 4, height: 2 },
+      { column: 4, row: 2, width: 2, height: 2 },
+      { column: 6, row: 2, width: 2, height: 2 },
+      { column: 8, row: 2, width: 2, height: 2 },
+      { column: 10, row: 2, width: 2, height: 2 },
+    ],
   };
 
   function normalizeHiddenHomeModules(value, moduleIds) {
@@ -1133,6 +1208,12 @@
     moveLinkToPosition,
     renameGroup,
     prependClipboardHistory,
+    APP_FAVORITES_MAX,
+    normalizeAppBundlePath,
+    normalizeAppFavorites,
+    appDisplayNameFromPath,
+    toggleAppFavorite,
+    reorderAppFavorites,
     createCommand,
     createRecording,
     removeRecordingState,

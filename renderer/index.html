@@ -238,6 +238,15 @@
                 <div class="command-list" id="command-list"></div>
               </section>
 
+              <!-- 常用应用 -->
+              <section class="tile home-apps" data-home-module="apps" data-widget-size="medium">
+                <div class="tile-head">
+                  <span class="tile-label">常用应用</span>
+                  <button class="workspace-button compact" id="home-apps-open-settings" type="button">设置</button>
+                </div>
+                <div class="home-apps-grid" id="home-apps-grid" aria-label="常用应用列表"></div>
+              </section>
+
             </div>
           </section>
 
@@ -547,6 +556,7 @@
                     <label><span><b>随笔记</b><small>首页快速记录</small></span><input type="checkbox" data-settings-home-module="note" aria-label="显示随笔记" /><i aria-hidden="true"></i></label>
                     <label><span><b>AI 对话</b><small>角色化快速问答</small></span><input type="checkbox" data-settings-home-module="chat" aria-label="显示 AI 对话" /><i aria-hidden="true"></i></label>
                     <label><span><b>常用指令</b><small>提示词快捷入口</small></span><input type="checkbox" data-settings-home-module="commands" aria-label="显示常用指令" /><i aria-hidden="true"></i></label>
+                    <label><span><b>常用应用</b><small>一键启动本机应用</small></span><input type="checkbox" data-settings-home-module="apps" aria-label="显示常用应用" /><i aria-hidden="true"></i></label>
                   </div>
                 </section>
               </div>
@@ -559,6 +569,26 @@
                     <strong>封面图片</strong>
                     <p>支持 PNG、JPG、WebP 与 HEIC，替换后首页立即同步。</p>
                     <button class="workspace-button compact" id="settings-mirror-choose" type="button">选择图片…</button>
+                  </div>
+                </section>
+
+                <section class="tile settings-card settings-apps-card" id="settings-apps-card" aria-label="常用应用设置">
+                  <div class="settings-card-heading">
+                    <div>
+                      <span class="tile-label">启动坞</span>
+                      <strong>常用应用</strong>
+                    </div>
+                    <small id="settings-apps-count">已选 0 / 24</small>
+                  </div>
+                  <div class="settings-apps-selected" id="settings-apps-selected" aria-label="已选常用应用"></div>
+                  <div class="settings-apps-actions">
+                    <button class="workspace-button compact" id="settings-apps-pick" type="button">选择…</button>
+                    <p class="settings-inline-note" id="settings-apps-note" role="status" aria-live="polite"></p>
+                  </div>
+                  <label class="settings-apps-search-label" for="settings-apps-search">本机应用</label>
+                  <input class="settings-apps-search" id="settings-apps-search" type="search" placeholder="搜索应用…" autocomplete="off" spellcheck="false" />
+                  <div class="settings-apps-catalog" id="settings-apps-catalog" aria-label="本机应用列表">
+                    <div class="settings-apps-empty">打开设置后读取本机应用…</div>
                   </div>
                 </section>
 
