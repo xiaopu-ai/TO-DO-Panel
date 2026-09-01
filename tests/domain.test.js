@@ -50,9 +50,14 @@ const {
   applyGeneratedNoteTitle,
   apiCredentialStatuses,
   prependClipboardHistory,
+  normalizeAppFavorites,
+  appDisplayNameFromPath,
+  toggleAppFavorite,
+  reorderAppFavorites,
+  APP_FAVORITES_MAX,
 } = domain;
 
-const HOME_MODULES = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands'];
+const HOME_MODULES = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands', 'apps'];
 
 function assertExactHomeCover(layout, expectedIds) {
   assert.ok(layout);
@@ -239,6 +244,26 @@ test('createCommand and createRecording normalize user-authored metadata', () =>
   assert.equal(recording.transcript, '第一段录音');
   assert.notEqual(recording.title, recording.transcript);
   assert.equal(recording.category, '未分类');
+});
+
+test('favorite apps helpers normalize, toggle, and reorder safely', () => {
+  assert.equal(APP_FAVORITES_MAX, 24);
+  assert.deepEqual(normalizeAppFavorites([
+    '/Applications/Safari.app/',
+    '/Applications/Safari.app',
+    '../evil.app',
+    '/Applications/Notes.app',
+  ]), ['/Applications/Safari.app', '/Applications/Notes.app']);
+  assert.equal(appDisplayNameFromPath('/Applications/Notes.app'), 'Notes');
+  assert.deepEqual(toggleAppFavorite([], '/Applications/Notes.app', true), {
+    ok: true,
+    favorites: ['/Applications/Notes.app'],
+  });
+  assert.equal(toggleAppFavorite(['/Applications/Notes.app'], 'bad', true).error, 'invalid_path');
+  assert.deepEqual(
+    reorderAppFavorites(['/Applications/A.app', '/Applications/B.app'], 1, 0),
+    { ok: true, favorites: ['/Applications/B.app', '/Applications/A.app'] }
+  );
 });
 
 test('single recording deletion removes only its row and keeps a valid active recording', () => {
@@ -451,6 +476,7 @@ test('settings summary combines safe API status with local device settings', () 
     appSettings: { shortcut: 'Command+Shift+P', autoLaunch: true },
     workspace: { path: '/Users/test/Panel', portable: true },
     transcription: { configured: true, llmConfigured: false },
+    chat: { configured: true },
   }), {
     shortcut: 'Command+Shift+P',
     autoLaunch: true,
@@ -458,6 +484,7 @@ test('settings summary combines safe API status with local device settings', () 
     workspaceLabel: '自定义文件夹',
     transcription: { label: '已安全保存', state: 'saved' },
     llm: { label: '未配置', state: 'empty' },
+    chat: { label: '已安全保存', state: 'saved' },
   });
   assert.doesNotMatch(JSON.stringify(settingsSummary({
     transcription: { configured: true, apiKey: 'api-secret' },
@@ -490,6 +517,7 @@ test('editing a saved note updates content and timestamp without losing its iden
     id: 'selected',
     title: '',
     titleSource: '',
+    group: '',
     content: '新内容\n第二行',
     createdAt: 100,
     updatedAt: 400,
@@ -519,10 +547,56 @@ test('users can rename a note without changing its content', () => {
     id: 'note-1',
     title: '用户自己的标题',
     titleSource: 'user',
+    group: '',
     content: '正文',
     createdAt: 100,
     updatedAt: 300,
   });
+});
+
+test('chat roles and sessions support role replies and note grouping', () => {
+  const {
+    normalizeChatRoles,
+    upsertChatRole,
+    createChatSession,
+    appendChatMessage,
+    formatChatSessionMarkdown,
+    createNoteFromChat,
+    groupNotesForLibrary,
+    chatNoteGroupName,
+  } = domain;
+
+  const roles = upsertChatRole(normalizeChatRoles(null), {
+    name: '产品经理',
+    systemPrompt: '用简洁产品视角回答',
+    model: 'deepseek-chat',
+  }, 1000);
+  assert.equal(roles[0].name, '产品经理');
+  assert.equal(roles[0].model, 'deepseek-chat');
+
+  let sessions = createChatSession([], roles[0].id, 1100);
+  sessions = appendChatMessage(sessions, sessions[0].id, { role: 'user', content: '帮我拆需求' }, 1200);
+  sessions = appendChatMessage(sessions, sessions[0].id, { role: 'assistant', content: '先定义用户故事' }, 1300);
+  assert.equal(sessions[0].title, '帮我拆需求');
+  assert.equal(sessions[0].messages.length, 2);
+
+  const { replaceChatFromIndex } = domain;
+  sessions = replaceChatFromIndex(sessions, sessions[0].id, 0, '改成拆优先级', 1400);
+  assert.equal(sessions[0].messages.length, 1);
+  assert.equal(sessions[0].messages[0].content, '改成拆优先级');
+  assert.equal(sessions[0].title, '改成拆优先级');
+
+  const markdown = formatChatSessionMarkdown(sessions[0], roles[0].name);
+  assert.match(markdown, /产品经理/);
+  assert.match(markdown, /改成拆优先级/);
+
+  const notes = createNoteFromChat([], {
+    title: sessions[0].title,
+    content: markdown,
+    roleName: roles[0].name,
+  }, 1400);
+  assert.equal(notes[0].group, chatNoteGroupName('产品经理'));
+  assert.equal(groupNotesForLibrary(notes)[0].group, 'AI · 产品经理');
 });
 
 test('generated note titles never overwrite user titles or stale content', () => {
@@ -548,10 +622,12 @@ test('API credential statuses distinguish saved, missing, and legacy keys that n
   }), {
     transcription: { label: '已安全保存', state: 'saved' },
     llm: { label: '需重新输入', state: 'warning' },
+    chat: { label: '未配置', state: 'empty' },
   });
   assert.deepEqual(apiCredentialStatuses({}), {
     transcription: { label: '未配置', state: 'empty' },
     llm: { label: '未配置', state: 'empty' },
+    chat: { label: '未配置', state: 'empty' },
   });
 });
 
@@ -600,7 +676,10 @@ test('home widget sizes keep the requested tile large and adapt siblings to the 
     note: 'large',
     commands: 'medium',
   };
-  assert.deepEqual(normalizeHomeWidgetSizes({ windows: 'huge' }, defaults, 'windows', 22), defaults);
+  const invalidBudget = normalizeHomeWidgetSizes({ windows: 'huge' }, defaults, 'windows', 22);
+  const area = { mini: 2, small: 4, medium: 8, large: 16 };
+  assert.equal(invalidBudget.windows, 'large');
+  assert.ok(Object.values(invalidBudget).reduce((total, size) => total + area[size], 0) <= 26);
   const fitted = normalizeHomeWidgetSizes({
     character: 'large',
     windows: 'large',
@@ -627,6 +706,120 @@ test('home widget sizes fill the complete bento capacity without blank cells', (
   const fitted = normalizeHomeWidgetSizes({ ...defaults, mirror: 'large' }, defaults, 'mirror', 48);
   assert.equal(fitted.mirror, 'large');
   assert.equal(Object.values(fitted).reduce((total, size) => total + area[size], 0), 48);
+});
+
+test('invalid saved home widget sizes are normalized instead of falling back raw', () => {
+  const defaults = {
+    music: 'medium',
+    windows: 'large',
+    recorder: 'small',
+    mirror: 'small',
+    filehub: 'medium',
+    note: 'small',
+    chat: 'medium',
+    commands: 'mini',
+    pomodoro: 'mini',
+    apps: 'medium',
+  };
+  const area = { mini: 2, small: 4, medium: 8, large: 16 };
+  const fitted = normalizeHomeWidgetSizes({ music: 'huge', windows: 'large' }, defaults, 'windows', 48);
+  assert.equal(fitted.windows, 'large');
+  assert.equal(Object.values(fitted).reduce((total, size) => total + area[size], 0), 48);
+  const order = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'filehub', 'note', 'chat', 'commands'];
+  assert.ok(resolveHomeWidgetLayout(order, fitted, [], 12, 4));
+});
+
+test('home widget sizes only rebalance active visible modules', () => {
+  const defaults = {
+    music: 'medium',
+    windows: 'large',
+    recorder: 'small',
+    mirror: 'small',
+    filehub: 'medium',
+    note: 'small',
+    chat: 'medium',
+    commands: 'mini',
+    pomodoro: 'mini',
+    apps: 'medium',
+  };
+  const area = { mini: 2, small: 4, medium: 8, large: 16 };
+  const fitted = normalizeHomeWidgetSizes(
+    { ...defaults, music: 'large', chat: 'large' },
+    defaults,
+    'music',
+    24,
+    ['music', 'windows', 'recorder']
+  );
+  assert.equal(fitted.music, 'large');
+  assert.equal(fitted.filehub, 'medium');
+  assert.equal(['music', 'windows', 'recorder'].reduce((total, key) => total + area[fitted[key]], 0), 24);
+});
+
+test('hidden homepage widgets still repack visible modules on size change', () => {
+  const order = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'filehub', 'note', 'chat', 'commands'];
+  const defaults = {
+    music: 'medium',
+    windows: 'large',
+    recorder: 'small',
+    mirror: 'small',
+    filehub: 'medium',
+    note: 'small',
+    chat: 'medium',
+    commands: 'mini',
+    pomodoro: 'mini',
+    apps: 'medium',
+  };
+  const hidden = ['chat'];
+  const visible = order.filter((id) => !hidden.includes(id));
+  const sizes = normalizeHomeWidgetSizes(null, defaults, '', 48, visible);
+  const before = resolveHomeWidgetLayout(order, sizes, hidden, 12, 4);
+  const nextSizes = normalizeHomeWidgetSizes({ ...sizes, music: 'large' }, defaults, 'music', 48, visible);
+  const after = resolveHomeWidgetLayout(order, nextSizes, hidden, 12, 4);
+  assert.ok(before);
+  assert.ok(after);
+  assert.notDeepEqual(before.placements.music, after.placements.music);
+});
+
+test('all visible homepage widgets repack when a size preference changes', () => {
+  const order = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'filehub', 'note', 'chat', 'commands'];
+  const defaults = {
+    music: 'medium',
+    windows: 'large',
+    recorder: 'small',
+    mirror: 'small',
+    filehub: 'medium',
+    note: 'small',
+    chat: 'medium',
+    commands: 'mini',
+    pomodoro: 'mini',
+    apps: 'medium',
+  };
+  const sizes = normalizeHomeWidgetSizes(null, defaults, '', 48);
+  const before = resolveHomeWidgetLayout(order, sizes, [], 12, 4);
+  const nextSizes = normalizeHomeWidgetSizes({ ...sizes, music: 'large' }, defaults, 'music', 48, order);
+  const after = resolveHomeWidgetLayout(order, nextSizes, [], 12, 4);
+  assert.ok(before);
+  assert.ok(after);
+  assert.notDeepEqual(before.placements.music, after.placements.music);
+});
+
+test('all ten homepage widgets resolve with default sizes', () => {
+  const order = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'filehub', 'note', 'chat', 'commands'];
+  const defaults = {
+    music: 'medium',
+    windows: 'large',
+    recorder: 'small',
+    mirror: 'small',
+    filehub: 'medium',
+    note: 'small',
+    chat: 'medium',
+    commands: 'mini',
+    pomodoro: 'mini',
+    apps: 'medium',
+  };
+  const sizes = normalizeHomeWidgetSizes(null, defaults, '', 48);
+  const layout = resolveHomeWidgetLayout(order, sizes, [], 12, 4);
+  assertExactHomeCover(layout, order);
 });
 
 test('home widget packing fills all four rows even when logical order would fragment the grid', () => {
@@ -665,10 +858,10 @@ test('hidden homepage modules are deduplicated and normalized to module order', 
 });
 
 test('homepage visibility refuses to hide the final visible module', () => {
-  const sixHidden = HOME_MODULES.slice(0, 6);
+  const almostAllHidden = HOME_MODULES.slice(0, HOME_MODULES.length - 1);
   assert.deepEqual(
-    updateHomeModuleVisibility(sixHidden, HOME_MODULES, 'commands', false),
-    { ok: false, error: 'at_least_one_required', hiddenIds: sixHidden }
+    updateHomeModuleVisibility(almostAllHidden, HOME_MODULES, 'apps', false),
+    { ok: false, error: 'at_least_one_required', hiddenIds: almostAllHidden }
   );
   assert.deepEqual(
     updateHomeModuleVisibility(['mirror'], HOME_MODULES, 'mirror', true),
@@ -681,10 +874,10 @@ test('homepage visibility refuses to hide the final visible module', () => {
 });
 
 test('every non-empty homepage widget subset exactly covers the bento grid', () => {
-  const order = ['music', 'pomodoro', 'windows', 'recorder', 'mirror', 'note', 'commands'];
+  const order = ['music', 'pomodoro', 'windows', 'recorder', 'mirror', 'note', 'chat', 'commands'];
   const sizes = {
     music: 'medium', pomodoro: 'mini', windows: 'large', recorder: 'small',
-    mirror: 'medium', note: 'medium', commands: 'mini',
+    mirror: 'small', note: 'small', chat: 'medium', commands: 'mini',
   };
   for (let visibleMask = 1; visibleMask < 2 ** order.length; visibleMask += 1) {
     const hiddenIds = order.filter((id, index) => (visibleMask & (1 << index)) === 0);

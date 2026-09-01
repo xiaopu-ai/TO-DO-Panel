@@ -49,7 +49,18 @@ const {
   selectTranscriptionSettings,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
+  collapsedDisplayFollowPolicy,
+  shouldFollowCollapsedToCursorDisplay,
   reduceClipboardObservation,
+  isLaunchableAppPath,
+  appDisplayNameFromPath,
+  normalizeAppBundlePath,
+  normalizeFileHubDirectories,
+  isAllowedFileHubEntry,
+  collectFileHubEntries,
+  addFileHubDirectory,
+  removeFileHubDirectory,
+  FILE_HUB_MAX_DIRS,
 } = require('./main-services');
 
 // Keep the historical data directory so upgrading users retain notes, links,
@@ -186,6 +197,7 @@ const TAB_SIZES = {
   links: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   recordings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   credentials: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
+  chat: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   settings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
 };
 // 与渲染层结构常量对应：panel padding-top(--s-2 8) + 顶栏(--topbar-h 40)
@@ -203,11 +215,151 @@ const CLIP_IMAGES_DIR_NAME = 'clipboard-images';
 
 const RECORDINGS_DIR_NAME = 'recordings';
 const TRANSCRIPTION_SETTINGS_FILE = 'transcription-settings.json';
+const CHAT_SETTINGS_FILE = 'chat-settings.json';
 const CREDENTIALS_VAULT_FILE = 'credentials.vault.json';
 const APP_SETTINGS_FILE = 'app-settings.json';
 const WORKSPACE_SETTINGS_FILE = 'workspace-settings.json';
 const WORKSPACE_DATA_FILE = 'workspace.json';
 const MIRROR_IMAGE_FILE = 'mirror-cover.jpg';
+const FILE_HUB_SETTINGS_FILE = 'file-hub-settings.json';
+const FILE_HUB_WATCH_DEBOUNCE_MS = 250;
+let fileHubWatchers = [];
+let fileHubWatchTimer = null;
+const fileHubIconCache = new Map();
+
+function readFileHubSettings() {
+  const stored = readJsonFile(getJsonSettingsPath(FILE_HUB_SETTINGS_FILE));
+  return {
+    directories: normalizeFileHubDirectories(stored.directories, FILE_HUB_MAX_DIRS),
+  };
+}
+
+function saveFileHubSettings(settings) {
+  const next = {
+    directories: normalizeFileHubDirectories(settings?.directories, FILE_HUB_MAX_DIRS),
+  };
+  if (!writeJsonFile(getJsonSettingsPath(FILE_HUB_SETTINGS_FILE), next)) return null;
+  return next;
+}
+
+function notifyFileHubChanged() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('file-hub:changed');
+}
+
+function stopFileHubWatchers() {
+  for (const watcher of fileHubWatchers) {
+    try { watcher.close(); } catch (error) {}
+  }
+  fileHubWatchers = [];
+  if (fileHubWatchTimer) {
+    clearTimeout(fileHubWatchTimer);
+    fileHubWatchTimer = null;
+  }
+}
+
+function refreshFileHubWatchers() {
+  stopFileHubWatchers();
+  for (const dir of readFileHubSettings().directories) {
+    try {
+      const watcher = fs.watch(dir, { persistent: false }, () => {
+        if (fileHubWatchTimer) clearTimeout(fileHubWatchTimer);
+        fileHubWatchTimer = setTimeout(() => {
+          fileHubWatchTimer = null;
+          fileHubIconCache.clear();
+          notifyFileHubChanged();
+        }, FILE_HUB_WATCH_DEBOUNCE_MS);
+      });
+      fileHubWatchers.push(watcher);
+    } catch (error) {}
+  }
+}
+
+async function listFileHubFiles() {
+  const directories = readFileHubSettings().directories;
+  const files = collectFileHubEntries(directories);
+  const items = [];
+  for (const file of files) {
+    let icon = null;
+    if (fileHubIconCache.has(file.path)) {
+      icon = fileHubIconCache.get(file.path);
+    } else {
+      try {
+        const image = await app.getFileIcon(file.path, { size: 'small' });
+        icon = image && !image.isEmpty() ? image.toDataURL() : null;
+        if (image && !image.isEmpty()) fileHubIconCache.set(file.path, icon);
+      } catch (error) {
+        icon = null;
+      }
+    }
+    items.push({ ...file, icon });
+  }
+  return { ok: true, directories, files: items };
+}
+
+async function chooseFileHubDirectory() {
+  const result = await showOwnedOpenDialog({
+    title: '添加文件中转目录',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  const selected = !result.canceled && result.filePaths && result.filePaths[0];
+  if (!selected) return { ok: true, canceled: true };
+  try {
+    const stat = fs.statSync(selected);
+    if (!stat.isDirectory()) return { ok: false, error: 'invalid_directory' };
+  } catch (error) {
+    return { ok: false, error: 'invalid_directory' };
+  }
+  const added = addFileHubDirectory(readFileHubSettings().directories, selected, FILE_HUB_MAX_DIRS);
+  if (!added.ok) return added;
+  const saved = saveFileHubSettings({ directories: added.directories });
+  if (!saved) return { ok: false, error: 'save_failed' };
+  fileHubIconCache.clear();
+  refreshFileHubWatchers();
+  notifyFileHubChanged();
+  return { ok: true, canceled: false, directories: saved.directories, duplicate: added.duplicate === true };
+}
+
+function removeFileHubDirectoryEntry(dirPath) {
+  const removed = removeFileHubDirectory(readFileHubSettings().directories, dirPath);
+  if (!removed.ok) return removed;
+  const saved = saveFileHubSettings({ directories: removed.directories });
+  if (!saved) return { ok: false, error: 'save_failed' };
+  fileHubIconCache.clear();
+  refreshFileHubWatchers();
+  notifyFileHubChanged();
+  return { ok: true, directories: saved.directories };
+}
+
+function startFileHubDrag(event, filePath) {
+  const absolutePath = String(filePath || '').trim();
+  if (!isAllowedFileHubEntry(absolutePath, readFileHubSettings().directories)) return;
+  let icon = nativeImage.createEmpty();
+  const cached = fileHubIconCache.get(absolutePath);
+  if (cached) {
+    try {
+      const image = nativeImage.createFromDataURL(cached);
+      if (!image.isEmpty()) icon = image;
+    } catch (error) {}
+  }
+  if (icon.isEmpty()) {
+    try {
+      const image = nativeImage.createFromPath(absolutePath);
+      if (!image.isEmpty()) icon = image;
+    } catch (error) {}
+  }
+  event.sender.startDrag({ file: absolutePath, icon });
+}
+
+async function openFileHubEntry(entryPath) {
+  const absolutePath = String(entryPath || '').trim();
+  if (!isAllowedFileHubEntry(absolutePath, readFileHubSettings().directories)) {
+    return { ok: false, error: 'not_allowed' };
+  }
+  const errorMessage = await shell.openPath(absolutePath);
+  return errorMessage ? { ok: false, error: errorMessage } : { ok: true };
+}
+
 const workspacePersistenceGate = createWorkspacePersistenceGate();
 const SODA_MUSIC_APP = '/Applications/汽水音乐.app';
 const TRANSCRIPTION_MODEL = 'qwen3-asr-flash-realtime';
@@ -351,7 +503,7 @@ function getExpandedSize(display) {
   };
 }
 
-// display 不传时锚定窗口当前所在屏；只有"召唤"类动作（启动/重新居中/显示）才传光标屏。
+// display 不传时锚定窗口当前所在屏；展开召唤与折叠态跟屏才传光标屏。
 // 一律瞬时 setBounds：系统动画 resize 会持续重绘 web 内容（卡顿）。
 // 原生窗口只提供透明画布，用户可见的岛体形变交给渲染层 CSS。
 function getBoundsForMode(mode, display) {
@@ -1089,6 +1241,7 @@ const DEFAULT_FEATURES = {
   links: true,
   recordings: true,
   credentials: true,
+  chat: true,
   clip: false,
 };
 
@@ -1230,7 +1383,7 @@ function setPanelShortcut(shortcut) {
   }
   if (shortcut === 'Space') {
     configuredShortcut = shortcut;
-    startHoverSpaceShortcut();
+    syncHoverSpacePolling();
     return true;
   }
   let registered = false;
@@ -1238,6 +1391,8 @@ function setPanelShortcut(shortcut) {
     registered = globalShortcut.register(shortcut, () => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       hideWhenCollapsed = false;
+      // 自定义快捷键也是召唤：先落到光标所在屏再展开/切换。
+      if (currentMode === 'collapsed') repositionWindow(getTargetDisplay());
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
       mainWindow.webContents.send('shortcut:toggle-panel');
@@ -1245,10 +1400,12 @@ function setPanelShortcut(shortcut) {
   } catch (error) {}
   if (registered) {
     configuredShortcut = shortcut;
+    // 非 Space 快捷键仍需折叠态跟屏，否则外接屏看不到刘海条。
+    syncHoverSpacePolling();
     return true;
   }
   configuredShortcut = previousShortcut;
-  startHoverSpaceShortcut();
+  syncHoverSpacePolling();
   return false;
 }
 
@@ -1319,7 +1476,7 @@ function refreshTrayMenu() {
   if (!tray) return;
   const autoLaunch = isAutoLaunchEnabled();
   const settings = readAppSettings();
-  const featureLabels = { todo: '待办', notes: '笔记', links: '链接', recordings: '录制', credentials: '密钥', clip: '剪贴板' };
+  const featureLabels = { todo: '待办', notes: '笔记', links: '链接', recordings: '录制', credentials: '密钥', chat: '对话', clip: '剪贴板' };
   const menu = Menu.buildFromTemplate([
     {
       label: 'API 配置…',
@@ -1410,8 +1567,14 @@ function createTray() {
 }
 
 ipcMain.handle('window:set-mode', async (event, mode) => {
-  if (mode === 'expanded') await rememberPasteTarget();
-  applyMode(mode === 'expanded' ? 'expanded' : 'collapsed');
+  if (mode === 'expanded') {
+    await rememberPasteTarget();
+    // 展开是召唤：跟光标所在屏，外接屏上触发就在外接屏展开。
+    applyMode('expanded', getTargetDisplay());
+    return;
+  }
+  // 收起锚定窗口当前屏，避免失焦瞬间跨屏瞬移。
+  applyMode('collapsed');
 });
 
 ipcMain.handle('window:begin-collapse', () => {
@@ -1565,6 +1728,133 @@ ipcMain.handle('shell:openPath', (event, p) => {
   if (typeof p === 'string' && path.isAbsolute(p)) {
     return shell.openPath(p);
   }
+});
+
+const APP_SCAN_ROOTS = [
+  '/Applications',
+  '/System/Applications',
+  '/System/Applications/Utilities',
+];
+
+let appCatalogCache = null;
+let appCatalogInflight = null;
+
+async function readAppDirectoryEntries(dirPath) {
+  try {
+    const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    return entries;
+  } catch (error) {
+    return [];
+  }
+}
+
+async function collectInstalledApps() {
+  const found = new Map();
+  for (const root of APP_SCAN_ROOTS) {
+    const entries = await readAppDirectoryEntries(root);
+    for (const entry of entries) {
+      if (!entry.name.toLowerCase().endsWith('.app')) continue;
+      const appPath = path.join(root, entry.name);
+      const normalized = normalizeAppBundlePath(appPath);
+      if (!normalized || found.has(normalized)) continue;
+      try {
+        const stat = await fs.promises.stat(normalized);
+        if (!stat.isDirectory()) continue;
+      } catch (error) {
+        continue;
+      }
+      found.set(normalized, {
+        path: normalized,
+        name: appDisplayNameFromPath(normalized),
+      });
+    }
+  }
+  return [...found.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans'));
+}
+
+async function listInstalledApps() {
+  if (appCatalogCache) return appCatalogCache;
+  if (appCatalogInflight) return appCatalogInflight;
+  appCatalogInflight = collectInstalledApps()
+    .then((apps) => {
+      appCatalogCache = apps;
+      return apps;
+    })
+    .finally(() => {
+      appCatalogInflight = null;
+    });
+  return appCatalogInflight;
+}
+
+async function resolveAppIcons(paths) {
+  const list = Array.isArray(paths) ? paths : [];
+  const result = {};
+  const unique = [...new Set(list.map((item) => normalizeAppBundlePath(item)).filter(Boolean))];
+  await Promise.all(unique.map(async (appPath) => {
+    if (windowIconCache.has(appPath)) {
+      result[appPath] = windowIconCache.get(appPath);
+      return;
+    }
+    const icon = await readWindowAppIcon(appPath);
+    if (icon) windowIconCache.set(appPath, icon);
+    result[appPath] = icon || null;
+  }));
+  return result;
+}
+
+ipcMain.handle('apps:list', async () => {
+  const apps = await listInstalledApps();
+  return apps.map((item) => ({
+    path: item.path,
+    name: item.name,
+    icon: windowIconCache.get(item.path) || null,
+  }));
+});
+
+ipcMain.handle('apps:icons', async (event, paths) => resolveAppIcons(paths));
+
+ipcMain.handle('apps:pick', async () => {
+  const result = await showOwnedOpenDialog({
+    title: '选择应用程序',
+    buttonLabel: '添加',
+    properties: ['openFile'],
+    filters: [{ name: 'Applications', extensions: ['app'] }],
+    defaultPath: '/Applications',
+  });
+  if (result.canceled || !result.filePaths || !result.filePaths[0]) {
+    return { ok: false, canceled: true };
+  }
+  let selected = result.filePaths[0];
+  // 用户可能点进 .app 包内部；向上找到最近的 .app bundle。
+  while (selected && selected !== '/' && !/\.app$/i.test(selected)) {
+    selected = path.dirname(selected);
+  }
+  const normalized = normalizeAppBundlePath(selected);
+  if (!normalized || !isLaunchableAppPath(normalized, { existsSync: fs.existsSync })) {
+    return { ok: false, error: 'invalid_app' };
+  }
+  if (!windowIconCache.has(normalized)) {
+    const icon = await readWindowAppIcon(normalized);
+    if (icon) windowIconCache.set(normalized, icon);
+  }
+  return {
+    ok: true,
+    app: {
+      path: normalized,
+      name: appDisplayNameFromPath(normalized),
+      icon: windowIconCache.get(normalized) || null,
+    },
+  };
+});
+
+ipcMain.handle('apps:launch', async (event, appPath) => {
+  const normalized = normalizeAppBundlePath(appPath);
+  if (!isLaunchableAppPath(normalized, { existsSync: fs.existsSync })) {
+    return { ok: false, error: 'invalid_app' };
+  }
+  const errorMessage = await shell.openPath(normalized);
+  if (errorMessage) return { ok: false, error: 'launch_failed', message: errorMessage };
+  return { ok: true, path: normalized };
 });
 
 // 只放行固定的几个隐私面板，渲染层传来的值只能当作枚举的键来查，
@@ -1859,6 +2149,125 @@ ipcMain.handle('smart:organize-material', async (event, payload) => {
     const content = result && result.choices && result.choices[0] && result.choices[0].message && result.choices[0].message.content;
     const metadata = parseSmartMaterialMetadata(content);
     return metadata && metadata.title ? { ok: true, ...metadata } : { ok: false, error: 'invalid_response' };
+  } catch (error) {
+    return { ok: false, error: error && error.name === 'AbortError' ? 'timeout' : 'request_failed' };
+  } finally {
+    clearTimeout(timeout);
+  }
+});
+
+ipcMain.handle('chat:complete', async (event, payload) => {
+  const config = resolveChatLlmConfig();
+  const requestModel = String(payload && payload.model || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const model = requestModel || config.model;
+  if (!config.apiKey || !model) return { ok: false, error: 'not_configured' };
+  const requestId = String(payload && payload.requestId || crypto.randomUUID()).slice(0, 80);
+  const systemPrompt = String(payload && payload.systemPrompt || '').trim().slice(0, 4000);
+  const history = Array.isArray(payload && payload.messages) ? payload.messages : [];
+  const messages = [];
+  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+  for (const item of history.slice(-40)) {
+    if (!item || typeof item !== 'object') continue;
+    const role = item.role === 'assistant' ? 'assistant' : 'user';
+    const content = String(item.content || '').trim().slice(0, 12000);
+    if (!content) continue;
+    messages.push({ role, content });
+  }
+  if (messages.filter((item) => item.role !== 'system').length === 0) {
+    return { ok: false, error: 'empty_messages' };
+  }
+  const endpoint = config.baseUrl.endsWith('/chat/completions')
+    ? config.baseUrl
+    : `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
+  const safeEndpoint = await validatePublicHttpUrl(endpoint);
+  if (!safeEndpoint) return { ok: false, error: 'invalid_endpoint' };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+  const emitChunk = (delta) => {
+    if (!delta || event.sender.isDestroyed()) return;
+    event.sender.send('chat:chunk', { requestId, delta: String(delta) });
+  };
+  try {
+    const response = await fetch(safeEndpoint, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.7,
+        stream: true,
+        messages,
+        ...(config.baseUrl.includes('deepseek.com') ? { thinking: { type: 'disabled' } } : {}),
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      return { ok: false, error: `http_${response.status}`, detail: String(detail || '').slice(0, 240) };
+    }
+
+    // 兼容无流式回退：部分代理会直接返回 JSON。
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('text/event-stream') && response.body) {
+      const result = await response.json().catch(() => null);
+      const content = result
+        && result.choices
+        && result.choices[0]
+        && result.choices[0].message
+        && result.choices[0].message.content;
+      const text = String(content || '').trim();
+      if (!text) return { ok: false, error: 'empty_response' };
+      emitChunk(text);
+      return { ok: true, content: text, requestId };
+    }
+
+    const reader = response.body && typeof response.body.getReader === 'function'
+      ? response.body.getReader()
+      : null;
+    if (!reader) {
+      const raw = await response.text();
+      const text = String(raw || '').trim();
+      if (!text) return { ok: false, error: 'empty_response' };
+      emitChunk(text);
+      return { ok: true, content: text, requestId };
+    }
+
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let full = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split(/\r?\n/);
+      buffer = parts.pop() || '';
+      for (const line of parts) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed
+            && parsed.choices
+            && parsed.choices[0]
+            && parsed.choices[0].delta
+            && parsed.choices[0].delta.content;
+          if (delta) {
+            full += String(delta);
+            emitChunk(delta);
+          }
+        } catch (error) {
+          // 忽略残缺 SSE 行
+        }
+      }
+    }
+    const text = full.trim();
+    if (!text) return { ok: false, error: 'empty_response' };
+    return { ok: true, content: text, requestId };
   } catch (error) {
     return { ok: false, error: error && error.name === 'AbortError' ? 'timeout' : 'request_failed' };
   } finally {
@@ -2252,6 +2661,20 @@ async function rememberPasteTarget() {
 
 ipcMain.handle('mirror:get-image', () => mirrorImageDataUrl());
 ipcMain.handle('mirror:choose-image', () => chooseMirrorImage());
+ipcMain.handle('file-hub:get-dirs', () => ({ ok: true, directories: readFileHubSettings().directories }));
+ipcMain.handle('file-hub:list-files', () => listFileHubFiles());
+ipcMain.handle('file-hub:choose-dir', () => chooseFileHubDirectory());
+ipcMain.handle('file-hub:remove-dir', (event, dirPath) => removeFileHubDirectoryEntry(dirPath));
+ipcMain.handle('file-hub:open-dir', (event, dirPath) => {
+  const target = String(dirPath || '').trim();
+  if (!normalizeFileHubDirectories(readFileHubSettings().directories).includes(target)) {
+    return { ok: false, error: 'not_allowed' };
+  }
+  shell.openPath(target);
+  return { ok: true };
+});
+ipcMain.on('file-hub:start-drag', (event, filePath) => startFileHubDrag(event, filePath));
+ipcMain.handle('file-hub:open-entry', (event, entryPath) => openFileHubEntry(entryPath));
 
 function getCredentialsVaultPath() {
   return path.join(app.getPath('userData'), CREDENTIALS_VAULT_FILE);
@@ -2497,6 +2920,104 @@ function resolveLlmConfig() {
   };
 }
 
+function getChatSettingsPath() {
+  return path.join(app.getPath('userData'), CHAT_SETTINGS_FILE);
+}
+
+function readStoredChatSettings() {
+  try {
+    const value = JSON.parse(fs.readFileSync(getChatSettingsPath(), 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function resolveChatLlmConfig() {
+  const settings = readStoredChatSettings();
+  return {
+    apiKey: String(process.env.NOTCH_CHAT_API_KEY || decryptStoredSecret(settings.encryptedChatApiKey)).trim(),
+    baseUrl: String(settings.chatBaseUrl || 'https://api.deepseek.com').trim(),
+    model: String(settings.chatModel || 'deepseek-chat').trim(),
+  };
+}
+
+function publicChatConfig() {
+  const config = resolveChatLlmConfig();
+  const settings = readStoredChatSettings();
+  const models = Array.isArray(settings.chatModels)
+    ? [...new Set(settings.chatModels.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 200)
+    : [];
+  return {
+    configured: Boolean(config.apiKey),
+    needsReentry: Boolean(settings.encryptedChatApiKey && !config.apiKey),
+    baseUrl: config.baseUrl,
+    model: config.model,
+    models,
+  };
+}
+
+function normalizeChatBaseUrl(value, fallback = 'https://api.deepseek.com') {
+  let parsed;
+  try { parsed = new URL(String(value || fallback).trim()); } catch (error) { parsed = null; }
+  if (!parsed || parsed.protocol !== 'https:' || parsed.username || parsed.password) return null;
+  return parsed.toString().replace(/\/$/, '');
+}
+
+function buildOpenAiModelsUrls(baseUrl) {
+  const base = String(baseUrl || '').replace(/\/$/, '');
+  const urls = [];
+  if (base.endsWith('/v1')) {
+    urls.push(`${base}/models`);
+  } else {
+    urls.push(`${base}/v1/models`, `${base}/models`);
+  }
+  return [...new Set(urls)];
+}
+
+async function fetchOpenAiModelIds(config) {
+  const apiKey = String(config?.apiKey || '').trim();
+  const baseUrl = normalizeChatBaseUrl(config?.baseUrl);
+  if (!apiKey || !baseUrl) return { ok: false, error: 'not_configured' };
+  let lastError = 'request_failed';
+  for (const endpoint of buildOpenAiModelsUrls(baseUrl)) {
+    const safeEndpoint = await validatePublicHttpUrl(endpoint);
+    if (!safeEndpoint) continue;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(safeEndpoint.toString(), {
+        method: 'GET',
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Accept: 'application/json',
+        },
+      });
+      if (!response.ok) {
+        lastError = `http_${response.status}`;
+        continue;
+      }
+      const result = await response.json().catch(() => null);
+      const models = Array.isArray(result?.data)
+        ? result.data
+          .map((item) => String(item?.id || '').trim())
+          .filter(Boolean)
+        : [];
+      if (!models.length) {
+        lastError = 'empty_models';
+        continue;
+      }
+      return { ok: true, models: [...new Set(models)].sort((a, b) => a.localeCompare(b)).slice(0, 200) };
+    } catch (error) {
+      lastError = error && error.name === 'AbortError' ? 'timeout' : 'request_failed';
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  return { ok: false, error: lastError };
+}
+
 function resolveTranscriptionConfig() {
   const settings = readStoredTranscriptionSettings();
   const environmentWorkspace = String(process.env.DASHSCOPE_WORKSPACE_ID || process.env.DASHSCOPE_WORKSPACE || '').trim();
@@ -2651,6 +3172,51 @@ ipcMain.handle('transcription:set-config', (event, payload) => {
   } catch (error) {
     return { ok: false, error: 'save_failed' };
   }
+});
+
+ipcMain.handle('chat:get-config', () => publicChatConfig());
+
+ipcMain.handle('chat:set-config', (event, payload) => {
+  const previous = readStoredChatSettings();
+  const chatApiKey = String(payload && payload.apiKey || '').trim();
+  const chatBaseUrl = normalizeChatBaseUrl(
+    payload && payload.baseUrl,
+    previous.chatBaseUrl || 'https://api.deepseek.com'
+  );
+  const chatModel = String(payload && payload.model || previous.chatModel || 'deepseek-chat')
+    .replace(/\s+/g, ' ').trim().slice(0, 120);
+  const chatModels = Array.isArray(payload && payload.models)
+    ? [...new Set(payload.models.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 200)
+    : Array.isArray(previous.chatModels) ? previous.chatModels : [];
+  if (!chatBaseUrl) return { ok: false, error: 'invalid_chat_url' };
+  if (chatApiKey && !safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: 'secure_storage_unavailable' };
+  }
+  const next = {
+    chatBaseUrl,
+    chatModel,
+    chatModels,
+    encryptedChatApiKey: chatApiKey
+      ? safeStorage.encryptString(chatApiKey).toString('base64')
+      : String(previous.encryptedChatApiKey || ''),
+  };
+  try {
+    fs.mkdirSync(path.dirname(getChatSettingsPath()), { recursive: true });
+    fs.writeFileSync(getChatSettingsPath(), JSON.stringify(next), { mode: 0o600 });
+    return { ok: true, ...publicChatConfig() };
+  } catch (error) {
+    return { ok: false, error: 'save_failed' };
+  }
+});
+
+ipcMain.handle('chat:list-models', async (event, payload) => {
+  const stored = readStoredChatSettings();
+  const inlineKey = String(payload && payload.apiKey || '').trim();
+  const config = {
+    apiKey: inlineKey || String(process.env.NOTCH_CHAT_API_KEY || decryptStoredSecret(stored.encryptedChatApiKey)).trim(),
+    baseUrl: normalizeChatBaseUrl(payload && payload.baseUrl, stored.chatBaseUrl || 'https://api.deepseek.com'),
+  };
+  return fetchOpenAiModelIds(config);
 });
 
 ipcMain.handle('transcription:start', (event) => {
@@ -3042,6 +3608,8 @@ function setHoverSpaceShortcut(enabled) {
       }
       await rememberPasteTarget();
       hideWhenCollapsed = false;
+      // 先落到光标屏再展开，保证 Hover + Space 开在触发那块屏。
+      repositionWindow(getTargetDisplay());
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
       mainWindow.webContents.send('shortcut:toggle-panel');
@@ -3052,22 +3620,48 @@ function setHoverSpaceShortcut(enabled) {
   }
 }
 
+function syncCollapsedWindowToCursorDisplay() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (currentMode !== 'collapsed' || !mainWindow.isVisible()) return;
+  const cursorDisplay = getTargetDisplay();
+  const windowDisplay = getWindowDisplay();
+  if (!shouldFollowCollapsedToCursorDisplay({
+    mode: currentMode,
+    visible: true,
+    windowDisplayId: windowDisplay && windowDisplay.id,
+    cursorDisplayId: cursorDisplay && cursorDisplay.id,
+  })) return;
+  repositionWindow(cursorDisplay);
+}
+
 function startHoverSpaceShortcut() {
-  const policy = hoverSpacePollingPolicy({
-    shortcut: configuredShortcut,
+  const followPolicy = collapsedDisplayFollowPolicy({
     visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
     mode: currentMode,
   });
-  if (!policy.enabled) return;
+  const spacePolicy = hoverSpacePollingPolicy({
+    shortcut: configuredShortcut,
+    visible: followPolicy.enabled,
+    mode: currentMode,
+  });
+  // 折叠可见时始终跟屏；Space 快捷键时额外检测刘海悬停。
+  if (!followPolicy.enabled && !spacePolicy.enabled) return;
   if (spaceShortcutTimer) return;
   spaceShortcutTimer = setInterval(() => {
-    const currentPolicy = hoverSpacePollingPolicy({
+    const visible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
+    const currentFollow = collapsedDisplayFollowPolicy({ visible, mode: currentMode });
+    const currentSpace = hoverSpacePollingPolicy({
       shortcut: configuredShortcut,
-      visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
+      visible,
       mode: currentMode,
     });
-    if (!currentPolicy.enabled) {
+    if (!currentFollow.enabled && !currentSpace.enabled) {
       stopHoverSpaceShortcut();
+      return;
+    }
+    if (currentFollow.enabled) syncCollapsedWindowToCursorDisplay();
+    if (!currentSpace.enabled) {
+      setHoverSpaceShortcut(false);
       return;
     }
     const point = screen.getCursorScreenPoint();
@@ -3075,7 +3669,7 @@ function startHoverSpaceShortcut() {
     const hovering = point.x >= bounds.x && point.x < bounds.x + bounds.width
       && point.y >= bounds.y && point.y < bounds.y + bounds.height;
     setHoverSpaceShortcut(hovering);
-  }, policy.intervalMs);
+  }, Math.min(followPolicy.intervalMs, spacePolicy.intervalMs || followPolicy.intervalMs));
 }
 
 function stopHoverSpaceShortcut() {
@@ -3085,12 +3679,16 @@ function stopHoverSpaceShortcut() {
 }
 
 function syncHoverSpacePolling() {
-  const policy = hoverSpacePollingPolicy({
+  const followPolicy = collapsedDisplayFollowPolicy({
+    visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
+    mode: currentMode,
+  });
+  const spacePolicy = hoverSpacePollingPolicy({
     shortcut: configuredShortcut,
     visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
     mode: currentMode,
   });
-  if (policy.enabled) startHoverSpaceShortcut();
+  if (followPolicy.enabled || spacePolicy.enabled) startHoverSpaceShortcut();
   else stopHoverSpaceShortcut();
 }
 
@@ -3228,7 +3826,8 @@ function watchDisplayChanges() {
     clearTimeout(timer);
     timer = setTimeout(() => {
       if (!mainWindow) return;
-      repositionWindow();
+      // 折叠态跟光标屏；展开态锚窗口当前屏，避免插拔屏时瞬移。
+      repositionWindow(currentMode === 'collapsed' ? getTargetDisplay() : undefined);
       if (!mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('window:metrics-changed', getLayoutMetrics());
       }
@@ -3254,6 +3853,7 @@ app.whenReady().then(() => {
   ensureClipImagesDir();
   ensureRecordingsDir();
   applyAppSettings();
+  refreshFileHubWatchers();
   startTaskNotificationServer();
   void promptForMissingPermissions();
 
@@ -3276,6 +3876,7 @@ app.on('will-quit', () => {
   cancelCollapseWatchdog();
   clearTodoReminderTimer();
   stopHoverSpaceShortcut();
+  stopFileHubWatchers();
   clearTaskNotificationTimers();
   stopTaskNotificationServer();
   closeAllTranscriptionSessions();

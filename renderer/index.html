@@ -77,6 +77,12 @@
               </svg>
               <span class="tab-label">密钥</span>
             </button>
+            <button class="tab" id="tab-button-chat" type="button" data-tab="chat" role="tab" aria-controls="tab-chat" aria-selected="false" tabindex="-1">
+              <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6A2.5 2.5 0 0 1 16.5 15H12l-4 3.5V15H7.5A2.5 2.5 0 0 1 5 12.5z" />
+              </svg>
+              <span class="tab-label">对话</span>
+            </button>
             <button class="tab" id="tab-button-settings" type="button" data-tab="settings" role="tab" aria-controls="tab-settings" aria-selected="false" tabindex="-1">
               <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3" />
@@ -188,6 +194,15 @@
                 </button>
               </section>
 
+              <!-- 文件中转：设置目录中的文件可拖到桌面或其他应用 -->
+              <section class="tile home-filehub" data-home-module="filehub" data-widget-size="medium" aria-label="文件中转">
+                <div class="tile-head">
+                  <span class="tile-label">文件中转</span>
+                  <button class="workspace-button compact" id="home-filehub-open-settings" type="button">设置</button>
+                </div>
+                <div class="home-filehub-list" id="home-filehub-list" aria-label="可拖出的文件与文件夹列表"></div>
+              </section>
+
               <!-- 速记 -->
               <section class="tile home-note" data-home-module="note" data-widget-size="large">
                 <div class="note-toolbar" role="toolbar" aria-label="随笔记操作">
@@ -209,6 +224,19 @@
                 </div>
               </section>
 
+              <section class="tile home-chat" data-home-module="chat" data-widget-size="medium" aria-label="AI 对话">
+                <div class="tile-head">
+                  <span class="tile-label">AI 对话</span>
+                  <select id="home-chat-role" aria-label="选择对话角色"></select>
+                  <button class="workspace-button compact" id="home-chat-open" type="button">展开</button>
+                </div>
+                <div class="home-chat-messages" id="home-chat-messages" aria-live="polite"></div>
+                <form class="home-chat-composer" id="home-chat-composer">
+                  <input id="home-chat-input" type="text" maxlength="8000" placeholder="问点什么…" autocomplete="off" spellcheck="false" />
+                  <button class="workspace-button primary" id="home-chat-send" type="submit">发送</button>
+                </form>
+              </section>
+
               <!-- 常用指令 -->
               <section class="tile home-commands" data-home-module="commands" data-widget-size="medium">
                 <div class="tile-head">
@@ -217,6 +245,15 @@
                 </div>
                 <input class="command-add" id="command-add" type="text" placeholder="输入指令，回车保存…" maxlength="500" autocomplete="off" spellcheck="false" />
                 <div class="command-list" id="command-list"></div>
+              </section>
+
+              <!-- 常用应用 -->
+              <section class="tile home-apps" data-home-module="apps" data-widget-size="medium">
+                <div class="tile-head">
+                  <span class="tile-label">常用应用</span>
+                  <button class="workspace-button compact" id="home-apps-open-settings" type="button">设置</button>
+                </div>
+                <div class="home-apps-grid" id="home-apps-grid" aria-label="常用应用列表"></div>
               </section>
 
             </div>
@@ -401,19 +438,101 @@
             </div>
           </section>
 
+          <section id="tab-chat" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-chat" aria-hidden="true" inert>
+            <div class="chat-page">
+              <aside class="chat-sidebar tile">
+                <div class="chat-sidebar-head">
+                  <div>
+                    <span class="tile-label">角色</span>
+                    <strong id="chat-role-count">0 个</strong>
+                  </div>
+                  <button class="workspace-button compact" id="chat-role-new" type="button">新建角色</button>
+                </div>
+                <div class="chat-role-list" id="chat-role-list"></div>
+                <div class="chat-session-head">
+                  <div>
+                    <span class="tile-label">会话</span>
+                    <strong id="chat-session-count">0 条</strong>
+                  </div>
+                  <button class="workspace-button compact" id="chat-session-new" type="button">新对话</button>
+                </div>
+                <div class="chat-session-list" id="chat-session-list"></div>
+              </aside>
+
+              <section class="chat-main tile">
+                <div class="chat-main-head">
+                  <div class="chat-main-title">
+                    <strong id="chat-current-role">选择角色开始对话</strong>
+                    <span id="chat-current-session">尚未开始会话</span>
+                  </div>
+                  <div class="chat-main-actions">
+                    <button class="workspace-button compact" id="chat-save-note" type="button" disabled>保存到笔记</button>
+                    <button class="workspace-button compact" id="chat-clear-session" type="button" disabled>清空</button>
+                  </div>
+                </div>
+                <div class="chat-messages" id="chat-messages" aria-live="polite"></div>
+                <form class="chat-composer" id="chat-composer">
+                  <textarea id="chat-input" rows="2" placeholder="输入问题，Enter 发送 · Shift+Enter 换行" maxlength="8000" spellcheck="false"></textarea>
+                  <button class="workspace-button primary" id="chat-send" type="submit">发送</button>
+                </form>
+                <p class="chat-status" id="chat-status">在设置 → AI 对话 中单独配置 API；每个角色可覆盖默认模型。保存对话会按角色写入笔记分组。</p>
+              </section>
+
+              <aside class="chat-role-editor tile" id="chat-role-editor" hidden>
+                <div class="chat-role-editor-head">
+                  <div>
+                    <span class="tile-label">角色设定</span>
+                    <strong id="chat-role-editor-title">新建角色</strong>
+                  </div>
+                  <button id="chat-role-editor-close" type="button" aria-label="关闭角色编辑">×</button>
+                </div>
+                <label>
+                  <span>角色名称</span>
+                  <input id="chat-role-name" maxlength="32" placeholder="例如：产品经理" autocomplete="off" />
+                </label>
+                <label>
+                  <span>模型</span>
+                  <select id="chat-role-model" aria-label="选择对话模型">
+                    <option value="">使用对话默认模型</option>
+                  </select>
+                  <small id="chat-role-model-default" class="chat-role-model-hint"></small>
+                </label>
+                <label>
+                  <span>系统提示词</span>
+                  <textarea id="chat-role-prompt" rows="10" maxlength="4000" placeholder="描述这个角色应如何回答…" spellcheck="false"></textarea>
+                </label>
+                <div class="chat-role-editor-actions">
+                  <button class="workspace-button" id="chat-role-delete" type="button" hidden>删除</button>
+                  <button class="workspace-button primary" id="chat-role-save" type="button">保存角色</button>
+                </div>
+              </aside>
+            </div>
+          </section>
+
           <section id="tab-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-settings" aria-hidden="true" inert>
             <div class="settings-page" id="settings-page" aria-label="TO-DO Panel 设置">
               <div class="settings-column settings-column-primary">
                 <section class="tile settings-card settings-api-card">
                   <div class="settings-card-heading">
                     <div><span class="tile-label">智能能力</span><strong>API 配置</strong></div>
-                    <button class="workspace-button compact" id="settings-api-configure" type="button">配置或替换</button>
+                    <button class="workspace-button compact" id="settings-api-configure" type="button">配置转写与命名</button>
                   </div>
-                  <div class="settings-status-list">
-                    <div><span>通义百炼实时转写</span><small id="settings-transcription-status" data-state="empty">未配置</small></div>
-                    <div><span>DeepSeek 智能命名</span><small id="settings-llm-status" data-state="empty">未配置</small></div>
+                  <div class="settings-status-list settings-api-status-list">
+                    <div>
+                      <span>通义百炼实时转写</span>
+                      <small id="settings-transcription-status" data-state="empty">未配置</small>
+                    </div>
+                    <div>
+                      <span>DeepSeek 智能命名</span>
+                      <small id="settings-llm-status" data-state="empty">未配置</small>
+                    </div>
+                    <div>
+                      <span>AI 对话</span>
+                      <small id="settings-chat-status" data-state="empty">未配置</small>
+                      <button class="workspace-button compact" id="settings-chat-configure" type="button">配置</button>
+                    </div>
                   </div>
-                  <p>密钥由 macOS 安全存储加密，面板不会读取或回显已保存的明文。</p>
+                  <p>转写与智能命名共用上方入口；AI 对话使用独立 API，填写 Key 与 URL 后可拉取模型列表。</p>
                 </section>
 
                 <section class="tile settings-card settings-features-card">
@@ -427,6 +546,7 @@
                     <label><span><b>链接</b><small>收藏与分组</small></span><input type="checkbox" data-settings-feature="links" aria-label="显示链接" /><i aria-hidden="true"></i></label>
                     <label><span><b>录制</b><small>录音与转写</small></span><input type="checkbox" data-settings-feature="recordings" aria-label="显示录制" /><i aria-hidden="true"></i></label>
                     <label><span><b>密钥</b><small>本机安全存储</small></span><input type="checkbox" data-settings-feature="credentials" aria-label="显示密钥" /><i aria-hidden="true"></i></label>
+                    <label><span><b>对话</b><small>角色化 AI 聊天</small></span><input type="checkbox" data-settings-feature="chat" aria-label="显示对话" /><i aria-hidden="true"></i></label>
                     <label><span><b>剪贴板</b><small>默认关闭</small></span><input type="checkbox" data-settings-feature="clip" aria-label="显示剪贴板" /><i aria-hidden="true"></i></label>
                   </div>
                 </section>
@@ -443,7 +563,10 @@
                     <label><span><b>当前窗口</b><small>窗口快速切换</small></span><input type="checkbox" data-settings-home-module="windows" aria-label="显示当前窗口" /><i aria-hidden="true"></i></label>
                     <label><span><b>镜子</b><small>相机与封面</small></span><input type="checkbox" data-settings-home-module="mirror" aria-label="显示镜子" /><i aria-hidden="true"></i></label>
                     <label><span><b>随笔记</b><small>首页快速记录</small></span><input type="checkbox" data-settings-home-module="note" aria-label="显示随笔记" /><i aria-hidden="true"></i></label>
+                    <label><span><b>AI 对话</b><small>角色化快速问答</small></span><input type="checkbox" data-settings-home-module="chat" aria-label="显示 AI 对话" /><i aria-hidden="true"></i></label>
                     <label><span><b>常用指令</b><small>提示词快捷入口</small></span><input type="checkbox" data-settings-home-module="commands" aria-label="显示常用指令" /><i aria-hidden="true"></i></label>
+                    <label><span><b>常用应用</b><small>一键启动本机应用</small></span><input type="checkbox" data-settings-home-module="apps" aria-label="显示常用应用" /><i aria-hidden="true"></i></label>
+                    <label><span><b>文件中转</b><small>拖出中转目录文件</small></span><input type="checkbox" data-settings-home-module="filehub" aria-label="显示文件中转" /><i aria-hidden="true"></i></label>
                   </div>
                 </section>
               </div>
@@ -457,6 +580,42 @@
                     <p>支持 PNG、JPG、WebP 与 HEIC，替换后首页立即同步。</p>
                     <button class="workspace-button compact" id="settings-mirror-choose" type="button">选择图片…</button>
                   </div>
+                </section>
+
+                <section class="tile settings-card settings-apps-card" id="settings-apps-card" aria-label="常用应用设置">
+                  <div class="settings-card-heading">
+                    <div>
+                      <span class="tile-label">启动坞</span>
+                      <strong>常用应用</strong>
+                    </div>
+                    <small id="settings-apps-count">已选 0 / 24</small>
+                  </div>
+                  <div class="settings-apps-selected" id="settings-apps-selected" aria-label="已选常用应用"></div>
+                  <div class="settings-apps-actions">
+                    <button class="workspace-button compact" id="settings-apps-pick" type="button">选择…</button>
+                    <p class="settings-inline-note" id="settings-apps-note" role="status" aria-live="polite"></p>
+                  </div>
+                  <label class="settings-apps-search-label" for="settings-apps-search">本机应用</label>
+                  <input class="settings-apps-search" id="settings-apps-search" type="search" placeholder="搜索应用…" autocomplete="off" spellcheck="false" />
+                  <div class="settings-apps-catalog" id="settings-apps-catalog" aria-label="本机应用列表">
+                    <div class="settings-apps-empty">打开设置后读取本机应用…</div>
+                  </div>
+                </section>
+
+                <section class="tile settings-card settings-filehub-card" id="settings-filehub-card" aria-label="文件中转设置">
+                  <div class="settings-card-heading">
+                    <div>
+                      <span class="tile-label">中转站</span>
+                      <strong>文件目录</strong>
+                    </div>
+                    <small id="settings-filehub-count">0 个目录</small>
+                  </div>
+                  <div class="settings-filehub-list" id="settings-filehub-list" aria-label="已添加的中转目录"></div>
+                  <div class="settings-filehub-actions">
+                    <button class="workspace-button compact" id="settings-filehub-add" type="button">添加目录…</button>
+                    <p class="settings-inline-note" id="settings-filehub-note" role="status" aria-live="polite"></p>
+                  </div>
+                  <p>目录中的文件会显示在首页，可直接拖到桌面、访达或其他应用。</p>
                 </section>
 
                 <section class="tile settings-card settings-device-card">
@@ -555,6 +714,45 @@
             </div>
           </section>
         </div>
+
+        <div class="transcription-settings-backdrop" id="chat-settings-backdrop" hidden>
+          <section class="transcription-settings-card" role="dialog" aria-modal="true" aria-labelledby="chat-settings-title">
+            <div class="transcription-settings-head">
+              <div>
+                <strong id="chat-settings-title">AI 对话配置</strong>
+                <span>独立 API · OpenAI 兼容接口</span>
+              </div>
+              <button id="chat-settings-close" type="button" aria-label="关闭对话设置">×</button>
+            </div>
+            <div class="transcription-field api-key-field">
+              <div class="api-field-heading">
+                <label for="chat-api-key">API Key</label>
+                <small id="chat-api-status" data-state="empty">未配置</small>
+              </div>
+              <input id="chat-api-key" type="password" placeholder="已配置时留空即可" autocomplete="off" spellcheck="false" />
+              <button class="api-key-help" id="chat-api-help" type="button">前往 DeepSeek 创建或管理 API Key <span aria-hidden="true">↗</span></button>
+            </div>
+            <label class="transcription-field">
+              <span>Base URL</span>
+              <input id="chat-base-url" type="url" placeholder="https://api.deepseek.com" autocomplete="off" spellcheck="false" />
+            </label>
+            <div class="chat-model-fetch-row">
+              <button class="workspace-button compact" id="chat-fetch-models" type="button">获取模型列表</button>
+              <small id="chat-fetch-models-status" class="chat-fetch-models-status"></small>
+            </div>
+            <label class="transcription-field">
+              <span>默认模型</span>
+              <select id="chat-model-select" aria-label="选择对话默认模型" disabled>
+                <option value="">请先获取模型列表</option>
+              </select>
+            </label>
+            <p class="transcription-settings-note" id="chat-settings-note">填写 Key 与 URL 后获取模型列表再保存。密钥由 macOS 安全存储加密。</p>
+            <div class="transcription-settings-actions">
+              <button class="workspace-button compact" id="chat-settings-cancel" type="button">取消</button>
+              <button class="workspace-button compact primary" id="chat-settings-save" type="button">保存</button>
+            </div>
+          </section>
+        </div>
         <div class="status-toast" id="status-toast" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true" hidden>
           <span id="status-toast-message"></span>
           <button id="status-toast-action" type="button" hidden>撤销</button>
@@ -564,6 +762,7 @@
     <script src="domain.js"></script>
     <script src="effects.js"></script>
     <script src="app.js"></script>
+    <script src="chat.js"></script>
     <script src="workspace.js"></script>
     <script src="icon-motion.js"></script>
   </body>

@@ -1,6 +1,7 @@
 const net = require('net');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 
 function isPrivateAddress(address) {
   const value = String(address || '').trim().toLowerCase().split('%', 1)[0];
@@ -444,7 +445,94 @@ function hoverSpacePollingPolicy({ shortcut, visible, mode } = {}) {
   };
 }
 
-const CONFIGURABLE_FEATURES = new Set(['todo', 'notes', 'links', 'recordings', 'credentials', 'clip']);
+// 折叠态可见时始终轮询：把刘海条跟到光标所在屏，这样外接屏也能 Hover/点击触发。
+// 展开态不跟——收起/切 Tab 必须锚窗口当前屏，避免失焦瞬间跨屏瞬移。
+function collapsedDisplayFollowPolicy({ visible, mode } = {}) {
+  return {
+    enabled: visible === true && mode === 'collapsed',
+    intervalMs: 60,
+  };
+}
+
+function shouldFollowCollapsedToCursorDisplay({ mode, visible, windowDisplayId, cursorDisplayId } = {}) {
+  if (mode !== 'collapsed' || visible !== true) return false;
+  if (windowDisplayId == null || cursorDisplayId == null) return false;
+  return windowDisplayId !== cursorDisplayId;
+}
+
+const CONFIGURABLE_FEATURES = new Set(['todo', 'notes', 'links', 'recordings', 'credentials', 'chat', 'clip']);
+
+const APP_FAVORITES_MAX = 24;
+
+function normalizeAppBundlePath(value) {
+  const raw = String(value || '').trim().replace(/\/+$/, '');
+  if (!raw.startsWith('/') || raw.includes('\0') || raw.includes('/../') || raw.endsWith('/..')) {
+    return '';
+  }
+  if (raw === '..' || raw.includes('\\')) return '';
+  return /\.app$/i.test(raw) ? raw : '';
+}
+
+function isLaunchableAppPath(appPath, { existsSync } = {}) {
+  const normalized = normalizeAppBundlePath(appPath);
+  if (!normalized) return false;
+  if (typeof existsSync === 'function' && !existsSync(normalized)) return false;
+  return true;
+}
+
+function normalizeAppFavorites(value, max = APP_FAVORITES_MAX) {
+  const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : APP_FAVORITES_MAX;
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of value) {
+    const candidate = typeof item === 'string'
+      ? item
+      : (item && typeof item.path === 'string' ? item.path : '');
+    const normalized = normalizeAppBundlePath(candidate);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function appDisplayNameFromPath(appPath) {
+  const normalized = normalizeAppBundlePath(appPath) || String(appPath || '').trim().replace(/\/+$/, '');
+  const base = normalized.split('/').pop() || '';
+  return base.replace(/\.app$/i, '') || base;
+}
+
+function toggleAppFavorite(favorites, appPath, enabled, max = APP_FAVORITES_MAX) {
+  const current = normalizeAppFavorites(favorites, max);
+  const normalized = normalizeAppBundlePath(appPath);
+  if (!normalized) return { ok: false, error: 'invalid_path', favorites: current };
+  if (enabled === true) {
+    if (current.includes(normalized)) return { ok: true, favorites: current };
+    if (current.length >= max) return { ok: false, error: 'limit_reached', favorites: current };
+    return { ok: true, favorites: [...current, normalized] };
+  }
+  if (enabled === false) {
+    return { ok: true, favorites: current.filter((path) => path !== normalized) };
+  }
+  return { ok: false, error: 'invalid_toggle', favorites: current };
+}
+
+function reorderAppFavorites(favorites, fromIndex, toIndex, max = APP_FAVORITES_MAX) {
+  const current = normalizeAppFavorites(favorites, max);
+  const from = Number(fromIndex);
+  const to = Number(toIndex);
+  if (!Number.isInteger(from) || !Number.isInteger(to)
+    || from < 0 || to < 0 || from >= current.length || to >= current.length) {
+    return { ok: false, error: 'invalid_index', favorites: current };
+  }
+  if (from === to) return { ok: true, favorites: current };
+  const next = [...current];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return { ok: true, favorites: next };
+}
 
 function updateFeaturePreference(features, featureId, enabled) {
   if (!CONFIGURABLE_FEATURES.has(featureId) || typeof enabled !== 'boolean') return null;
@@ -505,6 +593,116 @@ async function controlSodaMusic(action, dependencies = {}, currentPlaying = fals
   return { ok: true, running: true, playing, bootstrapped };
 }
 
+const FILE_HUB_MAX_DIRS = 8;
+const FILE_HUB_MAX_FILES = 100;
+
+function normalizeFileHubDirectories(value, maxDirs = FILE_HUB_MAX_DIRS) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const item of value) {
+    const dir = String(item || '').trim();
+    if (!dir || !path.isAbsolute(dir) || seen.has(dir)) continue;
+    seen.add(dir);
+    result.push(dir);
+    if (result.length >= maxDirs) break;
+  }
+  return result;
+}
+
+function isPathInsideDirectory(filePath, dirPath) {
+  const resolvedFile = path.resolve(String(filePath || ''));
+  const resolvedDir = path.resolve(String(dirPath || ''));
+  if (!resolvedFile || !resolvedDir) return false;
+  const relative = path.relative(resolvedDir, resolvedFile);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function isAllowedFileHubEntry(entryPath, directories, lstatSync = fs.lstatSync) {
+  const absolutePath = String(entryPath || '').trim();
+  if (!absolutePath || !path.isAbsolute(absolutePath)) return false;
+  try {
+    const stat = lstatSync(absolutePath);
+    if (!stat.isFile() && !stat.isDirectory()) return false;
+  } catch (error) {
+    return false;
+  }
+  return normalizeFileHubDirectories(directories).some((dir) => isPathInsideDirectory(absolutePath, dir));
+}
+
+function isAllowedFileHubFile(entryPath, directories, lstatSync = fs.lstatSync) {
+  return isAllowedFileHubEntry(entryPath, directories, lstatSync);
+}
+
+function scanFileHubDirectory(dirPath, options = {}) {
+  const maxEntries = Math.max(1, Number(options.maxEntries) || 50);
+  const readdirSync = options.readdirSync || fs.readdirSync;
+  const statSync = options.statSync || fs.statSync;
+  const resolved = path.resolve(String(dirPath || ''));
+  if (!resolved) return [];
+  let entries;
+  try {
+    entries = readdirSync(resolved, { withFileTypes: true });
+  } catch (error) {
+    return [];
+  }
+  const items = [];
+  for (const entry of entries) {
+    const name = String(entry.name || '');
+    if (!name || name.startsWith('.')) continue;
+    const isDirectory = typeof entry.isDirectory === 'function' ? entry.isDirectory() : false;
+    const isFile = typeof entry.isFile === 'function' ? entry.isFile() : false;
+    if (!isFile && !isDirectory) continue;
+    const fullPath = path.join(resolved, name);
+    try {
+      const stat = statSync(fullPath);
+      items.push({
+        path: fullPath,
+        name,
+        directory: resolved,
+        kind: isDirectory ? 'directory' : 'file',
+        size: stat.size,
+        modified: stat.mtimeMs,
+      });
+    } catch (error) {}
+    if (items.length >= maxEntries) break;
+  }
+  return items.sort((left, right) => {
+    if (left.kind !== right.kind) return left.kind === 'directory' ? -1 : 1;
+    return right.modified - left.modified || left.name.localeCompare(right.name, 'zh-CN');
+  });
+}
+
+function collectFileHubEntries(directories, options = {}) {
+  const perDirectoryLimit = Math.max(1, Number(options.perDirectoryLimit) || 50);
+  const maxFiles = Math.max(1, Number(options.maxFiles) || FILE_HUB_MAX_FILES);
+  const files = [];
+  for (const dir of normalizeFileHubDirectories(directories)) {
+    files.push(...scanFileHubDirectory(dir, { ...options, maxEntries: perDirectoryLimit }));
+  }
+  return files
+    .sort((left, right) => right.modified - left.modified)
+    .slice(0, maxFiles);
+}
+
+function addFileHubDirectory(directories, dirPath, maxDirs = FILE_HUB_MAX_DIRS) {
+  const nextDir = String(dirPath || '').trim();
+  if (!nextDir || !path.isAbsolute(nextDir)) return { ok: false, error: 'invalid_directory', directories: normalizeFileHubDirectories(directories, maxDirs) };
+  const current = normalizeFileHubDirectories(directories, maxDirs);
+  if (current.includes(nextDir)) return { ok: true, directories: current, duplicate: true };
+  if (current.length >= maxDirs) return { ok: false, error: 'limit_reached', directories: current };
+  return { ok: true, directories: [...current, nextDir] };
+}
+
+function removeFileHubDirectory(directories, dirPath) {
+  const target = String(dirPath || '').trim();
+  const current = normalizeFileHubDirectories(directories);
+  if (!target) return { ok: false, error: 'invalid_directory', directories: current };
+  const next = current.filter((dir) => dir !== target);
+  if (next.length === current.length) return { ok: false, error: 'not_found', directories: current };
+  return { ok: true, directories: next };
+}
+
 module.exports = {
   isPrivateAddress,
   decodeHtmlEntities,
@@ -530,7 +728,26 @@ module.exports = {
   reduceClipboardObservation,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
+  collapsedDisplayFollowPolicy,
+  shouldFollowCollapsedToCursorDisplay,
   updateFeaturePreference,
   sodaShortcutSpec,
   controlSodaMusic,
+  APP_FAVORITES_MAX,
+  normalizeAppBundlePath,
+  isLaunchableAppPath,
+  normalizeAppFavorites,
+  appDisplayNameFromPath,
+  toggleAppFavorite,
+  reorderAppFavorites,
+  FILE_HUB_MAX_DIRS,
+  FILE_HUB_MAX_FILES,
+  normalizeFileHubDirectories,
+  isPathInsideDirectory,
+  isAllowedFileHubFile,
+  isAllowedFileHubEntry,
+  scanFileHubDirectory,
+  collectFileHubEntries,
+  addFileHubDirectory,
+  removeFileHubDirectory,
 };

@@ -27,7 +27,24 @@ const {
   selectTranscriptionSettings,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
+  collapsedDisplayFollowPolicy,
+  isLaunchableAppPath,
+  normalizeAppFavorites,
+  appDisplayNameFromPath,
+  toggleAppFavorite,
+  reorderAppFavorites,
+  APP_FAVORITES_MAX,
+  shouldFollowCollapsedToCursorDisplay,
   reduceClipboardObservation,
+  FILE_HUB_MAX_DIRS,
+  normalizeFileHubDirectories,
+  isPathInsideDirectory,
+  isAllowedFileHubFile,
+  isAllowedFileHubEntry,
+  scanFileHubDirectory,
+  collectFileHubEntries,
+  addFileHubDirectory,
+  removeFileHubDirectory,
 } = require('../main-services');
 
 test('portable workspace persistence skips unchanged snapshots regardless of key order', () => {
@@ -50,6 +67,42 @@ test('Hover + Space polls only while the collapsed strip is visible', () => {
   assert.equal(hoverSpacePollingPolicy({ shortcut: 'Space', visible: true, mode: 'expanded' }).enabled, false);
   assert.equal(hoverSpacePollingPolicy({ shortcut: 'Space', visible: false, mode: 'collapsed' }).enabled, false);
   assert.equal(hoverSpacePollingPolicy({ shortcut: 'Command+Shift+P', visible: true, mode: 'collapsed' }).enabled, false);
+});
+
+test('collapsed display follow runs whenever the strip is visible, independent of shortcut', () => {
+  assert.deepEqual(collapsedDisplayFollowPolicy({ visible: true, mode: 'collapsed' }), {
+    enabled: true,
+    intervalMs: 60,
+  });
+  assert.equal(collapsedDisplayFollowPolicy({ visible: true, mode: 'expanded' }).enabled, false);
+  assert.equal(collapsedDisplayFollowPolicy({ visible: false, mode: 'collapsed' }).enabled, false);
+});
+
+test('collapsed strip only relocates when the cursor is on another display', () => {
+  assert.equal(shouldFollowCollapsedToCursorDisplay({
+    mode: 'collapsed',
+    visible: true,
+    windowDisplayId: 1,
+    cursorDisplayId: 2,
+  }), true);
+  assert.equal(shouldFollowCollapsedToCursorDisplay({
+    mode: 'collapsed',
+    visible: true,
+    windowDisplayId: 1,
+    cursorDisplayId: 1,
+  }), false);
+  assert.equal(shouldFollowCollapsedToCursorDisplay({
+    mode: 'expanded',
+    visible: true,
+    windowDisplayId: 1,
+    cursorDisplayId: 2,
+  }), false);
+  assert.equal(shouldFollowCollapsedToCursorDisplay({
+    mode: 'collapsed',
+    visible: false,
+    windowDisplayId: 1,
+    cursorDisplayId: 2,
+  }), false);
 });
 
 test('isPrivateAddress blocks loopback, private, link-local and unique-local ranges', () => {
@@ -506,4 +559,75 @@ test('Soda Music play uses the play/pause toggle instead of the next-track key',
   assert.deepEqual(sodaShortcutSpec('previous'), { keyCode: 123, command: true, dismissOverlays: true });
   assert.notDeepEqual(sodaShortcutSpec('play'), sodaShortcutSpec('next'));
   assert.equal(sodaShortcutSpec('invalid'), null);
+});
+
+test('favorite apps normalize paths, enforce launch guards, and honor the 24 cap', () => {
+  assert.equal(APP_FAVORITES_MAX, 24);
+  assert.deepEqual(normalizeAppFavorites([
+    '/Applications/Safari.app',
+    '/Applications/Safari.app/',
+    'Applications/Relative.app',
+    '/tmp/notes.txt',
+    { path: '/Applications/Visual Studio Code.app' },
+    null,
+  ]), [
+    '/Applications/Safari.app',
+    '/Applications/Visual Studio Code.app',
+  ]);
+  assert.equal(appDisplayNameFromPath('/Applications/Visual Studio Code.app'), 'Visual Studio Code');
+  assert.equal(isLaunchableAppPath('/Applications/Safari.app', { existsSync: () => true }), true);
+  assert.equal(isLaunchableAppPath('/Applications/Safari.app', { existsSync: () => false }), false);
+  assert.equal(isLaunchableAppPath('/tmp/file.txt', { existsSync: () => true }), false);
+  assert.equal(isLaunchableAppPath('/Applications/../Etc.app', { existsSync: () => true }), false);
+
+  const added = toggleAppFavorite([], '/Applications/Safari.app', true);
+  assert.deepEqual(added, { ok: true, favorites: ['/Applications/Safari.app'] });
+  assert.equal(toggleAppFavorite(added.favorites, '/tmp/x.txt', true).error, 'invalid_path');
+  const full = Array.from({ length: 24 }, (_, index) => `/Applications/App${index}.app`);
+  assert.equal(toggleAppFavorite(full, '/Applications/Extra.app', true).error, 'limit_reached');
+  assert.deepEqual(
+    reorderAppFavorites(['/Applications/A.app', '/Applications/B.app', '/Applications/C.app'], 0, 2),
+    { ok: true, favorites: ['/Applications/B.app', '/Applications/C.app', '/Applications/A.app'] }
+  );
+});
+
+test('file hub directories normalize, scan, and guard drag paths', () => {
+  const hubDir = '/tmp/notch-file-hub';
+  const siblingDir = '/tmp/notch-file-hub-evil';
+  const nestedFile = `${hubDir}/report.pdf`;
+  const outsideFile = `${siblingDir}/secret.pdf`;
+  assert.deepEqual(normalizeFileHubDirectories([hubDir, hubDir, '', 'relative']), [hubDir]);
+  assert.equal(isPathInsideDirectory(nestedFile, hubDir), true);
+  assert.equal(isPathInsideDirectory(outsideFile, hubDir), false);
+  const scanned = scanFileHubDirectory(hubDir, {
+    readdirSync: () => ([
+      { isFile: () => true, isDirectory: () => false, name: 'report.pdf' },
+      { isFile: () => false, isDirectory: () => true, name: 'folder' },
+      { isFile: () => true, isDirectory: () => false, name: '.hidden' },
+    ]),
+    statSync: (filePath) => ({
+      size: filePath.endsWith('report.pdf') ? 128 : 0,
+      mtimeMs: filePath.endsWith('report.pdf') ? 20 : 10,
+    }),
+  });
+  assert.equal(scanned.length, 2);
+  assert.equal(scanned[0].kind, 'directory');
+  assert.equal(scanned[0].name, 'folder');
+  assert.equal(scanned[1].kind, 'file');
+  assert.equal(scanned[1].name, 'report.pdf');
+  assert.equal(isAllowedFileHubFile(nestedFile, [hubDir], () => ({ isFile: () => true, isDirectory: () => false })), true);
+  assert.equal(isAllowedFileHubEntry(`${hubDir}/folder`, [hubDir], () => ({ isFile: () => false, isDirectory: () => true })), true);
+  assert.equal(isAllowedFileHubFile(outsideFile, [hubDir], () => ({ isFile: () => true, isDirectory: () => false })), false);
+  const added = addFileHubDirectory([], hubDir, FILE_HUB_MAX_DIRS);
+  assert.deepEqual(added, { ok: true, directories: [hubDir] });
+  assert.deepEqual(addFileHubDirectory([hubDir], hubDir).duplicate, true);
+  const removed = removeFileHubDirectory([hubDir, siblingDir], hubDir);
+  assert.deepEqual(removed, { ok: true, directories: [siblingDir] });
+  const collected = collectFileHubEntries([hubDir, siblingDir], {
+    perDirectoryLimit: 2,
+    maxFiles: 3,
+    readdirSync: () => ([{ isFile: () => true, name: 'a.txt' }]),
+    statSync: (_, index = 0) => ({ size: 1, mtimeMs: 100 - index }),
+  });
+  assert.equal(collected.length, 2);
 });

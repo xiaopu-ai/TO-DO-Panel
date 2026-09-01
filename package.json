@@ -1,12 +1,12 @@
 {
   "name": "to-do-panel",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "TO-DO Panel - a local workspace that lives under the Mac notch",
   "main": "main.js",
   "author": "xiaopu-ai",
   "license": "MIT",
   "scripts": {
-    "test": "node --test tests/*.test.js && env -u ELECTRON_RUN_AS_NODE electron tests/notch-focus.electron.js && node --check main.js && node --check main-services.js && node --check preload.js && node --check renderer/domain.js && node --check renderer/effects.js && node --check renderer/app.js && node --check renderer/workspace.js && node --check renderer/icon-motion.js && node --check renderer/notification.js && node --check build/afterPack.js && node --check scripts/codex-notify.js && node --check scripts/claude-notify.js",
+    "test": "node --test tests/*.test.js && env -u ELECTRON_RUN_AS_NODE electron tests/notch-focus.electron.js && node --check main.js && node --check main-services.js && node --check preload.js && node --check renderer/domain.js && node --check renderer/effects.js && node --check renderer/app.js && node --check renderer/chat.js && node --check renderer/workspace.js && node --check renderer/icon-motion.js && node --check renderer/notification.js && node --check build/afterPack.js && node --check scripts/codex-notify.js && node --check scripts/claude-notify.js",
     "start": "electron .",
     "build": "electron-builder --mac dmg --publish never",
     "build:zip": "electron-builder --mac zip",
