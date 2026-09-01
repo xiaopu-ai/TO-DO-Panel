@@ -1045,6 +1045,17 @@
       { column: 8, row: 2, width: 2, height: 2 },
       { column: 10, row: 2, width: 2, height: 2 },
     ],
+    9: [
+      { column: 0, row: 0, width: 4, height: 2 },
+      { column: 4, row: 0, width: 4, height: 2 },
+      { column: 8, row: 0, width: 4, height: 2 },
+      { column: 0, row: 2, width: 4, height: 2 },
+      { column: 4, row: 2, width: 4, height: 2 },
+      { column: 8, row: 2, width: 1, height: 2 },
+      { column: 9, row: 2, width: 1, height: 2 },
+      { column: 10, row: 2, width: 1, height: 2 },
+      { column: 11, row: 2, width: 1, height: 2 },
+    ],
   };
 
   function normalizeHiddenHomeModules(value, moduleIds) {

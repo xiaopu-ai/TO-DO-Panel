@@ -82,13 +82,27 @@ test('settings exposes exactly one switch for every homepage widget', () => {
   const switches = [...html.matchAll(/data-settings-home-module="([^"]+)"/g)]
     .map((match) => match[1]);
   assert.deepEqual(switches, [
-    'music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands', 'apps',
+    'music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands', 'apps', 'filehub',
   ]);
   assert.match(workspaceJs, /isRecordingActive/);
   assert.match(workspaceJs, /recording_active/);
   assert.match(workspaceJs, /at_least_one_required/);
   assert.match(workspaceJs, /notch-app-favorites/);
   assert.match(workspaceJs, /launchApp/);
+});
+
+test('file hub exposes settings directories and draggable home files', () => {
+  assert.match(html, /id="settings-filehub-card"/);
+  assert.match(html, /data-home-module="filehub"/);
+  assert.match(html, /id="home-filehub-list"/);
+  assert.match(workspaceJs, /startFileDrag/);
+  assert.match(workspaceJs, /openFileHubEntry/);
+  assert.match(workspaceJs, /refreshFileHub/);
+  const preloadJs = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf8');
+  assert.match(preloadJs, /listFileHubFiles/);
+  assert.match(preloadJs, /chooseFileHubDir/);
+  assert.match(preloadJs, /openFileHubEntry/);
+  assert.match(appJs, /'filehub'/);
 });
 
 test('hidden visual widgets stop presentation-only background work', () => {

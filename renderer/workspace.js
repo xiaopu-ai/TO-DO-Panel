@@ -760,6 +760,13 @@
   const settingsAppsNote = document.getElementById('settings-apps-note');
   const homeAppsGrid = document.getElementById('home-apps-grid');
   const homeAppsOpenSettings = document.getElementById('home-apps-open-settings');
+  const settingsFileHubCard = document.getElementById('settings-filehub-card');
+  const settingsFileHubList = document.getElementById('settings-filehub-list');
+  const settingsFileHubAdd = document.getElementById('settings-filehub-add');
+  const settingsFileHubCount = document.getElementById('settings-filehub-count');
+  const settingsFileHubNote = document.getElementById('settings-filehub-note');
+  const homeFileHubList = document.getElementById('home-filehub-list');
+  const homeFileHubOpenSettings = document.getElementById('home-filehub-open-settings');
 
   let recordings = loadJson(RECORDINGS_KEY, []).map(Domain.createRecording).filter(Boolean);
   let selectedRecordingId = recordings[0] && recordings[0].id;
@@ -2951,6 +2958,185 @@
     });
   }
 
+  let fileHubDirectories = [];
+  let fileHubFiles = [];
+  let fileHubLoading = false;
+  let fileHubDragActive = false;
+
+  function setFileHubNote(message, error = false) {
+    if (!settingsFileHubNote) return;
+    settingsFileHubNote.textContent = message || '';
+    settingsFileHubNote.classList.toggle('error', error);
+  }
+
+  function basenameFromPath(value) {
+    const normalized = String(value || '').replace(/[\\/]+$/, '');
+    const parts = normalized.split(/[\\/]/);
+    return parts[parts.length - 1] || normalized;
+  }
+
+  function renderSettingsFileHub() {
+    if (settingsFileHubCount) {
+      settingsFileHubCount.textContent = `${fileHubDirectories.length} 个目录`;
+    }
+    if (!settingsFileHubList) return;
+    settingsFileHubList.replaceChildren();
+    if (!fileHubDirectories.length) {
+      const empty = document.createElement('div');
+      empty.className = 'settings-filehub-empty';
+      empty.textContent = '还没有中转目录，点击「添加目录…」选择本机文件夹';
+      settingsFileHubList.appendChild(empty);
+      return;
+    }
+    fileHubDirectories.forEach((dirPath) => {
+      const row = document.createElement('div');
+      row.className = 'settings-filehub-row';
+      const copy = document.createElement('div');
+      copy.className = 'settings-filehub-copy';
+      const strong = document.createElement('strong');
+      strong.textContent = basenameFromPath(dirPath);
+      strong.title = dirPath;
+      const span = document.createElement('span');
+      span.textContent = dirPath;
+      span.title = dirPath;
+      copy.appendChild(strong);
+      copy.appendChild(span);
+      const actions = document.createElement('div');
+      actions.className = 'settings-filehub-row-actions';
+      const openButton = document.createElement('button');
+      openButton.type = 'button';
+      openButton.textContent = '打开';
+      openButton.dataset.path = dirPath;
+      openButton.setAttribute('aria-label', `在访达打开 ${basenameFromPath(dirPath)}`);
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.className = 'danger';
+      removeButton.textContent = '移除';
+      removeButton.dataset.path = dirPath;
+      removeButton.setAttribute('aria-label', `移除 ${basenameFromPath(dirPath)}`);
+      actions.appendChild(openButton);
+      actions.appendChild(removeButton);
+      row.appendChild(copy);
+      row.appendChild(actions);
+      settingsFileHubList.appendChild(row);
+    });
+  }
+
+  function renderHomeFileHub() {
+    if (!homeFileHubList) return;
+    homeFileHubList.replaceChildren();
+    if (fileHubLoading) {
+      homeFileHubList.innerHTML = '<div class="home-filehub-empty">正在读取…</div>';
+      return;
+    }
+    if (!fileHubDirectories.length) {
+      const empty = document.createElement('button');
+      empty.type = 'button';
+      empty.className = 'home-filehub-empty';
+      empty.textContent = '去设置添加中转目录 →';
+      empty.addEventListener('click', () => openFileHubSettings());
+      homeFileHubList.appendChild(empty);
+      return;
+    }
+    if (!fileHubFiles.length) {
+      homeFileHubList.innerHTML = '<div class="home-filehub-empty">目录里还没有文件或文件夹</div>';
+      return;
+    }
+    fileHubFiles.forEach((entry) => {
+      const row = document.createElement('div');
+      row.className = 'home-filehub-row';
+      row.draggable = true;
+      row.dataset.path = entry.path;
+      row.dataset.kind = entry.kind || 'file';
+      row.title = `${entry.name}\n点击打开 · 按住拖出`;
+      row.setAttribute('role', 'button');
+      row.tabIndex = 0;
+      row.setAttribute('aria-label', `${entry.kind === 'directory' ? '打开文件夹' : '打开文件'} ${entry.name}，也可拖出`);
+      const iconWrap = document.createElement('span');
+      iconWrap.className = 'home-filehub-icon';
+      if (entry.icon) {
+        const img = document.createElement('img');
+        img.src = entry.icon;
+        img.alt = '';
+        img.draggable = false;
+        iconWrap.appendChild(img);
+      } else {
+        const mark = document.createElement('span');
+        mark.className = 'home-filehub-fallback';
+        mark.textContent = entry.kind === 'directory' ? '夹' : (entry.name || '?').slice(0, 1).toUpperCase();
+        iconWrap.appendChild(mark);
+      }
+      const label = document.createElement('span');
+      label.className = 'home-filehub-name';
+      label.textContent = entry.name;
+      row.appendChild(iconWrap);
+      row.appendChild(label);
+      homeFileHubList.appendChild(row);
+    });
+  }
+
+  function renderFileHub() {
+    renderSettingsFileHub();
+    renderHomeFileHub();
+  }
+
+  async function refreshFileHub({ silent = false } = {}) {
+    if (!window.notchAPI?.listFileHubFiles) return;
+    if (!silent) fileHubLoading = true;
+    renderHomeFileHub();
+    try {
+      const result = await window.notchAPI.listFileHubFiles();
+      fileHubDirectories = Array.isArray(result?.directories) ? result.directories : [];
+      fileHubFiles = Array.isArray(result?.files) ? result.files : [];
+    } catch (error) {
+      fileHubDirectories = [];
+      fileHubFiles = [];
+      if (!silent) setFileHubNote('读取文件失败', true);
+    } finally {
+      fileHubLoading = false;
+      renderFileHub();
+    }
+  }
+
+  async function openFileHubEntry(entryPath) {
+    if (!window.notchAPI?.openFileHubEntry || !entryPath) return;
+    await window.notchAPI.openFileHubEntry(entryPath).catch(() => ({ ok: false }));
+  }
+
+  function openFileHubSettings() {
+    if (typeof setActiveTab === 'function') setActiveTab('settings');
+    requestAnimationFrame(() => {
+      settingsFileHubCard?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  }
+
+  async function addFileHubDirectory() {
+    if (!window.notchAPI?.chooseFileHubDir) return;
+    settingsFileHubAdd.disabled = true;
+    const result = await window.notchAPI.chooseFileHubDir().catch(() => ({ ok: false }));
+    settingsFileHubAdd.disabled = false;
+    if (result?.canceled) return;
+    if (!result?.ok) {
+      setFileHubNote(result?.error === 'limit_reached' ? '最多添加 8 个中转目录' : '添加失败', true);
+      return;
+    }
+    fileHubDirectories = Array.isArray(result.directories) ? result.directories : fileHubDirectories;
+    setFileHubNote(result.duplicate ? '该目录已在列表中' : '目录已添加');
+    await refreshFileHub({ silent: true });
+  }
+
+  async function removeFileHubDirectory(dirPath) {
+    if (!window.notchAPI?.removeFileHubDir || !dirPath) return;
+    const result = await window.notchAPI.removeFileHubDir(dirPath).catch(() => ({ ok: false }));
+    if (!result?.ok) {
+      setFileHubNote('移除失败', true);
+      return;
+    }
+    fileHubDirectories = Array.isArray(result.directories) ? result.directories : [];
+    setFileHubNote('目录已移除');
+    await refreshFileHub({ silent: true });
+  }
+
   function renderSettingsAppsSelected() {
     if (!settingsAppsSelected) return;
     settingsAppsSelected.replaceChildren();
@@ -3101,6 +3287,55 @@
     openFavoriteAppsSettings();
   });
 
+  homeFileHubOpenSettings?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openFileHubSettings();
+  });
+
+  homeFileHubList?.addEventListener('dragstart', (event) => {
+    const row = event.target.closest('.home-filehub-row');
+    if (!row?.dataset.path || !window.notchAPI?.startFileDrag) return;
+    fileHubDragActive = true;
+    event.preventDefault();
+    window.notchAPI.startFileDrag(row.dataset.path);
+  });
+
+  homeFileHubList?.addEventListener('dragend', () => {
+    window.setTimeout(() => { fileHubDragActive = false; }, 0);
+  });
+
+  homeFileHubList?.addEventListener('click', (event) => {
+    const row = event.target.closest('.home-filehub-row');
+    if (!row?.dataset.path || fileHubDragActive) return;
+    void openFileHubEntry(row.dataset.path);
+  });
+
+  homeFileHubList?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const row = event.target.closest('.home-filehub-row');
+    if (!row?.dataset.path) return;
+    event.preventDefault();
+    void openFileHubEntry(row.dataset.path);
+  });
+
+  settingsFileHubAdd?.addEventListener('click', () => {
+    void addFileHubDirectory();
+  });
+
+  settingsFileHubList?.addEventListener('click', (event) => {
+    const button = event.target.closest('button');
+    if (!button?.dataset.path) return;
+    if (button.classList.contains('danger')) {
+      void removeFileHubDirectory(button.dataset.path);
+      return;
+    }
+    window.notchAPI?.openFileHubDir?.(button.dataset.path);
+  });
+
+  window.notchAPI?.onFileHubChanged?.(() => {
+    void refreshFileHub({ silent: true });
+  });
+
   settingsAppsPick?.addEventListener('click', async () => {
     if (!window.notchAPI?.pickApp) return;
     settingsAppsPick.disabled = true;
@@ -3185,6 +3420,9 @@
     if (Array.isArray(visible) && visible.includes('apps')) {
       hydrateAppIcons(favoriteAppPaths).then(() => renderHomeApps());
     }
+    if (Array.isArray(visible) && visible.includes('filehub')) {
+      void refreshFileHub({ silent: true });
+    }
   });
 
   window.addEventListener('beforeunload', () => {
@@ -3206,11 +3444,14 @@
   loadCredentials();
   renderFavoriteApps();
   ensureAppCatalogLoaded();
+  void refreshFileHub({ silent: true });
 
   window.NotchWorkspace = {
     refreshWindows,
     startRecording,
     isRecordingActive,
     openFavoriteAppsSettings,
+    openFileHubSettings,
+    refreshFileHub,
   };
 })();

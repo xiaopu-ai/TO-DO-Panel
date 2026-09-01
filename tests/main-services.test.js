@@ -36,6 +36,15 @@ const {
   APP_FAVORITES_MAX,
   shouldFollowCollapsedToCursorDisplay,
   reduceClipboardObservation,
+  FILE_HUB_MAX_DIRS,
+  normalizeFileHubDirectories,
+  isPathInsideDirectory,
+  isAllowedFileHubFile,
+  isAllowedFileHubEntry,
+  scanFileHubDirectory,
+  collectFileHubEntries,
+  addFileHubDirectory,
+  removeFileHubDirectory,
 } = require('../main-services');
 
 test('portable workspace persistence skips unchanged snapshots regardless of key order', () => {
@@ -580,4 +589,45 @@ test('favorite apps normalize paths, enforce launch guards, and honor the 24 cap
     reorderAppFavorites(['/Applications/A.app', '/Applications/B.app', '/Applications/C.app'], 0, 2),
     { ok: true, favorites: ['/Applications/B.app', '/Applications/C.app', '/Applications/A.app'] }
   );
+});
+
+test('file hub directories normalize, scan, and guard drag paths', () => {
+  const hubDir = '/tmp/notch-file-hub';
+  const siblingDir = '/tmp/notch-file-hub-evil';
+  const nestedFile = `${hubDir}/report.pdf`;
+  const outsideFile = `${siblingDir}/secret.pdf`;
+  assert.deepEqual(normalizeFileHubDirectories([hubDir, hubDir, '', 'relative']), [hubDir]);
+  assert.equal(isPathInsideDirectory(nestedFile, hubDir), true);
+  assert.equal(isPathInsideDirectory(outsideFile, hubDir), false);
+  const scanned = scanFileHubDirectory(hubDir, {
+    readdirSync: () => ([
+      { isFile: () => true, isDirectory: () => false, name: 'report.pdf' },
+      { isFile: () => false, isDirectory: () => true, name: 'folder' },
+      { isFile: () => true, isDirectory: () => false, name: '.hidden' },
+    ]),
+    statSync: (filePath) => ({
+      size: filePath.endsWith('report.pdf') ? 128 : 0,
+      mtimeMs: filePath.endsWith('report.pdf') ? 20 : 10,
+    }),
+  });
+  assert.equal(scanned.length, 2);
+  assert.equal(scanned[0].kind, 'directory');
+  assert.equal(scanned[0].name, 'folder');
+  assert.equal(scanned[1].kind, 'file');
+  assert.equal(scanned[1].name, 'report.pdf');
+  assert.equal(isAllowedFileHubFile(nestedFile, [hubDir], () => ({ isFile: () => true, isDirectory: () => false })), true);
+  assert.equal(isAllowedFileHubEntry(`${hubDir}/folder`, [hubDir], () => ({ isFile: () => false, isDirectory: () => true })), true);
+  assert.equal(isAllowedFileHubFile(outsideFile, [hubDir], () => ({ isFile: () => true, isDirectory: () => false })), false);
+  const added = addFileHubDirectory([], hubDir, FILE_HUB_MAX_DIRS);
+  assert.deepEqual(added, { ok: true, directories: [hubDir] });
+  assert.deepEqual(addFileHubDirectory([hubDir], hubDir).duplicate, true);
+  const removed = removeFileHubDirectory([hubDir, siblingDir], hubDir);
+  assert.deepEqual(removed, { ok: true, directories: [siblingDir] });
+  const collected = collectFileHubEntries([hubDir, siblingDir], {
+    perDirectoryLimit: 2,
+    maxFiles: 3,
+    readdirSync: () => ([{ isFile: () => true, name: 'a.txt' }]),
+    statSync: (_, index = 0) => ({ size: 1, mtimeMs: 100 - index }),
+  });
+  assert.equal(collected.length, 2);
 });

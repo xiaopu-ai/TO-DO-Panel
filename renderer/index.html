@@ -194,6 +194,15 @@
                 </button>
               </section>
 
+              <!-- 文件中转：设置目录中的文件可拖到桌面或其他应用 -->
+              <section class="tile home-filehub" data-home-module="filehub" data-widget-size="medium" aria-label="文件中转">
+                <div class="tile-head">
+                  <span class="tile-label">文件中转</span>
+                  <button class="workspace-button compact" id="home-filehub-open-settings" type="button">设置</button>
+                </div>
+                <div class="home-filehub-list" id="home-filehub-list" aria-label="可拖出的文件与文件夹列表"></div>
+              </section>
+
               <!-- 速记 -->
               <section class="tile home-note" data-home-module="note" data-widget-size="large">
                 <div class="note-toolbar" role="toolbar" aria-label="随笔记操作">
@@ -557,6 +566,7 @@
                     <label><span><b>AI 对话</b><small>角色化快速问答</small></span><input type="checkbox" data-settings-home-module="chat" aria-label="显示 AI 对话" /><i aria-hidden="true"></i></label>
                     <label><span><b>常用指令</b><small>提示词快捷入口</small></span><input type="checkbox" data-settings-home-module="commands" aria-label="显示常用指令" /><i aria-hidden="true"></i></label>
                     <label><span><b>常用应用</b><small>一键启动本机应用</small></span><input type="checkbox" data-settings-home-module="apps" aria-label="显示常用应用" /><i aria-hidden="true"></i></label>
+                    <label><span><b>文件中转</b><small>拖出中转目录文件</small></span><input type="checkbox" data-settings-home-module="filehub" aria-label="显示文件中转" /><i aria-hidden="true"></i></label>
                   </div>
                 </section>
               </div>
@@ -590,6 +600,22 @@
                   <div class="settings-apps-catalog" id="settings-apps-catalog" aria-label="本机应用列表">
                     <div class="settings-apps-empty">打开设置后读取本机应用…</div>
                   </div>
+                </section>
+
+                <section class="tile settings-card settings-filehub-card" id="settings-filehub-card" aria-label="文件中转设置">
+                  <div class="settings-card-heading">
+                    <div>
+                      <span class="tile-label">中转站</span>
+                      <strong>文件目录</strong>
+                    </div>
+                    <small id="settings-filehub-count">0 个目录</small>
+                  </div>
+                  <div class="settings-filehub-list" id="settings-filehub-list" aria-label="已添加的中转目录"></div>
+                  <div class="settings-filehub-actions">
+                    <button class="workspace-button compact" id="settings-filehub-add" type="button">添加目录…</button>
+                    <p class="settings-inline-note" id="settings-filehub-note" role="status" aria-live="polite"></p>
+                  </div>
+                  <p>目录中的文件会显示在首页，可直接拖到桌面、访达或其他应用。</p>
                 </section>
 
                 <section class="tile settings-card settings-device-card">

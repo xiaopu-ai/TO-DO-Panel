@@ -1,6 +1,7 @@
 const net = require('net');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 
 function isPrivateAddress(address) {
   const value = String(address || '').trim().toLowerCase().split('%', 1)[0];
@@ -592,6 +593,116 @@ async function controlSodaMusic(action, dependencies = {}, currentPlaying = fals
   return { ok: true, running: true, playing, bootstrapped };
 }
 
+const FILE_HUB_MAX_DIRS = 8;
+const FILE_HUB_MAX_FILES = 100;
+
+function normalizeFileHubDirectories(value, maxDirs = FILE_HUB_MAX_DIRS) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const item of value) {
+    const dir = String(item || '').trim();
+    if (!dir || !path.isAbsolute(dir) || seen.has(dir)) continue;
+    seen.add(dir);
+    result.push(dir);
+    if (result.length >= maxDirs) break;
+  }
+  return result;
+}
+
+function isPathInsideDirectory(filePath, dirPath) {
+  const resolvedFile = path.resolve(String(filePath || ''));
+  const resolvedDir = path.resolve(String(dirPath || ''));
+  if (!resolvedFile || !resolvedDir) return false;
+  const relative = path.relative(resolvedDir, resolvedFile);
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+function isAllowedFileHubEntry(entryPath, directories, lstatSync = fs.lstatSync) {
+  const absolutePath = String(entryPath || '').trim();
+  if (!absolutePath || !path.isAbsolute(absolutePath)) return false;
+  try {
+    const stat = lstatSync(absolutePath);
+    if (!stat.isFile() && !stat.isDirectory()) return false;
+  } catch (error) {
+    return false;
+  }
+  return normalizeFileHubDirectories(directories).some((dir) => isPathInsideDirectory(absolutePath, dir));
+}
+
+function isAllowedFileHubFile(entryPath, directories, lstatSync = fs.lstatSync) {
+  return isAllowedFileHubEntry(entryPath, directories, lstatSync);
+}
+
+function scanFileHubDirectory(dirPath, options = {}) {
+  const maxEntries = Math.max(1, Number(options.maxEntries) || 50);
+  const readdirSync = options.readdirSync || fs.readdirSync;
+  const statSync = options.statSync || fs.statSync;
+  const resolved = path.resolve(String(dirPath || ''));
+  if (!resolved) return [];
+  let entries;
+  try {
+    entries = readdirSync(resolved, { withFileTypes: true });
+  } catch (error) {
+    return [];
+  }
+  const items = [];
+  for (const entry of entries) {
+    const name = String(entry.name || '');
+    if (!name || name.startsWith('.')) continue;
+    const isDirectory = typeof entry.isDirectory === 'function' ? entry.isDirectory() : false;
+    const isFile = typeof entry.isFile === 'function' ? entry.isFile() : false;
+    if (!isFile && !isDirectory) continue;
+    const fullPath = path.join(resolved, name);
+    try {
+      const stat = statSync(fullPath);
+      items.push({
+        path: fullPath,
+        name,
+        directory: resolved,
+        kind: isDirectory ? 'directory' : 'file',
+        size: stat.size,
+        modified: stat.mtimeMs,
+      });
+    } catch (error) {}
+    if (items.length >= maxEntries) break;
+  }
+  return items.sort((left, right) => {
+    if (left.kind !== right.kind) return left.kind === 'directory' ? -1 : 1;
+    return right.modified - left.modified || left.name.localeCompare(right.name, 'zh-CN');
+  });
+}
+
+function collectFileHubEntries(directories, options = {}) {
+  const perDirectoryLimit = Math.max(1, Number(options.perDirectoryLimit) || 50);
+  const maxFiles = Math.max(1, Number(options.maxFiles) || FILE_HUB_MAX_FILES);
+  const files = [];
+  for (const dir of normalizeFileHubDirectories(directories)) {
+    files.push(...scanFileHubDirectory(dir, { ...options, maxEntries: perDirectoryLimit }));
+  }
+  return files
+    .sort((left, right) => right.modified - left.modified)
+    .slice(0, maxFiles);
+}
+
+function addFileHubDirectory(directories, dirPath, maxDirs = FILE_HUB_MAX_DIRS) {
+  const nextDir = String(dirPath || '').trim();
+  if (!nextDir || !path.isAbsolute(nextDir)) return { ok: false, error: 'invalid_directory', directories: normalizeFileHubDirectories(directories, maxDirs) };
+  const current = normalizeFileHubDirectories(directories, maxDirs);
+  if (current.includes(nextDir)) return { ok: true, directories: current, duplicate: true };
+  if (current.length >= maxDirs) return { ok: false, error: 'limit_reached', directories: current };
+  return { ok: true, directories: [...current, nextDir] };
+}
+
+function removeFileHubDirectory(directories, dirPath) {
+  const target = String(dirPath || '').trim();
+  const current = normalizeFileHubDirectories(directories);
+  if (!target) return { ok: false, error: 'invalid_directory', directories: current };
+  const next = current.filter((dir) => dir !== target);
+  if (next.length === current.length) return { ok: false, error: 'not_found', directories: current };
+  return { ok: true, directories: next };
+}
+
 module.exports = {
   isPrivateAddress,
   decodeHtmlEntities,
@@ -629,4 +740,14 @@ module.exports = {
   appDisplayNameFromPath,
   toggleAppFavorite,
   reorderAppFavorites,
+  FILE_HUB_MAX_DIRS,
+  FILE_HUB_MAX_FILES,
+  normalizeFileHubDirectories,
+  isPathInsideDirectory,
+  isAllowedFileHubFile,
+  isAllowedFileHubEntry,
+  scanFileHubDirectory,
+  collectFileHubEntries,
+  addFileHubDirectory,
+  removeFileHubDirectory,
 };

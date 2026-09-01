@@ -79,6 +79,14 @@ contextBridge.exposeInMainWorld('notchAPI', {
   getMirrorImage: () => ipcRenderer.invoke('mirror:get-image'),
   chooseMirrorImage: () => ipcRenderer.invoke('mirror:choose-image'),
   onMirrorImageChanged: (cb) => subscribe('mirror:image-changed', (event, dataUrl) => cb(dataUrl)),
+  getFileHubDirs: () => ipcRenderer.invoke('file-hub:get-dirs'),
+  listFileHubFiles: () => ipcRenderer.invoke('file-hub:list-files'),
+  chooseFileHubDir: () => ipcRenderer.invoke('file-hub:choose-dir'),
+  removeFileHubDir: (dirPath) => ipcRenderer.invoke('file-hub:remove-dir', dirPath),
+  openFileHubDir: (dirPath) => ipcRenderer.invoke('file-hub:open-dir', dirPath),
+  startFileDrag: (filePath) => ipcRenderer.send('file-hub:start-drag', filePath),
+  openFileHubEntry: (entryPath) => ipcRenderer.invoke('file-hub:open-entry', entryPath),
+  onFileHubChanged: (cb) => subscribe('file-hub:changed', () => cb()),
   onTaskNotification: (cb) =>
     subscribe('task-notification:show', (event, notification) => cb(notification)),
   onTaskNotificationQueue: (cb) =>

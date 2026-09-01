@@ -55,6 +55,12 @@ const {
   isLaunchableAppPath,
   appDisplayNameFromPath,
   normalizeAppBundlePath,
+  normalizeFileHubDirectories,
+  isAllowedFileHubEntry,
+  collectFileHubEntries,
+  addFileHubDirectory,
+  removeFileHubDirectory,
+  FILE_HUB_MAX_DIRS,
 } = require('./main-services');
 
 // Keep the historical data directory so upgrading users retain notes, links,
@@ -215,6 +221,145 @@ const APP_SETTINGS_FILE = 'app-settings.json';
 const WORKSPACE_SETTINGS_FILE = 'workspace-settings.json';
 const WORKSPACE_DATA_FILE = 'workspace.json';
 const MIRROR_IMAGE_FILE = 'mirror-cover.jpg';
+const FILE_HUB_SETTINGS_FILE = 'file-hub-settings.json';
+const FILE_HUB_WATCH_DEBOUNCE_MS = 250;
+let fileHubWatchers = [];
+let fileHubWatchTimer = null;
+const fileHubIconCache = new Map();
+
+function readFileHubSettings() {
+  const stored = readJsonFile(getJsonSettingsPath(FILE_HUB_SETTINGS_FILE));
+  return {
+    directories: normalizeFileHubDirectories(stored.directories, FILE_HUB_MAX_DIRS),
+  };
+}
+
+function saveFileHubSettings(settings) {
+  const next = {
+    directories: normalizeFileHubDirectories(settings?.directories, FILE_HUB_MAX_DIRS),
+  };
+  if (!writeJsonFile(getJsonSettingsPath(FILE_HUB_SETTINGS_FILE), next)) return null;
+  return next;
+}
+
+function notifyFileHubChanged() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('file-hub:changed');
+}
+
+function stopFileHubWatchers() {
+  for (const watcher of fileHubWatchers) {
+    try { watcher.close(); } catch (error) {}
+  }
+  fileHubWatchers = [];
+  if (fileHubWatchTimer) {
+    clearTimeout(fileHubWatchTimer);
+    fileHubWatchTimer = null;
+  }
+}
+
+function refreshFileHubWatchers() {
+  stopFileHubWatchers();
+  for (const dir of readFileHubSettings().directories) {
+    try {
+      const watcher = fs.watch(dir, { persistent: false }, () => {
+        if (fileHubWatchTimer) clearTimeout(fileHubWatchTimer);
+        fileHubWatchTimer = setTimeout(() => {
+          fileHubWatchTimer = null;
+          fileHubIconCache.clear();
+          notifyFileHubChanged();
+        }, FILE_HUB_WATCH_DEBOUNCE_MS);
+      });
+      fileHubWatchers.push(watcher);
+    } catch (error) {}
+  }
+}
+
+async function listFileHubFiles() {
+  const directories = readFileHubSettings().directories;
+  const files = collectFileHubEntries(directories);
+  const items = [];
+  for (const file of files) {
+    let icon = null;
+    if (fileHubIconCache.has(file.path)) {
+      icon = fileHubIconCache.get(file.path);
+    } else {
+      try {
+        const image = await app.getFileIcon(file.path, { size: 'small' });
+        icon = image && !image.isEmpty() ? image.toDataURL() : null;
+        if (image && !image.isEmpty()) fileHubIconCache.set(file.path, icon);
+      } catch (error) {
+        icon = null;
+      }
+    }
+    items.push({ ...file, icon });
+  }
+  return { ok: true, directories, files: items };
+}
+
+async function chooseFileHubDirectory() {
+  const result = await showOwnedOpenDialog({
+    title: '添加文件中转目录',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  const selected = !result.canceled && result.filePaths && result.filePaths[0];
+  if (!selected) return { ok: true, canceled: true };
+  try {
+    const stat = fs.statSync(selected);
+    if (!stat.isDirectory()) return { ok: false, error: 'invalid_directory' };
+  } catch (error) {
+    return { ok: false, error: 'invalid_directory' };
+  }
+  const added = addFileHubDirectory(readFileHubSettings().directories, selected, FILE_HUB_MAX_DIRS);
+  if (!added.ok) return added;
+  const saved = saveFileHubSettings({ directories: added.directories });
+  if (!saved) return { ok: false, error: 'save_failed' };
+  fileHubIconCache.clear();
+  refreshFileHubWatchers();
+  notifyFileHubChanged();
+  return { ok: true, canceled: false, directories: saved.directories, duplicate: added.duplicate === true };
+}
+
+function removeFileHubDirectoryEntry(dirPath) {
+  const removed = removeFileHubDirectory(readFileHubSettings().directories, dirPath);
+  if (!removed.ok) return removed;
+  const saved = saveFileHubSettings({ directories: removed.directories });
+  if (!saved) return { ok: false, error: 'save_failed' };
+  fileHubIconCache.clear();
+  refreshFileHubWatchers();
+  notifyFileHubChanged();
+  return { ok: true, directories: saved.directories };
+}
+
+function startFileHubDrag(event, filePath) {
+  const absolutePath = String(filePath || '').trim();
+  if (!isAllowedFileHubEntry(absolutePath, readFileHubSettings().directories)) return;
+  let icon = nativeImage.createEmpty();
+  const cached = fileHubIconCache.get(absolutePath);
+  if (cached) {
+    try {
+      const image = nativeImage.createFromDataURL(cached);
+      if (!image.isEmpty()) icon = image;
+    } catch (error) {}
+  }
+  if (icon.isEmpty()) {
+    try {
+      const image = nativeImage.createFromPath(absolutePath);
+      if (!image.isEmpty()) icon = image;
+    } catch (error) {}
+  }
+  event.sender.startDrag({ file: absolutePath, icon });
+}
+
+async function openFileHubEntry(entryPath) {
+  const absolutePath = String(entryPath || '').trim();
+  if (!isAllowedFileHubEntry(absolutePath, readFileHubSettings().directories)) {
+    return { ok: false, error: 'not_allowed' };
+  }
+  const errorMessage = await shell.openPath(absolutePath);
+  return errorMessage ? { ok: false, error: errorMessage } : { ok: true };
+}
+
 const workspacePersistenceGate = createWorkspacePersistenceGate();
 const SODA_MUSIC_APP = '/Applications/汽水音乐.app';
 const TRANSCRIPTION_MODEL = 'qwen3-asr-flash-realtime';
@@ -2516,6 +2661,20 @@ async function rememberPasteTarget() {
 
 ipcMain.handle('mirror:get-image', () => mirrorImageDataUrl());
 ipcMain.handle('mirror:choose-image', () => chooseMirrorImage());
+ipcMain.handle('file-hub:get-dirs', () => ({ ok: true, directories: readFileHubSettings().directories }));
+ipcMain.handle('file-hub:list-files', () => listFileHubFiles());
+ipcMain.handle('file-hub:choose-dir', () => chooseFileHubDirectory());
+ipcMain.handle('file-hub:remove-dir', (event, dirPath) => removeFileHubDirectoryEntry(dirPath));
+ipcMain.handle('file-hub:open-dir', (event, dirPath) => {
+  const target = String(dirPath || '').trim();
+  if (!normalizeFileHubDirectories(readFileHubSettings().directories).includes(target)) {
+    return { ok: false, error: 'not_allowed' };
+  }
+  shell.openPath(target);
+  return { ok: true };
+});
+ipcMain.on('file-hub:start-drag', (event, filePath) => startFileHubDrag(event, filePath));
+ipcMain.handle('file-hub:open-entry', (event, entryPath) => openFileHubEntry(entryPath));
 
 function getCredentialsVaultPath() {
   return path.join(app.getPath('userData'), CREDENTIALS_VAULT_FILE);
@@ -3694,6 +3853,7 @@ app.whenReady().then(() => {
   ensureClipImagesDir();
   ensureRecordingsDir();
   applyAppSettings();
+  refreshFileHubWatchers();
   startTaskNotificationServer();
   void promptForMissingPermissions();
 
@@ -3716,6 +3876,7 @@ app.on('will-quit', () => {
   cancelCollapseWatchdog();
   clearTodoReminderTimer();
   stopHoverSpaceShortcut();
+  stopFileHubWatchers();
   clearTaskNotificationTimers();
   stopTaskNotificationServer();
   closeAllTranscriptionSessions();

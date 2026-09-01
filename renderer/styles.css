@@ -3797,6 +3797,181 @@ body {
 }
 .home-apps-empty:hover { color: var(--text-2); background: rgba(255,255,255,.055); }
 
+.settings-filehub-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.settings-filehub-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 52px;
+  max-height: 140px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.03);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+}
+.settings-filehub-empty {
+  color: var(--text-4);
+  font-size: 10px;
+  line-height: 1.45;
+  padding: 6px 2px;
+}
+.settings-filehub-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 11px;
+  background: rgba(255,255,255,.04);
+}
+.settings-filehub-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-filehub-copy strong {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-filehub-copy span {
+  overflow: hidden;
+  color: var(--text-4);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-filehub-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-filehub-row-actions button {
+  border: 0;
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: rgba(255,255,255,.08);
+  color: var(--text-3);
+  font: 9px var(--font);
+  cursor: pointer;
+}
+.settings-filehub-row-actions button:hover { background: rgba(255,255,255,.12); color: var(--text-2); }
+.settings-filehub-row-actions button.danger { color: #ff9d9d; }
+.settings-filehub-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-filehub-actions .settings-inline-note {
+  flex: 1 1 auto;
+  margin: 0 !important;
+  padding: 0;
+}
+
+.home-filehub {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--s-3);
+  background: var(--surface-1);
+}
+.home-filehub > .tile-head {
+  flex: 0 0 auto;
+  padding-right: 28px;
+}
+.home-filehub-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+  padding: 2px 4px 4px 2px;
+  margin: 0 -2px;
+}
+.home-filehub-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: rgba(255,255,255,.025);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--d-fast) var(--ease);
+}
+.home-filehub-row:hover { background: rgba(255,255,255,.06); }
+.home-filehub-row:active { cursor: grabbing; }
+.home-filehub-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.home-filehub-icon,
+.home-filehub-icon img,
+.home-filehub-row .home-filehub-fallback {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: contain;
+}
+.home-filehub-icon,
+.home-filehub-row .home-filehub-fallback {
+  display: grid;
+  place-items: center;
+}
+.home-filehub-row .home-filehub-fallback {
+  background: rgba(255,255,255,.08);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 650;
+}
+.home-filehub-row[data-kind='directory'] .home-filehub-fallback {
+  color: #8eb8ff;
+}
+.home-filehub-name {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 10px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-filehub-empty {
+  margin: 2px;
+  padding: 12px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255,255,255,.03);
+  color: var(--text-4);
+  font: 10px var(--font);
+  text-align: center;
+  cursor: pointer;
+}
+.home-filehub-empty:hover { color: var(--text-2); background: rgba(255,255,255,.055); }
+
+.home-filehub[data-layout-variant='mini'] #home-filehub-open-settings,
+.home-filehub[data-layout-variant='compact'] #home-filehub-open-settings,
+.home-filehub[data-widget-size='mini'] #home-filehub-open-settings,
+.home-filehub[data-widget-size='small'] #home-filehub-open-settings { display: none; }
+.home-filehub[data-layout-variant='mini'] .tile-label,
+.home-filehub[data-layout-variant='compact'] .tile-label { display: none; }
+
 .home-apps[data-widget-size='mini'] .home-app-name,
 .home-apps[data-widget-size='small'] .home-app-name,
 .home-apps[data-layout-variant='mini'] .home-app-name,
@@ -5522,6 +5697,7 @@ body {
 .home-bento > .home-windows[data-layout-variant],
 .home-bento > .home-commands[data-layout-variant],
 .home-bento > .home-apps[data-layout-variant],
+.home-bento > .home-filehub[data-layout-variant],
 .home-bento > .home-note[data-layout-variant],
 .home-bento > .home-chat[data-layout-variant] {
   display: flex;
@@ -5535,7 +5711,8 @@ body {
 }
 .home-bento > .home-windows[data-layout-variant] .window-list,
 .home-bento > .home-commands[data-layout-variant] .command-list,
-.home-bento > .home-apps[data-layout-variant] .home-apps-grid {
+.home-bento > .home-apps[data-layout-variant] .home-apps-grid,
+.home-bento > .home-filehub[data-layout-variant] .home-filehub-list {
   min-width: 0;
   min-height: 0;
   overflow: auto;

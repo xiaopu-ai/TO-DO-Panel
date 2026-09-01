@@ -2465,13 +2465,14 @@ if (notePreview) {
 const HOME_ORDER_KEY = 'notch-home-order-v3';
 const HOME_SIZES_KEY = 'notch-home-widget-sizes-v2';
 const HOME_HIDDEN_MODULES_KEY = 'notch-home-hidden-modules-v1';
-const HOME_MODULE_REGISTRY = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'chat', 'commands', 'apps'];
-const HOME_ORDER_DEFAULTS = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'note', 'chat', 'commands'];
+const HOME_MODULE_REGISTRY = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'filehub', 'note', 'chat', 'commands', 'apps'];
+const HOME_ORDER_DEFAULTS = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'filehub', 'note', 'chat', 'commands'];
 const HOME_SIZE_DEFAULTS = {
   music: 'medium',
   windows: 'large',
   recorder: 'small',
   mirror: 'small',
+  filehub: 'medium',
   note: 'small',
   chat: 'medium',
   commands: 'mini',
