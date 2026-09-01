@@ -456,7 +456,9 @@ async function main() {
         }
       }
       if (visibleCount < 10) {
-        assert.ok(measurement.sizeControls.every((control) => control.hidden && control.disabled && control.tabIndex === -1));
+        const enabledControls = measurement.sizeControls.filter((control) => !control.hidden);
+        assert.equal(enabledControls.length, visibleCount);
+        assert.ok(enabledControls.every((control) => !control.disabled && control.tabIndex === 0));
       } else {
         assert.ok(measurement.sizeControls.every((control) => !control.hidden && !control.disabled && control.tabIndex === 0));
       }

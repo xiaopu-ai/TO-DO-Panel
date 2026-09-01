@@ -910,19 +910,20 @@
     }));
   }
 
-  function normalizeHomeWidgetSizes(value, defaults, preferredId, capacity = Infinity) {
+  function normalizeHomeWidgetSizes(value, defaults, preferredId, capacity = Infinity, activeIds = null) {
     const fallback = defaults && typeof defaults === 'object' ? { ...defaults } : {};
     const allowed = new Set(['mini', 'small', 'medium', 'large']);
     const source = value && typeof value === 'object' ? value : {};
-    if (Object.keys(source).some((key) => key in fallback && !allowed.has(source[key]))) {
-      return fallback;
-    }
-    const sizes = Object.fromEntries(Object.entries(fallback).map(([key, defaultSize]) => (
-      [key, allowed.has(source[key]) ? source[key] : defaultSize]
-    )));
+    const sizes = Object.fromEntries(Object.entries(fallback).map(([key, defaultSize]) => {
+      const candidate = source[key];
+      return [key, allowed.has(candidate) ? candidate : defaultSize];
+    }));
     const area = { mini: 2, small: 4, medium: 8, large: 16 };
-    const totalArea = () => Object.values(sizes).reduce((total, size) => total + area[size], 0);
-    const siblings = Object.keys(sizes).filter((key) => key !== preferredId);
+    const active = Array.isArray(activeIds) && activeIds.length
+      ? activeIds.filter((id) => Object.prototype.hasOwnProperty.call(sizes, id))
+      : Object.keys(sizes);
+    const totalArea = () => active.reduce((total, key) => total + area[sizes[key]], 0);
+    const siblings = active.filter((key) => key !== preferredId);
 
     while (totalArea() > capacity) {
       const excess = totalArea() - capacity;
@@ -1056,6 +1057,18 @@
       { column: 10, row: 2, width: 1, height: 2 },
       { column: 11, row: 2, width: 1, height: 2 },
     ],
+    10: [
+      { column: 0, row: 0, width: 4, height: 2 },
+      { column: 4, row: 0, width: 4, height: 2 },
+      { column: 8, row: 0, width: 4, height: 2 },
+      { column: 0, row: 2, width: 4, height: 2 },
+      { column: 4, row: 2, width: 2, height: 2 },
+      { column: 6, row: 2, width: 2, height: 2 },
+      { column: 8, row: 2, width: 1, height: 2 },
+      { column: 9, row: 2, width: 1, height: 2 },
+      { column: 10, row: 2, width: 1, height: 2 },
+      { column: 11, row: 2, width: 1, height: 2 },
+    ],
   };
 
   function normalizeHiddenHomeModules(value, moduleIds) {
@@ -1119,6 +1132,21 @@
     return cells.every((count) => count === 1);
   }
 
+  function gaplessTemplatePlacements(visibleOrder, sizes) {
+    const template = HOME_GAPLESS_TEMPLATES[visibleOrder.length];
+    if (!template) return null;
+    let slotOrder = [...visibleOrder];
+    if (visibleOrder.length === 5) {
+      const rank = { mini: 0, small: 1, medium: 2, large: 3 };
+      const primary = [...visibleOrder].sort((left, right) => (
+        (rank[sizes[right]] ?? 0) - (rank[sizes[left]] ?? 0)
+        || visibleOrder.indexOf(left) - visibleOrder.indexOf(right)
+      ))[0];
+      slotOrder = [primary, ...visibleOrder.filter((id) => id !== primary)];
+    }
+    return Object.fromEntries(slotOrder.map((id, index) => [id, { ...template[index] }]));
+  }
+
   function resolveHomeWidgetLayout(order, sizes, hiddenIds, columns = 12, rows = 4) {
     if (columns !== 12 || rows !== 4 || !sizes || typeof sizes !== 'object') return null;
     const ids = Array.isArray(order)
@@ -1129,23 +1157,8 @@
     const visibleOrder = ids.filter((id) => !hidden.has(id));
     if (!visibleOrder.length) return null;
 
-    let placements;
-    if (visibleOrder.length === ids.length && !HOME_GAPLESS_TEMPLATES[visibleOrder.length]) {
-      placements = packHomeWidgetLayout(visibleOrder, sizes, columns, rows);
-    } else {
-      const template = HOME_GAPLESS_TEMPLATES[visibleOrder.length];
-      if (!template) return null;
-      let slotOrder = [...visibleOrder];
-      if (visibleOrder.length === 5) {
-        const rank = { mini: 0, small: 1, medium: 2, large: 3 };
-        const primary = [...visibleOrder].sort((left, right) => (
-          (rank[sizes[right]] ?? 0) - (rank[sizes[left]] ?? 0)
-          || visibleOrder.indexOf(left) - visibleOrder.indexOf(right)
-        ))[0];
-        slotOrder = [primary, ...visibleOrder.filter((id) => id !== primary)];
-      }
-      placements = Object.fromEntries(slotOrder.map((id, index) => [id, { ...template[index] }]));
-    }
+    let placements = packHomeWidgetLayout(visibleOrder, sizes, columns, rows)
+      || gaplessTemplatePlacements(visibleOrder, sizes);
     if (!placements) return null;
     const result = {
       visibleOrder: [...visibleOrder],

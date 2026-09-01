@@ -2516,16 +2516,22 @@ function loadHomeOrder() {
   return [...HOME_ORDER_DEFAULTS];
 }
 
-function loadHomeSizes() {
+function visibleHomeModuleIds(hiddenIds = hiddenHomeModules) {
+  return HOME_MODULE_REGISTRY.filter((id) => !hiddenIds.includes(id));
+}
+
+function loadHomeSizes(hiddenIds = []) {
+  const activeIds = HOME_MODULE_REGISTRY.filter((id) => !hiddenIds.includes(id));
   try {
     return window.NotchDomain.normalizeHomeWidgetSizes(
       JSON.parse(localStorage.getItem(HOME_SIZES_KEY) || 'null'),
       HOME_SIZE_DEFAULTS,
       '',
-      48
+      48,
+      activeIds
     );
   } catch (error) {
-    return { ...HOME_SIZE_DEFAULTS };
+    return window.NotchDomain.normalizeHomeWidgetSizes(null, HOME_SIZE_DEFAULTS, '', 48, activeIds);
   }
 }
 
@@ -2544,10 +2550,10 @@ function loadHiddenHomeModules() {
   }
 }
 
-let homeOrder = loadHomeOrder();
-let homeSizes = loadHomeSizes();
 const loadedHomeVisibility = loadHiddenHomeModules();
 let hiddenHomeModules = loadedHomeVisibility.hiddenIds;
+let homeOrder = loadHomeOrder();
+let homeSizes = loadHomeSizes(hiddenHomeModules);
 let homeVisibilityPersisted = true;
 let homeLayoutReadOnly = false;
 let homeLayoutMotionGeneration = 0;
@@ -2660,6 +2666,7 @@ function applyHomeLayout(layout, { reason = 'initial' } = {}) {
     : captureHomeLayoutVisualState();
   const automaticLayout = !homeLayoutReadOnly && hiddenHomeModules.length > 0;
   homeBento.dataset.layoutMode = homeLayoutReadOnly ? 'safe' : automaticLayout ? 'automatic' : 'preferred';
+  const showSizeControls = !homeLayoutReadOnly;
   homeTiles.forEach((tile) => {
     const moduleId = tile.dataset.homeModule;
     const orderIndex = Math.max(0, homeOrder.indexOf(moduleId));
@@ -2692,9 +2699,10 @@ function applyHomeLayout(layout, { reason = 'initial' } = {}) {
       sizeButton.dataset.currentSize = size;
       sizeButton.setAttribute('aria-label', `${HOME_SIZE_LABELS[size]}组件，点击切换尺寸`);
       sizeButton.title = `组件尺寸：${HOME_SIZE_LABELS[size]}`;
-      sizeButton.hidden = automaticLayout || homeLayoutReadOnly;
-      sizeButton.disabled = automaticLayout || homeLayoutReadOnly;
-      sizeButton.tabIndex = automaticLayout || homeLayoutReadOnly ? -1 : 0;
+      const sizeControlEnabled = showSizeControls && Boolean(placement);
+      sizeButton.hidden = !sizeControlEnabled;
+      sizeButton.disabled = !sizeControlEnabled;
+      sizeButton.tabIndex = sizeControlEnabled ? 0 : -1;
     }
   });
   animateCommittedHomeLayout(reason, beforeState);
@@ -2718,9 +2726,24 @@ if (homeTiles.length !== HOME_MODULE_REGISTRY.length
 
 let initialHomeLayout = resolveValidatedHomeLayout(hiddenHomeModules);
 if (!initialHomeLayout) {
-  initialHomeLayout = resolveValidatedHomeLayout([], HOME_ORDER_DEFAULTS, HOME_SIZE_DEFAULTS);
+  homeSizes = window.NotchDomain.normalizeHomeWidgetSizes(
+    homeSizes, HOME_SIZE_DEFAULTS, '', 48, visibleHomeModuleIds()
+  );
+  initialHomeLayout = resolveValidatedHomeLayout(hiddenHomeModules);
+  if (initialHomeLayout) saveHomeLayout();
+}
+if (!initialHomeLayout) {
+  homeSizes = window.NotchDomain.normalizeHomeWidgetSizes(
+    null, HOME_SIZE_DEFAULTS, '', 48, visibleHomeModuleIds([])
+  );
+  homeOrder = [...HOME_ORDER_DEFAULTS];
+  initialHomeLayout = resolveValidatedHomeLayout([], homeOrder, homeSizes);
+  if (initialHomeLayout) saveHomeLayout();
+}
+if (!initialHomeLayout) {
   homeLayoutReadOnly = true;
-  console.error('Homepage layout validation failed; using read-only defaults.');
+  console.error('Homepage layout validation failed; using read-only safe layout.');
+  initialHomeLayout = resolveValidatedHomeLayout([], HOME_ORDER_DEFAULTS, homeSizes);
 }
 if (!initialHomeLayout) throw new Error('Default homepage layout validation failed.');
 applyHomeLayout(initialHomeLayout, { reason: 'initial' });
@@ -2771,6 +2794,13 @@ function setHomeModuleVisible(moduleId, visible) {
     const changingTile = homeTiles.find((tile) => tile.dataset.homeModule === moduleId);
     if (visible === false && changingTile?.contains(activeElement)) activeElement.blur();
     hiddenHomeModules = next.hiddenIds;
+    homeSizes = window.NotchDomain.normalizeHomeWidgetSizes(
+      homeSizes,
+      HOME_SIZE_DEFAULTS,
+      '',
+      48,
+      visibleHomeModuleIds()
+    );
     applyHomeLayout(layout, { reason: 'visibility' });
   } catch (error) {
     hiddenHomeModules = current;
@@ -2868,21 +2898,34 @@ if (homeBento) {
     if (!sizeButton) return;
     event.preventDefault();
     event.stopPropagation();
-    if (hiddenHomeModules.length > 0 || homeLayoutReadOnly) return;
+    if (homeLayoutReadOnly) return;
     const moduleId = sizeButton.dataset.widgetSizeCycle;
     const sequence = ['mini', 'small', 'medium', 'large'];
     const current = homeSizes[moduleId] || HOME_SIZE_DEFAULTS[moduleId];
     const requested = sequence[(sequence.indexOf(current) + 1) % sequence.length];
+    const previousLayout = resolveValidatedHomeLayout(hiddenHomeModules);
+    const previousSizes = { ...homeSizes };
     homeSizes = window.NotchDomain.normalizeHomeWidgetSizes({
       ...homeSizes,
       [moduleId]: requested,
-    }, HOME_SIZE_DEFAULTS, moduleId, 48);
+    }, HOME_SIZE_DEFAULTS, moduleId, 48, visibleHomeModuleIds());
     const layout = resolveValidatedHomeLayout(hiddenHomeModules);
-    if (layout) {
-      applyHomeLayout(layout, { reason: 'size' });
-      saveHomeLayout();
-      showStatusToast(`${HOME_SIZE_LABELS[homeSizes[moduleId]]}组件 · 其他模块已自适应`);
+    if (!layout) {
+      homeSizes = previousSizes;
+      showStatusToast('布局未更新，请重试');
+      return;
     }
+    const placementChanged = JSON.stringify(previousLayout?.placements?.[moduleId])
+      !== JSON.stringify(layout.placements[moduleId]);
+    const sizeChanged = previousSizes[moduleId] !== homeSizes[moduleId];
+    if (!placementChanged && !sizeChanged) {
+      homeSizes = previousSizes;
+      showStatusToast('当前布局下无法继续调整该组件尺寸');
+      return;
+    }
+    applyHomeLayout(layout, { reason: 'size' });
+    saveHomeLayout();
+    showStatusToast(`${HOME_SIZE_LABELS[homeSizes[moduleId]]}组件 · 其他模块已自适应`);
   });
 
   homeBento.addEventListener('pointermove', (event) => {

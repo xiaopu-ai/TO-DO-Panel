@@ -676,7 +676,10 @@ test('home widget sizes keep the requested tile large and adapt siblings to the 
     note: 'large',
     commands: 'medium',
   };
-  assert.deepEqual(normalizeHomeWidgetSizes({ windows: 'huge' }, defaults, 'windows', 22), defaults);
+  const invalidBudget = normalizeHomeWidgetSizes({ windows: 'huge' }, defaults, 'windows', 22);
+  const area = { mini: 2, small: 4, medium: 8, large: 16 };
+  assert.equal(invalidBudget.windows, 'large');
+  assert.ok(Object.values(invalidBudget).reduce((total, size) => total + area[size], 0) <= 26);
   const fitted = normalizeHomeWidgetSizes({
     character: 'large',
     windows: 'large',
@@ -703,6 +706,120 @@ test('home widget sizes fill the complete bento capacity without blank cells', (
   const fitted = normalizeHomeWidgetSizes({ ...defaults, mirror: 'large' }, defaults, 'mirror', 48);
   assert.equal(fitted.mirror, 'large');
   assert.equal(Object.values(fitted).reduce((total, size) => total + area[size], 0), 48);
+});
+
+test('invalid saved home widget sizes are normalized instead of falling back raw', () => {
+  const defaults = {
+    music: 'medium',
+    windows: 'large',
+    recorder: 'small',
+    mirror: 'small',
+    filehub: 'medium',
+    note: 'small',
+    chat: 'medium',
+    commands: 'mini',
+    pomodoro: 'mini',
+    apps: 'medium',
+  };
+  const area = { mini: 2, small: 4, medium: 8, large: 16 };
+  const fitted = normalizeHomeWidgetSizes({ music: 'huge', windows: 'large' }, defaults, 'windows', 48);
+  assert.equal(fitted.windows, 'large');
+  assert.equal(Object.values(fitted).reduce((total, size) => total + area[size], 0), 48);
+  const order = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'filehub', 'note', 'chat', 'commands'];
+  assert.ok(resolveHomeWidgetLayout(order, fitted, [], 12, 4));
+});
+
+test('home widget sizes only rebalance active visible modules', () => {
+  const defaults = {
+    music: 'medium',
+    windows: 'large',
+    recorder: 'small',
+    mirror: 'small',
+    filehub: 'medium',
+    note: 'small',
+    chat: 'medium',
+    commands: 'mini',
+    pomodoro: 'mini',
+    apps: 'medium',
+  };
+  const area = { mini: 2, small: 4, medium: 8, large: 16 };
+  const fitted = normalizeHomeWidgetSizes(
+    { ...defaults, music: 'large', chat: 'large' },
+    defaults,
+    'music',
+    24,
+    ['music', 'windows', 'recorder']
+  );
+  assert.equal(fitted.music, 'large');
+  assert.equal(fitted.filehub, 'medium');
+  assert.equal(['music', 'windows', 'recorder'].reduce((total, key) => total + area[fitted[key]], 0), 24);
+});
+
+test('hidden homepage widgets still repack visible modules on size change', () => {
+  const order = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'filehub', 'note', 'chat', 'commands'];
+  const defaults = {
+    music: 'medium',
+    windows: 'large',
+    recorder: 'small',
+    mirror: 'small',
+    filehub: 'medium',
+    note: 'small',
+    chat: 'medium',
+    commands: 'mini',
+    pomodoro: 'mini',
+    apps: 'medium',
+  };
+  const hidden = ['chat'];
+  const visible = order.filter((id) => !hidden.includes(id));
+  const sizes = normalizeHomeWidgetSizes(null, defaults, '', 48, visible);
+  const before = resolveHomeWidgetLayout(order, sizes, hidden, 12, 4);
+  const nextSizes = normalizeHomeWidgetSizes({ ...sizes, music: 'large' }, defaults, 'music', 48, visible);
+  const after = resolveHomeWidgetLayout(order, nextSizes, hidden, 12, 4);
+  assert.ok(before);
+  assert.ok(after);
+  assert.notDeepEqual(before.placements.music, after.placements.music);
+});
+
+test('all visible homepage widgets repack when a size preference changes', () => {
+  const order = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'filehub', 'note', 'chat', 'commands'];
+  const defaults = {
+    music: 'medium',
+    windows: 'large',
+    recorder: 'small',
+    mirror: 'small',
+    filehub: 'medium',
+    note: 'small',
+    chat: 'medium',
+    commands: 'mini',
+    pomodoro: 'mini',
+    apps: 'medium',
+  };
+  const sizes = normalizeHomeWidgetSizes(null, defaults, '', 48);
+  const before = resolveHomeWidgetLayout(order, sizes, [], 12, 4);
+  const nextSizes = normalizeHomeWidgetSizes({ ...sizes, music: 'large' }, defaults, 'music', 48, order);
+  const after = resolveHomeWidgetLayout(order, nextSizes, [], 12, 4);
+  assert.ok(before);
+  assert.ok(after);
+  assert.notDeepEqual(before.placements.music, after.placements.music);
+});
+
+test('all ten homepage widgets resolve with default sizes', () => {
+  const order = ['music', 'pomodoro', 'windows', 'apps', 'recorder', 'mirror', 'filehub', 'note', 'chat', 'commands'];
+  const defaults = {
+    music: 'medium',
+    windows: 'large',
+    recorder: 'small',
+    mirror: 'small',
+    filehub: 'medium',
+    note: 'small',
+    chat: 'medium',
+    commands: 'mini',
+    pomodoro: 'mini',
+    apps: 'medium',
+  };
+  const sizes = normalizeHomeWidgetSizes(null, defaults, '', 48);
+  const layout = resolveHomeWidgetLayout(order, sizes, [], 12, 4);
+  assertExactHomeCover(layout, order);
 });
 
 test('home widget packing fills all four rows even when logical order would fragment the grid', () => {

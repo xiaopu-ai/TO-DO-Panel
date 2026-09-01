@@ -2526,11 +2526,6 @@ body {
     padding-right: var(--s-4);
     padding-left: var(--s-4);
   }
-
-  .home-bento {
-    grid-template-columns: 170px 230px minmax(220px, 1fr) 200px;
-  }
-
 }
 
 @media (max-width: 900px) {
@@ -2538,15 +2533,9 @@ body {
     --home-mirror-size: 160px;
   }
 
-  .home-bento {
-    grid-template-columns: 150px 190px minmax(200px, 1fr) 180px;
-    gap: var(--s-2);
-  }
-
   .tab { padding-right: 9px; padding-left: 9px; }
   .tab-label { display: none; }
   .recordings-page { grid-template-columns: 240px minmax(0, 1fr); }
-
 }
 
 /* ============ Mac Bento · premium surface system ============ */
@@ -2699,7 +2688,7 @@ body {
   letter-spacing: -.08px;
 }
 
-/* iPhone 组件式三档尺寸：CSS Grid 密排，尺寸变化后其余模块自动补位。 */
+/* iPhone 组件式三档尺寸：实际网格位置由 JS 写入 inline grid-area，data-widget-size 只驱动内容密度。 */
 .home-bento {
   position: relative;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -2711,10 +2700,9 @@ body {
   isolation: isolate;
 }
 
-.home-bento > [data-widget-size='mini']   { grid-column: span 2; grid-row: span 1; }
-.home-bento > [data-widget-size='small']  { grid-column: span 2; grid-row: span 2; }
-.home-bento > [data-widget-size='medium'] { grid-column: span 4; grid-row: span 2; }
-.home-bento > [data-widget-size='large']  { grid-column: span 4; grid-row: span 4; }
+.home-bento > [data-home-module][data-layout-width][data-layout-height] {
+  grid-area: auto;
+}
 
 .home-character,
 .home-windows,
@@ -5564,8 +5552,21 @@ body {
 .home-bento > [data-home-module] button,
 .home-bento > [data-home-module] input,
 .home-bento > [data-home-module] textarea { flex-shrink: 0; }
-.home-bento[data-layout-mode='automatic'] .widget-size-control,
 .home-bento[data-layout-mode='safe'] .widget-size-control { display: none !important; }
+
+.home-bento > .tile > .widget-size-control {
+  position: absolute;
+  grid-column: auto !important;
+  grid-row: auto !important;
+  align-self: auto;
+  justify-self: auto;
+  top: auto;
+  right: 7px;
+  bottom: 7px;
+  z-index: 20;
+  width: 24px;
+  height: 24px;
+}
 
 .home-bento > [data-layout-variant='wide'],
 .home-bento > [data-layout-variant='tall'],
