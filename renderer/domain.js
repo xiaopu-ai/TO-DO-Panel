@@ -192,6 +192,39 @@
     };
   }
 
+  function createExclusiveAsyncTask(onPendingChange) {
+    const notify = typeof onPendingChange === 'function' ? onPendingChange : () => {};
+    let pending = null;
+    return {
+      run(task) {
+        if (pending) return pending;
+        if (typeof task !== 'function') return Promise.reject(new TypeError('task must be a function'));
+        let resolveWork;
+        let rejectWork;
+        const work = new Promise((resolve, reject) => {
+          resolveWork = resolve;
+          rejectWork = reject;
+        });
+        const tracked = work.finally(() => {
+          if (pending !== tracked) return;
+          pending = null;
+          notify(false);
+        });
+        pending = tracked;
+        notify(true);
+        try {
+          Promise.resolve(task()).then(resolveWork, rejectWork);
+        } catch (error) {
+          rejectWork(error);
+        }
+        return tracked;
+      },
+      isPending() {
+        return pending !== null;
+      },
+    };
+  }
+
   function createRecording(value) {
     if (!value || typeof value !== 'object') return null;
     const transcript = String(value.transcript || '').trim();
@@ -890,6 +923,7 @@
     moveLinkToPosition,
     renameGroup,
     prependClipboardHistory,
+    createExclusiveAsyncTask,
     createCommand,
     createRecording,
     removeRecordingState,

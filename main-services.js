@@ -78,6 +78,60 @@ function cleanTitle(value) {
     .slice(0, 160);
 }
 
+function createForegroundMediaPermissionCoordinator(defaults = {}) {
+  let activeRequests = 0;
+  let layerOwner = null;
+  let restoreAlwaysOnTop = false;
+
+  return {
+    async run({ owner, activate = defaults.activate, track = defaults.track, request }) {
+      if (typeof request !== 'function') throw new TypeError('request must be a function');
+      const updateGuard = typeof track === 'function' ? track : () => {};
+      const targetWindow = owner && typeof owner.isDestroyed === 'function' && !owner.isDestroyed()
+        ? owner
+        : null;
+      const isFirstRequest = activeRequests === 0;
+
+      activeRequests += 1;
+      updateGuard(1);
+      try {
+        // Concurrent camera/microphone requests share one layer lease. Restoring
+        // after the first request would put the panel back above the second TCC prompt.
+        if (isFirstRequest) {
+          layerOwner = targetWindow;
+          restoreAlwaysOnTop = Boolean(
+            targetWindow &&
+            typeof targetWindow.isAlwaysOnTop === 'function' &&
+            targetWindow.isAlwaysOnTop()
+          );
+          if (restoreAlwaysOnTop) targetWindow.setAlwaysOnTop(false);
+        }
+        if (typeof activate === 'function') activate();
+        if (targetWindow && !targetWindow.isDestroyed() && typeof targetWindow.focus === 'function') {
+          targetWindow.focus();
+        }
+        return await request();
+      } finally {
+        activeRequests = Math.max(0, activeRequests - 1);
+        try {
+          if (activeRequests === 0) {
+            const targetToRestore = layerOwner;
+            const shouldRestore = restoreAlwaysOnTop;
+            layerOwner = null;
+            restoreAlwaysOnTop = false;
+            if (shouldRestore && targetToRestore && !targetToRestore.isDestroyed()) {
+              targetToRestore.setAlwaysOnTop(true, 'screen-saver');
+            }
+          }
+        } finally {
+          // Releasing the blur guard must not depend on native window restoration.
+          updateGuard(-1);
+        }
+      }
+    },
+  };
+}
+
 function extractPageTitle(html, fallback) {
   const ogTitle = extractMetaContent(html, 'og:title');
   const titleMatch = String(html || '').match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
@@ -545,6 +599,7 @@ module.exports = {
   screenRecordingProbePolicy,
   taskNotificationWindowPolicy,
   reduceClipboardObservation,
+  createForegroundMediaPermissionCoordinator,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
   updateFeaturePreference,

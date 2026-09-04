@@ -336,6 +336,128 @@ async function main() {
       clearedState: { card: false, deleteHidden: true, editing: false },
     }, '密钥批量删除应与搜索框同行，并在取消选中后隐藏');
 
+    const recordingPermissionConcurrency = await window.webContents.executeJavaScript(`
+      (async () => {
+        const originalApi = window.notchAPI;
+        const originalMediaRecorder = window.MediaRecorder;
+        const originalGetUserMedia = navigator.mediaDevices.getUserMedia;
+        const waitFor = async (predicate, label, timeout = 2000) => {
+          const startedAt = Date.now();
+          while (!predicate()) {
+            if (Date.now() - startedAt > timeout) throw new Error('timeout: ' + label);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        };
+        let releasePermission;
+        let permissionRequests = 0;
+        let streamRequests = 0;
+        let recorderStarts = 0;
+        const track = {
+          readyState: 'live',
+          addEventListener() {},
+          stop() {},
+        };
+        const stream = {
+          getAudioTracks: () => [track],
+          getTracks: () => [track],
+        };
+        class FakeMediaRecorder {
+          static isTypeSupported() { return true; }
+          constructor() { this.mimeType = 'audio/webm'; }
+          start() { recorderStarts += 1; }
+          pause() {}
+          resume() {}
+          stop() { queueMicrotask(() => this.onstop?.()); }
+        }
+        try {
+          window.MediaRecorder = FakeMediaRecorder;
+          navigator.mediaDevices.getUserMedia = async () => {
+            streamRequests += 1;
+            return stream;
+          };
+          window.notchAPI = {
+            ...originalApi,
+            ensureMicrophone: () => {
+              permissionRequests += 1;
+              return new Promise((resolve) => { releasePermission = resolve; });
+            },
+          };
+          document.getElementById('tab-button-recordings').click();
+          document.getElementById('record-start').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          document.getElementById('recording-new').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+          await waitFor(() => (
+            permissionRequests === 1
+            && document.getElementById('record-start').disabled
+            && document.getElementById('recording-new').disabled
+            && document.getElementById('home-live-transcript').textContent === '等待确认麦克风权限…'
+          ), 'permission pending UI');
+          const pending = {
+            permissionRequests,
+            streamRequests,
+            recorderStarts,
+            startDisabled: document.getElementById('record-start').disabled,
+            newDisabled: document.getElementById('recording-new').disabled,
+            feedback: document.getElementById('home-live-transcript').textContent,
+            drafts: document.querySelectorAll('.recording-item.is-live').length,
+          };
+          releasePermission(true);
+          await waitFor(() => (
+            recorderStarts === 1
+            && window.NotchWorkspace.isRecordingActive()
+            && document.querySelectorAll('.recording-item.is-live').length === 1
+          ), 'recording start');
+          const started = {
+            permissionRequests,
+            streamRequests,
+            recorderStarts,
+            drafts: document.querySelectorAll('.recording-item.is-live').length,
+            active: window.NotchWorkspace.isRecordingActive(),
+          };
+          document.getElementById('record-stop').click();
+          await waitFor(() => (
+            !window.NotchWorkspace.isRecordingActive()
+            && document.querySelectorAll('.recording-item.is-live').length === 0
+          ), 'recording cleanup');
+          const cleaned = {
+            drafts: document.querySelectorAll('.recording-item.is-live').length,
+            active: window.NotchWorkspace.isRecordingActive(),
+          };
+          return { pending, started, cleaned };
+        } finally {
+          if (window.NotchWorkspace.isRecordingActive()) {
+            document.getElementById('record-stop').click();
+            await waitFor(() => !window.NotchWorkspace.isRecordingActive(), 'emergency recording cleanup')
+              .catch(() => {});
+          }
+          window.MediaRecorder = originalMediaRecorder;
+          navigator.mediaDevices.getUserMedia = originalGetUserMedia;
+          window.notchAPI = originalApi;
+        }
+      })()
+    `);
+    assert.deepEqual(recordingPermissionConcurrency, {
+      pending: {
+        permissionRequests: 1,
+        streamRequests: 0,
+        recorderStarts: 0,
+        startDisabled: true,
+        newDisabled: true,
+        feedback: '等待确认麦克风权限…',
+        drafts: 0,
+      },
+      started: {
+        permissionRequests: 1,
+        streamRequests: 1,
+        recorderStarts: 1,
+        drafts: 1,
+        active: true,
+      },
+      cleaned: {
+        drafts: 0,
+        active: false,
+      },
+    }, '权限等待期间的多入口连点只能启动一次录音');
+
     const todoCalendarNavigation = await window.webContents.executeJavaScript(`
       new Promise((resolve) => {
         document.getElementById('tab-button-todo').click();

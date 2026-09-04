@@ -51,9 +51,40 @@ const {
   applyGeneratedNoteTitle,
   apiCredentialStatuses,
   prependClipboardHistory,
+  createExclusiveAsyncTask,
 } = domain;
 
 const HOME_MODULES = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands'];
+
+test('an exclusive async task coalesces repeated starts until the first attempt settles', async () => {
+  let release;
+  let attempts = 0;
+  const pendingStates = [];
+  const task = createExclusiveAsyncTask((pending) => pendingStates.push(pending));
+  const work = () => {
+    attempts += 1;
+    return new Promise((resolve) => { release = resolve; });
+  };
+
+  const first = task.run(work);
+  const second = task.run(work);
+
+  assert.equal(task.isPending(), true);
+  assert.strictEqual(second, first);
+  assert.equal(attempts, 1);
+  assert.deepEqual(pendingStates, [true]);
+
+  release('started');
+  assert.equal(await first, 'started');
+  assert.equal(task.isPending(), false);
+  assert.deepEqual(pendingStates, [true, false]);
+
+  assert.equal(await task.run(async () => {
+    attempts += 1;
+    return 'started-again';
+  }), 'started-again');
+  assert.equal(attempts, 2);
+});
 
 function assertExactHomeCover(layout, expectedIds) {
   assert.ok(layout);

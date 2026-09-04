@@ -30,7 +30,125 @@ const {
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
   reduceClipboardObservation,
+  createForegroundMediaPermissionCoordinator,
 } = require('../main-services');
+
+test('media permission prompts temporarily leave the screen-saver window layer', async () => {
+  const events = [];
+  let alwaysOnTop = true;
+  const owner = {
+    isDestroyed: () => false,
+    isVisible: () => true,
+    isAlwaysOnTop: () => alwaysOnTop,
+    setAlwaysOnTop(value, level) {
+      alwaysOnTop = value;
+      events.push(['top', value, level]);
+    },
+    focus: () => events.push(['focus']),
+  };
+
+  const coordinator = createForegroundMediaPermissionCoordinator({
+    activate: () => events.push(['activate']),
+    track: (delta) => events.push(['track', delta]),
+  });
+  const granted = await coordinator.run({
+    owner,
+    request: async () => {
+      events.push(['request', alwaysOnTop]);
+      return true;
+    },
+  });
+
+  assert.equal(granted, true);
+  assert.equal(alwaysOnTop, true);
+  assert.deepEqual(events, [
+    ['track', 1],
+    ['top', false, undefined],
+    ['activate'],
+    ['focus'],
+    ['request', false],
+    ['top', true, 'screen-saver'],
+    ['track', -1],
+  ]);
+});
+
+test('media permission prompts restore the window layer when the system request fails', async () => {
+  let alwaysOnTop = true;
+  const deltas = [];
+  const owner = {
+    isDestroyed: () => false,
+    isVisible: () => true,
+    isAlwaysOnTop: () => alwaysOnTop,
+    setAlwaysOnTop(value) { alwaysOnTop = value; },
+    focus() {},
+  };
+
+  const coordinator = createForegroundMediaPermissionCoordinator({
+    activate() {},
+    track: (delta) => deltas.push(delta),
+  });
+  await assert.rejects(() => coordinator.run({
+    owner,
+    request: async () => { throw new Error('permission service failed'); },
+  }), /permission service failed/);
+
+  assert.equal(alwaysOnTop, true);
+  assert.deepEqual(deltas, [1, -1]);
+});
+
+test('overlapping media prompts stay below system UI until every request settles', async () => {
+  let alwaysOnTop = true;
+  const deltas = [];
+  const releases = [];
+  const owner = {
+    isDestroyed: () => false,
+    isAlwaysOnTop: () => alwaysOnTop,
+    setAlwaysOnTop(value) { alwaysOnTop = value; },
+    focus() {},
+  };
+  const coordinator = createForegroundMediaPermissionCoordinator({
+    activate() {},
+    track: (delta) => deltas.push(delta),
+  });
+  const request = () => new Promise((resolve) => releases.push(resolve));
+
+  const camera = coordinator.run({ owner, request });
+  const microphone = coordinator.run({ owner, request });
+  assert.equal(alwaysOnTop, false);
+  assert.deepEqual(deltas, [1, 1]);
+
+  releases[0](true);
+  assert.equal(await camera, true);
+  assert.equal(alwaysOnTop, false, 'the second system prompt is still awaiting a decision');
+  assert.deepEqual(deltas, [1, 1, -1]);
+
+  releases[1](false);
+  assert.equal(await microphone, false);
+  assert.equal(alwaysOnTop, true);
+  assert.deepEqual(deltas, [1, 1, -1, -1]);
+});
+
+test('a failed window-layer restore still releases the media interaction guard', async () => {
+  const deltas = [];
+  const owner = {
+    isDestroyed: () => false,
+    isAlwaysOnTop: () => true,
+    setAlwaysOnTop(value) {
+      if (value) throw new Error('restore failed');
+    },
+    focus() {},
+  };
+  const coordinator = createForegroundMediaPermissionCoordinator({
+    activate() {},
+    track: (delta) => deltas.push(delta),
+  });
+
+  await assert.rejects(() => coordinator.run({
+    owner,
+    request: async () => true,
+  }), /restore failed/);
+  assert.deepEqual(deltas, [1, -1]);
+});
 
 test('portable workspace persistence skips unchanged snapshots regardless of key order', () => {
   const gate = createWorkspacePersistenceGate();

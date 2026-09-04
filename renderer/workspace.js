@@ -786,9 +786,14 @@
   let strandsFrame = null;
   let strandsSamples = null;
   let strandsLevel = 0;
+  const recordingStartTask = Domain.createExclusiveAsyncTask(() => updateRecordingUi());
 
   function isRecordingActive() {
     return ['recording', 'paused', 'saving'].includes(recordingStatus);
+  }
+
+  function isRecordingBusy() {
+    return recordingStartTask.isPending() || isRecordingActive();
   }
 
   function stopRecordingStrands() {
@@ -1125,6 +1130,7 @@
   }
 
   function currentRecordingFeedback() {
+    if (recordingStartTask.isPending()) return '等待确认麦克风权限…';
     if (recordingCaptureIssue) return recordingCaptureIssue;
     if (recordingStatus === 'saving') return '正在保存录音…';
     if (transcriptionConfig.asrNeedsReentry) return '转写密钥已失效 · 请重新配置 API Key';
@@ -1315,10 +1321,14 @@
 
   function updateRecordingUi() {
     const recordingActive = isRecordingActive();
-    if (homeRecorder) homeRecorder.dataset.state = recordingStatus;
-    if (recordingDot) recordingDot.dataset.state = recordingStatus;
+    const recordingBusy = isRecordingBusy();
+    const visualState = recordingStartTask.isPending() ? 'requesting' : recordingStatus;
+    if (homeRecorder) homeRecorder.dataset.state = visualState;
+    if (recordingDot) recordingDot.dataset.state = visualState;
     if (recordingStateLabel) {
-      recordingStateLabel.textContent = recordingStatus === 'recording'
+      recordingStateLabel.textContent = recordingStartTask.isPending()
+        ? '等待录音权限'
+        : recordingStatus === 'recording'
         ? '正在录音'
         : recordingStatus === 'paused'
           ? '已暂停'
@@ -1327,7 +1337,7 @@
             : '快速录音';
     }
     if (recordingTime) recordingTime.textContent = formatClock(recordingActive ? currentDuration() : 0);
-    if (recordStart) recordStart.disabled = recordingActive;
+    if (recordStart) recordStart.disabled = recordingBusy;
     if (recordPause) {
       recordPause.disabled = !['recording', 'paused'].includes(recordingStatus);
       recordPause.setAttribute('aria-label', recordingStatus === 'paused' ? '继续录音' : '暂停录音');
@@ -1335,11 +1345,13 @@
     }
     if (recordStop) recordStop.disabled = !['recording', 'paused'].includes(recordingStatus);
     if (recordingNew) {
-      recordingNew.disabled = recordingActive;
-      recordingNew.textContent = recordingActive ? '录制' : '录音';
-      recordingNew.setAttribute('aria-label', recordingActive ? '录音进行中' : '开始录音');
+      recordingNew.disabled = recordingBusy;
+      recordingNew.textContent = recordingBusy ? '录制' : '录音';
+      recordingNew.setAttribute('aria-label', recordingStartTask.isPending()
+        ? '正在请求麦克风权限'
+        : recordingActive ? '录音进行中' : '开始录音');
     }
-    if (liveTranscript && recordingActive) {
+    if (liveTranscript && recordingBusy) {
       const text = currentRecordingText();
       // asrNeedsReentry = 密文还在但当前应用解不开它。safeStorage 的密钥存在钥匙串里、
       // ACL 绑代码签名，所以开发版存的 Key 装成 DMG 后就读不出来（ad-hoc 签名每次打包
@@ -1352,7 +1364,7 @@
     syncRecordingDraftUi();
     renderHomeModuleSettings();
     document.dispatchEvent(new CustomEvent('notch:recording-state-changed', {
-      detail: { active: recordingActive },
+      detail: { active: recordingBusy },
     }));
   }
 
@@ -1499,12 +1511,8 @@
     updateRecordingUi();
   }
 
-  async function startRecording() {
+  async function startRecordingAttempt() {
     if (recordingStatus !== 'idle' || !navigator.mediaDevices || !window.MediaRecorder) return;
-    if (liveTranscript) {
-      liveTranscript.textContent = '';
-      liveTranscript.hidden = true;
-    }
     try {
       if (window.notchAPI && !(await window.notchAPI.ensureMicrophone())) {
         if (liveTranscript) {
@@ -1582,6 +1590,10 @@
       }
       updateRecordingUi();
     }
+  }
+
+  function startRecording() {
+    return recordingStartTask.run(startRecordingAttempt);
   }
 
   function togglePauseRecording() {
@@ -2652,6 +2664,6 @@
   window.NotchWorkspace = {
     refreshWindows,
     startRecording,
-    isRecordingActive,
+    isRecordingActive: isRecordingBusy,
   };
 })();

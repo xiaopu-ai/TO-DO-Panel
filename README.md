@@ -48,7 +48,7 @@ TO-DO Panel 是一个常驻 macOS 屏幕顶部的本地工作台。默认折叠�
 
 ## 下载与安装
 
-> 当前稳定版本：**1.0.6** · 支持 **macOS 13.0+ 的 Apple Silicon Mac**
+> 当前稳定版本：**1.0.7** · 支持 **macOS 13.0+ 的 Apple Silicon Mac**
 
 1. 前往 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO-Panel-*-arm64.dmg`。
 2. 打开 DMG，将 `TO-DO Panel.app` 拖入「应用程序」。
@@ -59,7 +59,7 @@ TO-DO Panel 是一个常驻 macOS 屏幕顶部的本地工作台。默认折叠�
 
 ## 更新日志
 
-当前稳定版本为 **v1.0.6**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
+当前稳定版本为 **v1.0.7**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
 
 完整版本历史、修复内容与未发布改动见 [CHANGELOG.md](CHANGELOG.md)。
 

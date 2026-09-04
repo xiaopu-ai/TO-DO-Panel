@@ -52,6 +52,7 @@ const {
   reduceClipboardObservation,
   normalizeDefaultTabPreference,
   updateDefaultTabPreference,
+  createForegroundMediaPermissionCoordinator,
 } = require('./main-services');
 
 // Keep the historical data directory so upgrading users retain notes, links,
@@ -243,9 +244,11 @@ let collapseGeneration = 0;
 let hideWhenCollapsed = false;
 let isQuitting = false;
 let mediaPermissionRequests = 0;
+let mediaPermissionBatchHadCamera = false;
 let transientSystemInteractionRequests = 0;
 let cameraBlurDeferred = false;
 let sodaMusicPlaying = false;
+const mediaPermissionCoordinator = createForegroundMediaPermissionCoordinator();
 
 let notificationWindow = null;
 let notificationWindowReady = false;
@@ -1523,17 +1526,22 @@ ipcMain.handle('window:set-tab', (event, tab) => {
   currentTab = Object.prototype.hasOwnProperty.call(TAB_SIZES, tab) ? tab : 'home';
 });
 
-// macOS 渲染层 getUserMedia 不会自动弹 TCC 授权，必须由主进程申请摄像头权限
-ipcMain.handle('media:camera', async () => {
+async function requestMacMediaAccess(mediaType) {
   if (process.platform !== 'darwin') return true;
-  if (systemPreferences.getMediaAccessStatus('camera') === 'granted') return true;
-  mediaPermissionRequests++;
-  try {
-    return await systemPreferences.askForMediaAccess('camera');
-  } finally {
-    mediaPermissionRequests = Math.max(0, mediaPermissionRequests - 1);
-    if (mediaPermissionRequests === 0 && cameraBlurDeferred) {
+  if (systemPreferences.getMediaAccessStatus(mediaType) === 'granted') return true;
+  return mediaPermissionCoordinator.run({
+    owner: mainWindow,
+    // screen-saver 层级会压住 macOS 的 TCC 授权气泡。请求前临时降到普通层，
+    // 并把应用激活，让“不允许 / 允许”确实处在可点击的最前方。
+    activate: () => app.focus({ steal: true }),
+    track: (delta) => {
+      if (delta > 0 && mediaType === 'camera') mediaPermissionBatchHadCamera = true;
+      mediaPermissionRequests = Math.max(0, mediaPermissionRequests + delta);
+      if (delta >= 0 || mediaPermissionRequests > 0) return;
+      const shouldCollapse = cameraBlurDeferred && mediaPermissionBatchHadCamera;
+      mediaPermissionBatchHadCamera = false;
       cameraBlurDeferred = false;
+      if (!shouldCollapse) return;
       const targetWindow = mainWindow;
       setTimeout(() => {
         if (
@@ -1545,23 +1553,14 @@ ipcMain.handle('media:camera', async () => {
           requestRendererCollapse();
         }
       }, 200);
-    }
-  }
-});
+    },
+    request: () => systemPreferences.askForMediaAccess(mediaType),
+  });
+}
 
-ipcMain.handle('media:microphone', async () => {
-  if (process.platform !== 'darwin') return true;
-  if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true;
-  mediaPermissionRequests++;
-  try {
-    return await systemPreferences.askForMediaAccess('microphone');
-  } finally {
-    mediaPermissionRequests = Math.max(0, mediaPermissionRequests - 1);
-    if (mediaPermissionRequests === 0 && cameraBlurDeferred) {
-      cameraBlurDeferred = false;
-    }
-  }
-});
+// macOS 渲染层 getUserMedia 不会自动弹 TCC 授权，必须由主进程申请摄像头/麦克风权限。
+ipcMain.handle('media:camera', () => requestMacMediaAccess('camera'));
+ipcMain.handle('media:microphone', () => requestMacMediaAccess('microphone'));
 
 ipcMain.handle('tasks:recent', () => taskCompletionHistory);
 

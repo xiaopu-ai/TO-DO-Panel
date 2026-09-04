@@ -4,6 +4,14 @@
 
 ## [未发布]
 
+## [1.0.7] - 2026-09-04
+
+### 修复
+
+- 修复首次申请录音或摄像头权限时，macOS 授权弹窗被常驻面板遮挡而无法点击的问题；请求期间临时降低面板层级并激活应用，结束后安全恢复置顶状态。
+- 修复摄像头与麦克风权限请求重叠时过早恢复置顶、再次遮挡尚未结束的系统弹窗的问题。
+- 修复录音权限等待阶段反复点击不同录音入口会重复发起请求、生成大量错误提示行的问题；等待期间只保留一次启动任务，并显示明确的权限状态。
+
 ## [1.0.6] - 2026-09-04
 
 ### 新增
@@ -74,7 +82,8 @@
 
 - 首个稳定版本，建立固定命名的 Apple Silicon DMG 发布流程。
 
-[未发布]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.6...HEAD
+[未发布]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.3...v1.0.4
