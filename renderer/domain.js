@@ -378,6 +378,13 @@
     return visible;
   }
 
+  function resolveDefaultPanelTab(preferredTab, visibleTabs) {
+    const tabs = Array.isArray(visibleTabs) ? visibleTabs : [];
+    if (typeof preferredTab === 'string' && tabs.includes(preferredTab)) return preferredTab;
+    if (tabs.includes('home')) return 'home';
+    return tabs[0] || 'home';
+  }
+
   function normalizeNoteArchive(value) {
     if (!Array.isArray(value)) return [];
     return value
@@ -475,6 +482,7 @@
     const statuses = apiCredentialStatuses(input.transcription);
     return {
       shortcut: String(appSettings.shortcut || 'Space'),
+      defaultTab: String(appSettings.defaultTab || 'home'),
       autoLaunch: appSettings.autoLaunch === true,
       workspacePath: String(workspace.path || ''),
       workspaceLabel: workspace.portable ? '自定义文件夹' : '默认文件夹',
@@ -519,7 +527,6 @@
     const base = now instanceof Date ? new Date(now.getTime()) : new Date(now);
     if (!Number.isFinite(base.getTime())) return null;
     const deadline = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 30, 0, 0);
-    if (deadline.getTime() <= base.getTime()) deadline.setDate(deadline.getDate() + 1);
     return deadline.toISOString();
   }
 
@@ -896,6 +903,7 @@
     filterCredentials,
     credentialRowAction,
     visiblePanelTabs,
+    resolveDefaultPanelTab,
     normalizeNoteArchive,
     filterNotes,
     updateNoteInArchive,

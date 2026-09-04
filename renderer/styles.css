@@ -3601,6 +3601,23 @@ body {
 .settings-device-row em { color: #8eb2ff; font-style: normal; }
 .settings-device-row button { flex: 0 0 auto; min-height: 28px; padding: 0 10px; border: 0; border-radius: 9px; background: rgba(255,255,255,.06); color: var(--text-3); font: 9px var(--font); cursor: pointer; transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease); }
 .settings-device-row button:hover { background: rgba(255,255,255,.11); color: var(--text-1); }
+.settings-default-tab-row { cursor: pointer; }
+.settings-default-tab-row select {
+  flex: 0 0 auto;
+  min-width: 112px;
+  height: 30px;
+  padding: 0 28px 0 10px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 9px;
+  background: rgba(255,255,255,.06);
+  color: var(--text-2);
+  font: 10px var(--font);
+  color-scheme: dark;
+  cursor: pointer;
+}
+.settings-default-tab-row select:hover { background-color: rgba(255,255,255,.1); color: var(--text-1); }
+.settings-default-tab-row select:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.settings-default-tab-row select:disabled { opacity: .5; cursor: default; }
 .settings-workspace-row > div { flex: 1 1 auto; }
 .settings-workspace-path { max-width: 290px; }
 .settings-device-actions { flex: 0 0 auto; display: flex; gap: 6px; }

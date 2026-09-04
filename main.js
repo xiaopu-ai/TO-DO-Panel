@@ -50,6 +50,8 @@ const {
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
   reduceClipboardObservation,
+  normalizeDefaultTabPreference,
+  updateDefaultTabPreference,
 } = require('./main-services');
 
 // Keep the historical data directory so upgrading users retain notes, links,
@@ -1120,9 +1122,11 @@ function writeJsonFile(filePath, value) {
 
 function readAppSettings() {
   const stored = readJsonFile(getJsonSettingsPath(APP_SETTINGS_FILE));
+  const features = { ...DEFAULT_FEATURES, ...(stored.features || {}), home: true };
   return {
-    features: { ...DEFAULT_FEATURES, ...(stored.features || {}), home: true },
+    features,
     shortcut: isValidPanelShortcut(stored.shortcut) ? stored.shortcut : 'Space',
+    defaultTab: normalizeDefaultTabPreference(stored.defaultTab, features),
   };
 }
 
@@ -1427,6 +1431,13 @@ ipcMain.handle('settings:set-feature', (event, payload) => {
   if (!saveAppSettings(next)) return { ok: false, error: 'save_failed' };
   applyAppSettings();
   refreshTrayMenu();
+  return { ok: true, settings: publicAppSettings() };
+});
+ipcMain.handle('settings:set-default-tab', (event, defaultTab) => {
+  const next = updateDefaultTabPreference(readAppSettings(), defaultTab);
+  if (!next) return { ok: false, error: 'invalid_default_tab' };
+  if (!saveAppSettings(next)) return { ok: false, error: 'save_failed' };
+  applyAppSettings();
   return { ok: true, settings: publicAppSettings() };
 });
 ipcMain.handle('settings:set-auto-launch', (event, enabled) => {

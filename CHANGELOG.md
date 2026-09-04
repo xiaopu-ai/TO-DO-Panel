@@ -4,6 +4,16 @@
 
 ## [未发布]
 
+## [1.0.6] - 2026-09-04
+
+### 新增
+
+- 设置页新增「默认展开页」，可将首页、待办等当前可见 Tab 设为每次唤出面板时的起始页。
+
+### 修复
+
+- 新建待办成功后重置截止时间为当天 23:30，不再沿用上一条待办的手动日期。
+
 ## [1.0.5] - 2026-08-31
 
 ### 修复
@@ -64,7 +74,8 @@
 
 - 首个稳定版本，建立固定命名的 Apple Silicon DMG 发布流程。
 
-[未发布]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.5...HEAD
+[未发布]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.6...HEAD
+[1.0.6]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/xiaopu-ai/TO-DO-Panel/compare/v1.0.2...v1.0.3

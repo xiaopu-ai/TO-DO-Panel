@@ -731,6 +731,7 @@
   const settingsMirrorChoose = document.getElementById('settings-mirror-choose');
   const settingsShortcutValue = document.getElementById('settings-shortcut-value');
   const settingsShortcutChange = document.getElementById('settings-shortcut-change');
+  const settingsDefaultTab = document.getElementById('settings-default-tab');
   const settingsWorkspaceKind = document.getElementById('settings-workspace-kind');
   const settingsWorkspacePath = document.getElementById('settings-workspace-path');
   const settingsWorkspaceOpen = document.getElementById('settings-workspace-open');
@@ -941,6 +942,18 @@
       settingsLlmStatus.dataset.state = summary.llm.state;
     }
     if (settingsShortcutValue) settingsShortcutValue.textContent = summary.shortcut;
+    if (settingsDefaultTab) {
+      const visibleTabs = new Set(Domain.visiblePanelTabs(
+        ['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'],
+        settingsAppSettings?.features
+      ));
+      Array.from(settingsDefaultTab.options).forEach((option) => {
+        const visible = visibleTabs.has(option.value);
+        option.hidden = !visible;
+        option.disabled = !visible;
+      });
+      settingsDefaultTab.value = visibleTabs.has(summary.defaultTab) ? summary.defaultTab : 'home';
+    }
     if (settingsWorkspaceKind) settingsWorkspaceKind.textContent = summary.workspaceLabel;
     if (settingsWorkspacePath) {
       settingsWorkspacePath.textContent = summary.workspacePath || '默认数据目录';
@@ -1700,6 +1713,21 @@
   });
   settingsShortcutChange?.addEventListener('click', () => {
     document.dispatchEvent(new CustomEvent('notch:record-shortcut'));
+  });
+  settingsDefaultTab?.addEventListener('change', async () => {
+    if (!window.notchAPI?.setDefaultTab) return;
+    const previous = settingsAppSettings?.defaultTab || 'home';
+    settingsDefaultTab.disabled = true;
+    const result = await window.notchAPI.setDefaultTab(settingsDefaultTab.value).catch(() => ({ ok: false }));
+    settingsDefaultTab.disabled = false;
+    if (!result?.ok) {
+      settingsDefaultTab.value = previous;
+      setSettingsNote('默认展开页保存失败，请重试。', true);
+      return;
+    }
+    settingsAppSettings = result.settings || settingsAppSettings;
+    renderSettingsPanel();
+    setSettingsNote(`下次唤出将默认显示${settingsDefaultTab.selectedOptions[0]?.textContent || '所选页面'}。`);
   });
   settingsWorkspaceOpen?.addEventListener('click', () => {
     window.notchAPI?.openWorkspace?.().catch(() => setSettingsNote('无法打开数据文件夹。', true));

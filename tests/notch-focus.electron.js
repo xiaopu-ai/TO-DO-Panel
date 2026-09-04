@@ -210,6 +210,11 @@ async function main() {
             features: document.querySelectorAll('[data-settings-feature]').length,
             homeModules: document.querySelectorAll('[data-settings-home-module]').length,
             shortcut: Boolean(document.getElementById('settings-shortcut-change')),
+            defaultTab: {
+              exists: Boolean(document.getElementById('settings-default-tab')),
+              value: document.getElementById('settings-default-tab')?.value,
+              options: document.getElementById('settings-default-tab')?.options.length,
+            },
             workspace: Boolean(document.getElementById('settings-workspace-choose')),
             autoLaunch: Boolean(document.getElementById('settings-auto-launch')),
           });
@@ -229,9 +234,45 @@ async function main() {
       features: 6,
       homeModules: 7,
       shortcut: true,
+      defaultTab: { exists: true, value: 'home', options: 8 },
       workspace: true,
       autoLaunch: true,
     });
+
+    const defaultTabOpening = await window.webContents.executeJavaScript(`
+      (async () => {
+        const appSurface = document.getElementById('app');
+        const features = {
+          home: true,
+          todo: true,
+          notes: true,
+          links: true,
+          recordings: true,
+          credentials: true,
+          clip: false,
+        };
+        appSurface.classList.remove('expanded', 'opening', 'closing');
+        appSurface.classList.add('collapsed');
+        applyFeatureSettings({ features, defaultTab: 'todo' });
+        await setMode(true);
+        const preferredOpened = document.getElementById('tab-todo').classList.contains('active');
+        await setMode(false);
+
+        applyFeatureSettings({ features: { ...features, todo: false }, defaultTab: 'todo' });
+        await setMode(true);
+        const result = {
+          preferredOpened,
+          hiddenPreferenceFallsBackHome: document.getElementById('tab-home').classList.contains('active'),
+        };
+        await setMode(false);
+        applyFeatureSettings({ features, defaultTab: 'home' });
+        return result;
+      })()
+    `);
+    assert.deepEqual(defaultTabOpening, {
+      preferredOpened: true,
+      hiddenPreferenceFallsBackHome: true,
+    }, '每次展开应进入设置的默认页，不可见的默认页应回退到首页');
 
     const credentialSelectionAudit = await window.webContents.executeJavaScript(`
       (async () => {
@@ -341,6 +382,53 @@ async function main() {
       selected: [new Date().getFullYear() + 1, 0, 2],
       expectedYear: new Date().getFullYear() + 1,
     });
+
+    const todoDeadlineReset = await window.webContents.executeJavaScript(`
+      (() => {
+        const priority = 'P0';
+        const input = document.querySelector('.add-row input[data-priority="P0"]');
+        const trigger = document.querySelector('.todo-deadline-trigger[data-deadline-priority="P0"]');
+        const popover = document.getElementById('todo-date-popover');
+        const manuallySelected = trigger.dataset.deadline;
+        const submit = (text) => {
+          input.value = text;
+          input.dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            bubbles: true,
+            cancelable: true,
+          }));
+        };
+
+        submit('deadline-reset-first');
+        const resetDeadline = new Date(trigger.dataset.deadline);
+        const now = new Date();
+        submit('deadline-reset-second');
+
+        const stored = JSON.parse(localStorage.getItem('notch-todo-data'))[priority];
+        const first = stored.find((item) => item.text === 'deadline-reset-first');
+        const second = stored.find((item) => item.text === 'deadline-reset-second');
+        return {
+          firstKeptManualDeadline: first?.deadline === manuallySelected,
+          secondUsedResetDeadline: second?.deadline === trigger.dataset.deadline,
+          resetSource: trigger.dataset.deadlineSource,
+          resetParts: [
+            resetDeadline.getFullYear(),
+            resetDeadline.getMonth(),
+            resetDeadline.getDate(),
+            resetDeadline.getHours(),
+            resetDeadline.getMinutes(),
+          ],
+          todayParts: [now.getFullYear(), now.getMonth(), now.getDate(), 23, 30],
+          popoverHidden: popover.hidden,
+        };
+      })()
+    `);
+    assert.equal(todoDeadlineReset.firstKeptManualDeadline, true, '当前待办应使用本次手动选择的截止时间');
+    assert.equal(todoDeadlineReset.secondUsedResetDeadline, true, '下一条待办不得沿用上一条的截止时间');
+    assert.equal(todoDeadlineReset.resetSource, 'default');
+    assert.deepEqual(todoDeadlineReset.resetParts, todoDeadlineReset.todayParts, '新建表单应重置为当天 23:30');
+    assert.equal(todoDeadlineReset.popoverHidden, true, '提交后应关闭旧日期选择器');
 
     await window.webContents.executeJavaScript(`
       window.__measureHomepage = function measureHomepage() {

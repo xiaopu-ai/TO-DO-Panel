@@ -543,9 +543,14 @@ async function setMode(expanded) {
   isExpanded = expanded;
   try {
     if (expanded) {
-      // 每次召回都从首页建立空间记忆；上次停留的工具页不影响下一次展开。
-      if (activeTab !== 'home') await setActiveTab('home');
-      else applyTabDom('home');
+      // 每次召回使用设置中的默认页，不沿用上次收起时的停留页。
+      _justExpanded = true;
+      setTimeout(() => {
+        _justExpanded = false;
+      }, OPENING_SETTLE_MS);
+      const openingTab = window.NotchDomain.resolveDefaultPanelTab(defaultOpenTab, TABS);
+      if (activeTab !== openingTab) await setActiveTab(openingTab);
+      else applyTabDom(openingTab);
       syncPanelAccessibility(true);
       app.classList.remove('collapsed', 'closing');
       app.classList.add('opening');
@@ -562,12 +567,6 @@ async function setMode(expanded) {
       app.classList.add('expanded');
       // 展开后面板从隐藏变为可见，tab 尺寸此时才可量，校准激活胶囊位置
       requestAnimationFrame(() => requestAnimationFrame(positionIndicator));
-      // 标记"刚从折叠展开"——setActiveTab 会把图片等重活延后到动画落定后再跑。
-      // 360ms 覆盖岛体 340ms 形变并留一帧余量，过后让切 Tab 恢复即时加载。
-      _justExpanded = true;
-      setTimeout(() => {
-        _justExpanded = false;
-      }, OPENING_SETTLE_MS);
       setTimeout(() => {
         if (!isExpanded) return;
         if (activeTab === 'clip') renderClipList();
@@ -719,6 +718,7 @@ const tabIndicator = document.getElementById('tab-indicator');
 const collapseBtn = document.getElementById('collapse-btn');
 
 let activeTab = 'home';
+let defaultOpenTab = 'home';
 
 function applyFeatureSettings(settings) {
   const features = { ...(settings && settings.features || {}), home: true, settings: true };
@@ -730,6 +730,7 @@ function applyFeatureSettings(settings) {
     button.setAttribute('aria-hidden', String(!enabled));
   });
   TABS = window.NotchDomain.visiblePanelTabs(ALL_TABS, features);
+  defaultOpenTab = window.NotchDomain.resolveDefaultPanelTab(settings?.defaultTab, TABS);
   tabButtons = Array.from(document.querySelectorAll('.tab:not([hidden])'));
   tabButtons.forEach((button) => button.classList.remove('tab-split-start'));
   document.getElementById('tabs')?.classList.toggle('is-split', tabButtons.length > 4);
@@ -1154,6 +1155,13 @@ function applyDefaultTodoDeadline(trigger, now = new Date()) {
   trigger.classList.add('selected');
 }
 
+function resetTodoDraftDeadline(trigger, now = new Date()) {
+  if (!trigger) return;
+  delete trigger.dataset.deadline;
+  delete trigger.dataset.deadlineSource;
+  applyDefaultTodoDeadline(trigger, now);
+}
+
 function refreshDefaultTodoDeadlines(now = new Date()) {
   document.querySelectorAll('.todo-deadline-trigger[data-deadline-priority]').forEach((trigger) => {
     if (trigger.dataset.deadlineSource === 'manual') return;
@@ -1181,9 +1189,8 @@ PRIORITIES.forEach((priority) => {
       return;
     }
     input.value = '';
-    delete deadlineInput.dataset.deadline;
-    delete deadlineInput.dataset.deadlineSource;
-    applyDefaultTodoDeadline(deadlineInput);
+    if (todoEditorContext?.mode === 'add' && todoEditorContext.priority === priority) closeTodoEditor();
+    resetTodoDraftDeadline(deadlineInput);
     deadlineInput.classList.remove('invalid');
     input.focus({ preventScroll: true });
   };

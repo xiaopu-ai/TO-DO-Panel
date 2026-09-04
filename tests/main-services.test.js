@@ -22,6 +22,8 @@ const {
   taskNotificationWindowPolicy,
   prepareClipboardImagePayload,
   updateFeaturePreference,
+  normalizeDefaultTabPreference,
+  updateDefaultTabPreference,
   controlSodaMusic,
   sodaShortcutSpec,
   selectTranscriptionSettings,
@@ -429,6 +431,20 @@ test('feature preferences only update configurable tabs and keep permanent tabs 
   assert.equal(updateFeaturePreference({ todo: true }, 'settings', false), null);
   assert.equal(updateFeaturePreference({ todo: true }, 'unknown', false), null);
   assert.equal(updateFeaturePreference({ todo: true }, 'todo', 'false'), null);
+});
+
+test('default panel tab accepts visible tabs and falls back to home safely', () => {
+  const features = { todo: true, notes: false, clip: false };
+  assert.equal(normalizeDefaultTabPreference('todo', features), 'todo');
+  assert.equal(normalizeDefaultTabPreference('settings', features), 'settings');
+  assert.equal(normalizeDefaultTabPreference('notes', features), 'home');
+  assert.equal(normalizeDefaultTabPreference('unknown', features), 'home');
+  assert.deepEqual(updateDefaultTabPreference({ features, shortcut: 'Space' }, 'todo'), {
+    features,
+    shortcut: 'Space',
+    defaultTab: 'todo',
+  });
+  assert.equal(updateDefaultTabPreference({ features }, 'notes'), null);
 });
 
 test('first Soda Music play launches the app and starts its restored song', async () => {

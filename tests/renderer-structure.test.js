@@ -63,6 +63,15 @@ test('settings exposes exactly one switch for every homepage widget', () => {
   assert.match(workspaceJs, /at_least_one_required/);
 });
 
+test('settings exposes every panel tab as a possible default opening page', () => {
+  const select = html.match(/<select id="settings-default-tab"[\s\S]*?<\/select>/)?.[0] || '';
+  const options = [...select.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(options, [
+    'home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings',
+  ]);
+  assert.match(workspaceJs, /setDefaultTab/);
+});
+
 test('hidden visual widgets stop presentation-only background work', () => {
   assert.match(effectsJs, /setEnabled/);
   assert.match(effectsJs, /notch:home-modules-changed/);

@@ -445,11 +445,28 @@ function hoverSpacePollingPolicy({ shortcut, visible, mode } = {}) {
 }
 
 const CONFIGURABLE_FEATURES = new Set(['todo', 'notes', 'links', 'recordings', 'credentials', 'clip']);
+const DEFAULT_PANEL_TABS = new Set(['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings']);
 
 function updateFeaturePreference(features, featureId, enabled) {
   if (!CONFIGURABLE_FEATURES.has(featureId) || typeof enabled !== 'boolean') return null;
   const source = features && typeof features === 'object' && !Array.isArray(features) ? features : {};
   return { ...source, [featureId]: enabled, home: true };
+}
+
+function normalizeDefaultTabPreference(defaultTab, features) {
+  if (typeof defaultTab !== 'string' || !DEFAULT_PANEL_TABS.has(defaultTab)) return 'home';
+  if (!['home', 'settings'].includes(defaultTab) && features?.[defaultTab] === false) return 'home';
+  return defaultTab;
+}
+
+function updateDefaultTabPreference(settings, defaultTab) {
+  const source = settings && typeof settings === 'object' && !Array.isArray(settings) ? settings : {};
+  const features = source.features && typeof source.features === 'object' && !Array.isArray(source.features)
+    ? source.features
+    : {};
+  const normalized = normalizeDefaultTabPreference(defaultTab, features);
+  if (normalized !== defaultTab) return null;
+  return { ...source, defaultTab: normalized };
 }
 
 // 汽水音乐没有「控制 / 播放」菜单，辅助功能树也读不出窗口与菜单项名，
@@ -531,6 +548,8 @@ module.exports = {
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
   updateFeaturePreference,
+  normalizeDefaultTabPreference,
+  updateDefaultTabPreference,
   sodaShortcutSpec,
   controlSodaMusic,
 };

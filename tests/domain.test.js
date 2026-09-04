@@ -42,6 +42,7 @@ const {
   filterCredentials,
   credentialRowAction,
   visiblePanelTabs,
+  resolveDefaultPanelTab,
   settingsSummary,
   normalizeNoteArchive,
   filterNotes,
@@ -373,7 +374,7 @@ test('todo deadline uses the calendar month being viewed instead of the current 
   assert.equal(calendarDeadline({ year: 2027, month: 1, day: 29, hour: 23, minute: 30 }), null);
 });
 
-test('default todo deadline follows the current local day across midnight and month boundaries', () => {
+test('default todo deadline stays on the current local day, including after 23:30', () => {
   const daytime = new Date(2026, 7, 28, 9, 15, 0, 0);
   const sameDayDeadline = new Date(defaultTodoDeadline(daytime));
   assert.deepEqual([
@@ -385,14 +386,14 @@ test('default todo deadline follows the current local day across midnight and mo
   ], [2026, 7, 28, 23, 30]);
 
   const afterCutoff = new Date(2026, 7, 31, 23, 31, 0, 0);
-  const nextDayDeadline = new Date(defaultTodoDeadline(afterCutoff));
+  const sameDayAfterCutoff = new Date(defaultTodoDeadline(afterCutoff));
   assert.deepEqual([
-    nextDayDeadline.getFullYear(),
-    nextDayDeadline.getMonth(),
-    nextDayDeadline.getDate(),
-    nextDayDeadline.getHours(),
-    nextDayDeadline.getMinutes(),
-  ], [2026, 8, 1, 23, 30]);
+    sameDayAfterCutoff.getFullYear(),
+    sameDayAfterCutoff.getMonth(),
+    sameDayAfterCutoff.getDate(),
+    sameDayAfterCutoff.getHours(),
+    sameDayAfterCutoff.getMinutes(),
+  ], [2026, 7, 31, 23, 30]);
 });
 
 test('todos sort unfinished by DDL and creation time with completed items last', () => {
@@ -445,6 +446,12 @@ test('settings stays at the far right when optional tabs are hidden', () => {
   }), ['home', 'settings']);
 });
 
+test('default panel tab uses the preference only while that tab is visible', () => {
+  assert.equal(resolveDefaultPanelTab('todo', ['home', 'todo', 'settings']), 'todo');
+  assert.equal(resolveDefaultPanelTab('todo', ['home', 'settings']), 'home');
+  assert.equal(resolveDefaultPanelTab('unknown', ['home', 'settings']), 'home');
+});
+
 test('settings summary combines safe API status with local device settings', () => {
   assert.equal(typeof settingsSummary, 'function', 'settingsSummary must exist');
   assert.deepEqual(settingsSummary({
@@ -453,6 +460,7 @@ test('settings summary combines safe API status with local device settings', () 
     transcription: { configured: true, llmConfigured: false },
   }), {
     shortcut: 'Command+Shift+P',
+    defaultTab: 'home',
     autoLaunch: true,
     workspacePath: '/Users/test/Panel',
     workspaceLabel: '自定义文件夹',
