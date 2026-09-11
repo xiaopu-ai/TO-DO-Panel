@@ -1,6 +1,6 @@
 {
   "name": "to-do-panel",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "TO-DO Panel - a local desktop workspace for macOS and Windows",
   "main": "main.js",
   "author": "xiaopu-ai",
@@ -71,7 +71,14 @@
     },
     "win": {
       "icon": "build/to-do-panel-icon.png",
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "artifactName": "TO-DO-Panel-${version}-windows-${arch}-setup.${ext}"
     },
     "nsis": {

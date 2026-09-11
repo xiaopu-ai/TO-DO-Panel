@@ -773,12 +773,12 @@
   let settingsAppSettings = null;
   let settingsWorkspace = null;
   let transcriptionStatus = 'idle';
+  let transcriptionAudioGap = false;
   let transcriptionStartPromise = null;
   let transcriptionAudioContext = null;
   let transcriptionAudioSource = null;
   let transcriptionAudioProcessor = null;
   let transcriptionAudioMute = null;
-  let transcriptionPcmQueue = [];
   let transcriptionFinishPromise = null;
   let strandsAudioContext = null;
   let strandsAudioSource = null;
@@ -1138,7 +1138,9 @@
     if (transcriptionConfig.asrNeedsReentry) return '转写密钥已失效 · 请重新配置 API Key';
     if (transcriptionStatus === 'browser-error') return '未配置转写 API · 音频仍在录制';
     if (transcriptionStatus === 'error') return '转写连接失败 · 音频仍在录制';
+    if (transcriptionStatus === 'reconnecting') return '转写中断，正在自动重连 · 音频仍在录制';
     if (transcriptionStatus === 'connecting') return '正在连接转写服务';
+    if (transcriptionAudioGap) return '断线期间部分转写可能缺失 · 完整音频仍在本机录制';
     if (recordingStatus === 'paused') return '录音已暂停';
     if (!transcriptionConfig.configured && !currentRecordingText()) return '未配置转写 API · 音频仍会保存在本机';
     return '正在录音';
@@ -1196,7 +1198,7 @@
     if (detailDot) detailDot.dataset.state = recordingStatus;
     if (detailTime) detailTime.textContent = formatClock(durationMs);
     if (detailTranscript && detailTranscript.value !== text) detailTranscript.value = text;
-    if (detailFeedback) detailFeedback.textContent = text ? '转写内容会随录音实时更新' : currentRecordingFeedback();
+    if (detailFeedback) detailFeedback.textContent = currentRecordingFeedback();
     if (detailConfigure) detailConfigure.hidden = transcriptionConfig.configured && !transcriptionConfig.asrNeedsReentry;
     if (detailPause) {
       detailPause.textContent = recordingStatus === 'paused' ? '继续' : '暂停';
@@ -1221,18 +1223,12 @@
     transcriptionAudioSource = null;
     transcriptionAudioProcessor = null;
     transcriptionAudioMute = null;
-    transcriptionPcmQueue = [];
   }
 
   function sendTranscriptionPcm(buffer) {
     if (!buffer || !buffer.byteLength || !window.notchAPI) return;
-    if (transcriptionStatus === 'connected') {
+    if (['connecting', 'connected', 'reconnecting'].includes(transcriptionStatus)) {
       window.notchAPI.sendTranscriptionAudio(buffer);
-      return;
-    }
-    if (transcriptionStatus === 'connecting') {
-      transcriptionPcmQueue.push(buffer);
-      if (transcriptionPcmQueue.length > 60) transcriptionPcmQueue.shift();
     }
   }
 
@@ -1264,7 +1260,6 @@
   async function startCloudTranscription() {
     if (!transcriptionConfig.configured || !window.notchAPI || !mediaStream) return { ok: false, error: 'not_configured' };
     transcriptionStatus = 'connecting';
-    transcriptionPcmQueue = [];
     startTranscriptionAudioPipeline(mediaStream);
     updateRecordingUi();
     let result;
@@ -1273,16 +1268,14 @@
     } catch (error) {
       result = { ok: false, error: 'connection_failed' };
     }
+    if (recordingStatus !== 'recording' && recordingStatus !== 'paused') return result;
     if (!result || !result.ok) {
       transcriptionStatus = 'error';
       stopTranscriptionAudioPipeline();
       updateRecordingUi();
       return result || { ok: false };
     }
-    transcriptionStatus = 'connected';
-    const queued = transcriptionPcmQueue;
-    transcriptionPcmQueue = [];
-    queued.forEach((buffer) => window.notchAPI.sendTranscriptionAudio(buffer));
+    if (transcriptionStatus === 'connecting') transcriptionStatus = 'connected';
     updateRecordingUi();
     return result;
   }
@@ -1290,18 +1283,17 @@
   async function finishCloudTranscription() {
     if (!transcriptionStartPromise) return { ok: false, error: 'not_active', transcript: recordingTranscript };
     stopTranscriptionAudioPipeline();
-    await transcriptionStartPromise;
+    // Send finish immediately: waiting for a reconnect here could block saving for a minute.
     transcriptionStartPromise = null;
-    if (transcriptionStatus !== 'connected') return { ok: false, error: 'not_connected', transcript: recordingTranscript };
     transcriptionStatus = 'finishing';
     updateRecordingUi();
     let result;
     try {
       result = await window.notchAPI.finishTranscription();
     } catch (error) {
-      result = { ok: false, error: 'finish_failed', transcript: recordingTranscript };
+      result = { ok: false, error: 'finish_failed', transcript: currentRecordingText() };
     }
-    if (result && result.transcript) recordingTranscript = result.transcript;
+    recordingTranscript = result?.transcript || currentRecordingText();
     transcriptionStatus = result && result.ok ? 'idle' : 'error';
     interimTranscript = '';
     updateRecordingUi();
@@ -1316,6 +1308,10 @@
         interimTranscript = String(event.interim || '').trim();
       } else if (event.type === 'error') {
         transcriptionStatus = 'error';
+      } else if (event.type === 'status' && ['connected', 'reconnecting'].includes(event.status)) {
+        if (transcriptionStatus !== 'finishing') transcriptionStatus = event.status;
+      } else if (event.type === 'warning' && event.code === 'audio_gap') {
+        transcriptionAudioGap = true;
       }
       updateRecordingUi();
     });
@@ -1360,7 +1356,9 @@
       // 都会换 cdhash，也是同样的结果）。这种情况下录音正常、只有转写不工作，
       // 原来只在设置面板里提示一行，录音的人看不到，表现就是「能录但不转写」。
       const fallback = currentRecordingFeedback();
-      liveTranscript.textContent = text || fallback;
+      const needsAttention = recordingCaptureIssue || transcriptionAudioGap
+        || ['error', 'reconnecting', 'connecting', 'browser-error'].includes(transcriptionStatus);
+      liveTranscript.textContent = needsAttention && text ? `${fallback}\n${text}` : text || fallback;
       liveTranscript.hidden = !(text || fallback);
     }
     syncRecordingDraftUi();
@@ -1570,6 +1568,7 @@
       mediaRecorder.start(1000);
       recordingStatus = 'recording';
       transcriptionStatus = 'idle';
+      transcriptionAudioGap = false;
       transcriptionStartPromise = null;
       transcriptionFinishPromise = null;
       beginRecordingDraft();
@@ -1619,7 +1618,7 @@
     if (!mediaRecorder || !['recording', 'paused'].includes(recordingStatus)) return;
     recordingStopDurationMs = currentDuration();
     recordingStatus = 'saving';
-    stopSpeechRecognition();
+    if (!transcriptionConfig.configured) stopSpeechRecognition();
     transcriptionFinishPromise = transcriptionStartPromise
       ? finishCloudTranscription()
       : Promise.resolve({ ok: false, error: 'not_active', transcript: recordingTranscript });

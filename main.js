@@ -2582,8 +2582,12 @@ function closeTranscriptionSession(session, result = {}) {
   session.closed = true;
   clearTimeout(session.connectTimer);
   clearTimeout(session.finishTimer);
-  transcriptionSessions.delete(session.senderId);
-  try { session.socket.close(); } catch (error) {}
+  clearTimeout(session.retryTimer);
+  clearTimeout(session.heartbeatTimer);
+  if (transcriptionSessions.get(session.senderId) === session) transcriptionSessions.delete(session.senderId);
+  session.settleStart?.({ ok: false, error: result.error || 'connection_closed' });
+  session.audioQueue = [];
+  try { session.socket?.terminate(); } catch (error) {}
   if (session.finishResolve) {
     session.finishResolve({
       ok: result.ok !== false,
@@ -2597,8 +2601,14 @@ function closeTranscriptionSession(session, result = {}) {
 function handleTranscriptionMessage(session, raw) {
   let message;
   try { message = JSON.parse(String(raw)); } catch (error) { return; }
-  if (message.type === 'session.created' || message.type === 'session.updated') {
+  if (message.type === 'session.updated') {
+    session.ready = true;
+    session.retryCount = 0;
+    session.lastError = '';
+    clearTimeout(session.connectTimer);
+    session.settleStart({ ok: true });
     emitTranscription(session, { type: 'status', status: 'connected' });
+    flushTranscriptionAudio(session);
     return;
   }
   if (message.type === 'conversation.item.input_audio_transcription.text') {
@@ -2612,8 +2622,9 @@ function handleTranscriptionMessage(session, raw) {
   }
   if (message.type === 'conversation.item.input_audio_transcription.completed') {
     const transcript = String(message.transcript || '').trim();
-    if (transcript && session.finalSegments[session.finalSegments.length - 1] !== transcript) {
+    if (transcript && (!message.item_id || !session.completedItems.has(message.item_id))) {
       session.finalSegments.push(transcript);
+      if (message.item_id) session.completedItems.add(message.item_id);
     }
     session.interim = '';
     emitTranscription(session, {
@@ -2625,13 +2636,105 @@ function handleTranscriptionMessage(session, raw) {
   }
   if (message.type === 'error' || message.type === 'conversation.item.input_audio_transcription.failed') {
     const details = message.error && message.error.message || '实时转写服务返回错误';
-    emitTranscription(session, { type: 'error', message: details });
-    session.lastError = details;
+    reconnectTranscription(session, details);
     return;
   }
   if (message.type === 'session.finished') {
-    closeTranscriptionSession(session, { ok: !session.lastError, error: session.lastError });
+    if (session.finishResolve) closeTranscriptionSession(session, { ok: !session.audioGap, error: session.audioGap ? 'audio_gap' : null });
+    else reconnectTranscription(session, 'session_finished');
   }
+}
+
+function reconnectTranscription(session, error) {
+  if (session.closed || session.retryTimer) return;
+  session.lastError = error;
+  session.ready = false;
+  clearTimeout(session.connectTimer);
+  clearTimeout(session.heartbeatTimer);
+  const socket = session.socket;
+  session.socket = null; // Ignore late close/error/transcript events from the old connection.
+  try { socket?.terminate(); } catch (ignored) {}
+  if (session.finishResolve) {
+    closeTranscriptionSession(session, { ok: false, error });
+    return;
+  }
+  // Preserve the last partial sentence when the server can no longer finalize it.
+  if (session.interim) session.finalSegments.push(session.interim);
+  session.interim = '';
+  emitTranscription(session, { type: 'transcript', final: sessionTranscript(session), interim: '' });
+  if (session.retryCount >= 5) {
+    emitTranscription(session, { type: 'error', message: error });
+    closeTranscriptionSession(session, { ok: false, error });
+    return;
+  }
+  emitTranscription(session, { type: 'status', status: 'reconnecting' });
+  const delay = Math.min(1000 * 2 ** session.retryCount++, 15000);
+  session.retryTimer = setTimeout(() => {
+    session.retryTimer = null;
+    connectTranscriptionSocket(session);
+  }, delay);
+}
+
+function flushTranscriptionAudio(session) {
+  while (session.ready && session.socket?.readyState === WebSocket.OPEN && session.audioQueue.length) {
+    const buffer = session.audioQueue[0];
+    // Bound ws's own outgoing queue as well as our reconnect buffer.
+    if (session.socket.bufferedAmount > 16000 * 2 * 30) {
+      reconnectTranscription(session, 'audio_backpressure');
+      return;
+    }
+    try {
+      session.socket.send(JSON.stringify({
+        event_id: transcriptionEventId(), type: 'input_audio_buffer.append', audio: buffer.toString('base64'),
+      }));
+    } catch (error) {
+      reconnectTranscription(session, 'audio_send_failed');
+      return;
+    }
+    session.audioQueue.shift();
+    session.queuedBytes -= buffer.length;
+  }
+}
+
+function connectTranscriptionSocket(session) {
+  if (session.closed) return;
+  const socket = new WebSocket(transcriptionUrl(session.config), { headers: session.headers });
+  session.socket = socket;
+  session.completedItems = new Set();
+  const active = () => !session.closed && session.socket === socket;
+  session.connectTimer = setTimeout(() => {
+    if (active()) reconnectTranscription(session, 'connect_timeout');
+  }, 8000);
+  socket.on('open', () => {
+    if (!active()) return;
+    try {
+      socket.send(JSON.stringify({
+        event_id: transcriptionEventId(), type: 'session.update',
+        session: {
+          input_audio_format: 'pcm', sample_rate: TRANSCRIPTION_SAMPLE_RATE,
+          input_audio_transcription: { language: 'zh' },
+          turn_detection: { type: 'server_vad', threshold: 0, silence_duration_ms: 400 },
+        },
+      }));
+    } catch (error) { reconnectTranscription(session, 'configuration_send_failed'); return; }
+    let awaitingPong = false;
+    socket.on('pong', () => { awaitingPong = false; });
+    const heartbeat = () => {
+      if (!active()) return;
+      if (awaitingPong) { reconnectTranscription(session, 'heartbeat_timeout'); return; }
+      awaitingPong = true;
+      try { socket.ping(); } catch (error) { reconnectTranscription(session, 'heartbeat_failed'); return; }
+      session.heartbeatTimer = setTimeout(heartbeat, 15000);
+    };
+    session.heartbeatTimer = setTimeout(heartbeat, 15000);
+  });
+  socket.on('message', (data) => { if (active()) handleTranscriptionMessage(session, data); });
+  socket.on('error', (error) => {
+    if (active()) reconnectTranscription(session, String(error?.message || 'connection_failed'));
+  });
+  socket.on('close', (code) => {
+    if (active()) reconnectTranscription(session, `connection_closed_${code}`);
+  });
 }
 
 ipcMain.handle('transcription:get-config', () => publicTranscriptionConfig());
@@ -2687,74 +2790,39 @@ ipcMain.handle('transcription:start', (event) => {
       'User-Agent': 'DynamicPanel/0.3',
     };
     if (config.workspaceId) headers['X-DashScope-WorkSpace'] = config.workspaceId;
-    const socket = new WebSocket(transcriptionUrl(config), { headers });
     const session = {
-      sender: event.sender,
-      senderId: event.sender.id,
-      socket,
-      finalSegments: [],
-      interim: '',
-      ready: false,
-      closed: false,
-      startSettled: false,
-      finishResolve: null,
-      connectTimer: null,
-      finishTimer: null,
-      lastError: '',
+      sender: event.sender, senderId: event.sender.id, config, headers,
+      socket: null, finalSegments: [], interim: '', ready: false, closed: false,
+      startSettled: false, finishResolve: null, connectTimer: null, finishTimer: null,
+      retryTimer: null, heartbeatTimer: null, retryCount: 0, lastError: '',
+      audioQueue: [], queuedBytes: 0, audioGap: false, completedItems: new Set(),
     };
     transcriptionSessions.set(event.sender.id, session);
-    const settleStart = (result) => {
+    session.settleStart = (result) => {
       if (session.startSettled) return;
       session.startSettled = true;
-      clearTimeout(session.connectTimer);
       resolve(result);
     };
-    session.connectTimer = setTimeout(() => {
-      settleStart({ ok: false, error: 'connect_timeout' });
-      closeTranscriptionSession(session, { ok: false, error: 'connect_timeout' });
-    }, 8000);
-    socket.on('open', () => {
-      session.ready = true;
-      socket.send(JSON.stringify({
-        event_id: transcriptionEventId(),
-        type: 'session.update',
-        session: {
-          input_audio_format: 'pcm',
-          sample_rate: TRANSCRIPTION_SAMPLE_RATE,
-          input_audio_transcription: { language: 'zh' },
-          turn_detection: {
-            type: 'server_vad',
-            threshold: 0,
-            silence_duration_ms: 400,
-          },
-        },
-      }));
-      settleStart({ ok: true });
-    });
-    socket.on('message', (data) => handleTranscriptionMessage(session, data));
-    socket.on('error', (error) => {
-      const message = String(error && error.message || 'connection_failed');
-      emitTranscription(session, { type: 'error', message });
-      settleStart({ ok: false, error: 'connection_failed' });
-      closeTranscriptionSession(session, { ok: false, error: message });
-    });
-    socket.on('close', () => {
-      settleStart({ ok: false, error: 'connection_closed' });
-      closeTranscriptionSession(session, { ok: !session.lastError, error: session.lastError || null });
-    });
+    connectTranscriptionSocket(session);
   });
 });
 
 ipcMain.on('transcription:audio', (event, bytes) => {
   const session = transcriptionSessions.get(event.sender.id);
-  if (!session || !session.ready || session.closed || session.socket.readyState !== WebSocket.OPEN) return;
+  if (!session || session.closed || session.finishResolve) return;
   const buffer = Buffer.from(bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes || []);
   if (!buffer.length || buffer.length > 512 * 1024) return;
-  session.socket.send(JSON.stringify({
-    event_id: transcriptionEventId(),
-    type: 'input_audio_buffer.append',
-    audio: buffer.toString('base64'),
-  }));
+  session.audioQueue.push(buffer);
+  session.queuedBytes += buffer.length;
+  // 30 seconds of 16 kHz mono PCM16; the full recording still stays on disk.
+  while (session.queuedBytes > TRANSCRIPTION_SAMPLE_RATE * 2 * 30) {
+    session.queuedBytes -= session.audioQueue.shift().length;
+    if (!session.audioGap) {
+      session.audioGap = true;
+      emitTranscription(session, { type: 'warning', code: 'audio_gap' });
+    }
+  }
+  flushTranscriptionAudio(session);
 });
 
 ipcMain.handle('transcription:finish', (event) => {
@@ -2766,8 +2834,12 @@ ipcMain.handle('transcription:finish', (event) => {
     session.finishTimer = setTimeout(() => {
       closeTranscriptionSession(session, { ok: false, error: 'finish_timeout' });
     }, TRANSCRIPTION_FINISH_TIMEOUT_MS);
-    if (session.socket.readyState === WebSocket.OPEN) {
-      session.socket.send(JSON.stringify({ event_id: transcriptionEventId(), type: 'session.finish' }));
+    if (session.ready && session.socket?.readyState === WebSocket.OPEN) {
+      try {
+        session.socket.send(JSON.stringify({ event_id: transcriptionEventId(), type: 'session.finish' }));
+      } catch (error) {
+        closeTranscriptionSession(session, { ok: false, error: 'finish_send_failed' });
+      }
     } else {
       closeTranscriptionSession(session, { ok: false, error: 'connection_closed' });
     }

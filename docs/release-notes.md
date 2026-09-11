@@ -2,18 +2,20 @@
 
 | 电脑 | 下载文件 | 安装方式 |
 | --- | --- | --- |
-| Mac · Apple Silicon · macOS 13+ | [下载 macOS 安装包（.dmg）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.0/TO-DO-Panel-1.1.0-arm64.dmg) | 打开 DMG，将应用拖入「应用程序」 |
-| Windows 10/11 · Intel / AMD 64 位（x64） | [下载 Windows 安装包（.exe）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.0/TO-DO-Panel-1.1.0-windows-x64-setup.exe) | 双击 EXE，按安装向导完成安装 |
+| Mac · Apple Silicon · macOS 13+ | [下载 macOS 安装包（.dmg）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.1/TO-DO-Panel-1.1.1-arm64.dmg) | 打开 DMG，将应用拖入「应用程序」 |
+| Windows 10/11 · Intel / AMD 64 位（x64） | [下载 Windows 安装包（.exe）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.1/TO-DO-Panel-1.1.1-windows-x64-setup.exe) | 双击 EXE，按安装向导完成安装 |
 
 `.sha256` 是对应文件的完整性校验码，不是安装包。官网提供 macOS 与 Windows 两个下载入口。
 
-## 1.1.0
+## 1.1.1
 
-- 新增 Windows 版：贴顶面板、待办、笔记、链接、录音、密钥、镜子、番茄钟、指令、可选剪贴板历史与本机 AI 完成提醒。
-- Windows 首版暂不提供当前窗口切换与汽水音乐控制。剪贴板点击后复制，通过 Ctrl+V 手动粘贴；AI 提醒支持展示，暂不支持点击切回任务窗口。
-- 支持 Windows 托盘、开机启动、系统加密存储；Mac 和 Windows 共用业务代码与工作区格式。加密密钥不可跨电脑直接解密，迁移后需重新配置。
-- 官网两个入口动态获取当前 Release 对应安装包。
-- 修复工作区备份恢复时页面初始化中断及便签覆盖的问题，增加带已有数据启动的回归测试。
+- 修复录音实时转写中途断线后停止更新：断线、服务报错或会话提前结束会自动重连，保留已有文字并继续追加转写。
+- 增加连接心跳检查和最近 30 秒待发送音频缓存；连续连接失败最多重试 5 次，本机录音独立继续。
+- 首页和录制页明确显示正在重连、连接失败和缓存溢出提示，已有文字不再遮住异常状态。
+- 修复连接或重连期间结束录音时的清理、保存等待和末尾文字保留。
+- 官网下载按钮上下等宽排列，分别动态解析 macOS 和 Windows 安装包。
+
+已发送但未被服务确认的音频、以及超过缓存的离线片段仍可能缺字；本次更新不会自动补转旧录音。
 
 ## 首次安装
 

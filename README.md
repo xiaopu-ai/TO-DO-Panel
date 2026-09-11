@@ -49,14 +49,16 @@ TO-DO Panel 是一个常驻 macOS / Windows 屏幕顶部的本地工作台。Mac
 
 首页显隐也遵守资源边界：隐藏镜子会立即释放摄像头；录音进行中不能隐藏仍在首页显示的快速录音卡，但已隐藏该卡也不会禁用「录制」页的录音能力；隐藏音乐和当前窗口会停止纯展示用的 WebGL 动画与窗口扫描，番茄钟隐藏后仍继续计时和提醒。
 
+实时转写连接中断时会保留已有文字并自动重连，连续连接失败最多重试 5 次。重连期间最多缓存最近 30 秒音频，恢复后继续追加转写；首页与录制页会显示重连、失败或缓存溢出提示。本机录音独立继续，已发送但尚未被服务确认的音频、以及超出缓存的离线片段可能缺字，不会自动补转已保存的旧录音。
+
 ## 下载与安装
 
-> 当前稳定版本：**1.1.0** · **macOS 13.0+ Apple Silicon** / **Windows 10/11 x64（Intel / AMD 64 位）**
+> 当前稳定版本：**1.1.1** · **macOS 13.0+ Apple Silicon** / **Windows 10/11 x64（Intel / AMD 64 位）**
 
 | 平台 | 在上方 GitHub Releases 下载对应安装包 |
 | --- | --- |
-| Mac | [TO-DO-Panel-1.1.0-arm64.dmg](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.0/TO-DO-Panel-1.1.0-arm64.dmg) |
-| Windows | [TO-DO-Panel-1.1.0-windows-x64-setup.exe](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.0/TO-DO-Panel-1.1.0-windows-x64-setup.exe) |
+| Mac | [TO-DO-Panel-1.1.1-arm64.dmg](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.1/TO-DO-Panel-1.1.1-arm64.dmg) |
+| Windows | [TO-DO-Panel-1.1.1-windows-x64-setup.exe](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.1/TO-DO-Panel-1.1.1-windows-x64-setup.exe) |
 
 ### macOS
 
@@ -79,7 +81,7 @@ Windows 版在 GitHub Windows runner 上自动验证安装、启动、数据保�
 
 ## 更新日志
 
-当前稳定版本为 **v1.1.0**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
+当前稳定版本为 **v1.1.1**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
 
 完整版本历史、修复内容与未发布改动见 [CHANGELOG.md](CHANGELOG.md)。
 
