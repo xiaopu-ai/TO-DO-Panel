@@ -168,6 +168,8 @@ body {
   justify-content: center;
   cursor: pointer;
   transition:
+    width var(--d-base) var(--ease-out),
+    opacity var(--d-fast) var(--ease-out),
     height var(--d-base) var(--ease-out),
     border-radius var(--d-base) var(--ease-out),
     background var(--d-fast) var(--ease-out);
@@ -190,6 +192,9 @@ body {
   align-items: flex-end;
   padding-bottom: 2px;
 }
+
+html.platform-win32 #app.collapsed .notch { width: 200px; height: 6px; opacity: .72; }
+html.platform-win32 #app.collapsed.peek .notch { width: 200px; height: var(--notch-h, 38px); opacity: 1; }
 
 /* 刘海脱离布局流：退场时不再向上拖动面板，黑色外壳始终贴住屏幕顶部。 */
 #app.expanded .notch {
@@ -1329,7 +1334,37 @@ body {
   grid-template-rows: repeat(2, minmax(0, 1fr));
   gap: var(--s-3);
   height: 100%;
+  overflow-y: auto;
+  align-content: start;
+  grid-auto-rows: minmax(180px, 1fr);
 }
+.sections.has-dynamic {
+  grid-template-rows: none;
+  grid-auto-rows: 180px;
+}
+.sections::-webkit-scrollbar { width: var(--scrollbar-w); }
+.sections::-webkit-scrollbar-track { background: transparent; }
+.sections::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: var(--r-pill); }
+.sections::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+
+.todo-add-category {
+  min-height: 44px;
+  border: 1px dashed rgba(255,255,255,.18);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font: 11px var(--font);
+}
+.todo-add-category:hover { color: var(--text-1); background: rgba(255,255,255,.04); }
+.todo-add-category-form { min-height: 44px; display: flex; align-items: center; gap: 6px; padding: 7px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; background: var(--surface-1); }
+.todo-add-category-form[hidden] { display: none; }
+.todo-add-category-form input { min-width: 0; flex: 1; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; outline: none; background: rgba(255,255,255,.07); color: var(--text-1); font: 11px var(--font); }
+.todo-add-category-form button { height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: rgba(255,255,255,.08); color: var(--text-2); cursor: pointer; font: 10px var(--font); }
+.todo-add-category-form button:hover { color: var(--text-1); background: rgba(255,255,255,.14); }
+.todo-category-delete { width: 22px; height: 22px; padding: 0; border: 0; background: transparent; color: var(--text-4); cursor: pointer; opacity: .55; }
+.todo-category-delete:hover { color: #ff817b; opacity: 1; }
+.dynamic-quadrant .dot { background: var(--category-color, #8aa8ff); }
 
 /* ============ 象限 tile ============ */
 .quadrant {

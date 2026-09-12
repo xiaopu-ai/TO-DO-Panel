@@ -1,12 +1,14 @@
 const STORAGE_KEY = 'notch-todo-data';
-const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
+let PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const TODO_CATEGORY_KEY = 'notch-todo-category-names-v1';
+const TODO_DYNAMIC_KEY = 'notch-todo-dynamic-categories-v1';
 const TODO_CATEGORY_DEFAULTS = {
   P0: '课程',
   P1: '自媒体&写作',
   P2: 'Vibe coding',
   P3: '日常',
 };
+const BUILTIN_PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 
 const app = document.getElementById('app');
 const notch = document.getElementById('notch');
@@ -14,6 +16,7 @@ const panel = document.getElementById('panel');
 const statusToast = document.getElementById('status-toast');
 const statusToastMessage = document.getElementById('status-toast-message');
 const statusToastAction = document.getElementById('status-toast-action');
+document.documentElement.classList.toggle('platform-win32', window.notchAPI?.platform === 'win32');
 
 function collectLocalStorageSnapshot() {
   const result = {};
@@ -136,6 +139,36 @@ function loadData() {
   }
 }
 
+function loadDynamicCategories() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TODO_DYNAMIC_KEY) || 'null');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((category) => ({
+      id: typeof category?.id === 'string' && /^C[a-z0-9-]+$/i.test(category.id) ? category.id : generateId(),
+      name: String(category?.name || '未命名分类').trim().slice(0, 24) || '未命名分类',
+      color: /^#[0-9a-f]{6}$/i.test(String(category?.color || '')) ? category.color : '#8aa8ff',
+      items: normalizeTodoItems(category?.items),
+    }));
+  } catch (error) { return []; }
+}
+
+function persistDynamicCategories() {
+  try { localStorage.setItem(TODO_DYNAMIC_KEY, JSON.stringify(dynamicCategories)); } catch (error) {}
+}
+
+function getTodoCategoryIds() { return [...BUILTIN_PRIORITIES, ...dynamicCategories.map((category) => category.id)]; }
+function getTodoItems(categoryId) {
+  if (BUILTIN_PRIORITIES.includes(categoryId)) return data[categoryId] || [];
+  return dynamicCategories.find((category) => category.id === categoryId)?.items || [];
+}
+function setTodoItems(categoryId, items) {
+  if (BUILTIN_PRIORITIES.includes(categoryId)) data[categoryId] = items;
+  else {
+    const category = dynamicCategories.find((item) => item.id === categoryId);
+    if (category) category.items = items;
+  }
+}
+
 function normalizeTodoItems(value) {
   if (!Array.isArray(value)) return [];
   return value
@@ -170,12 +203,14 @@ function saveData(data) {
     // ignore quota errors
   }
   if (window.notchAPI && typeof window.notchAPI.scheduleTodoReminders === 'function') {
-    const reminders = PRIORITIES.flatMap((priority) => data[priority] || []);
+    const reminders = getTodoCategoryIds().flatMap((priority) => getTodoItems(priority));
     window.notchAPI.scheduleTodoReminders(reminders).catch(() => {});
   }
 }
 
 let data = loadData();
+let dynamicCategories = loadDynamicCategories();
+PRIORITIES = getTodoCategoryIds();
 let todoCategoryNames = loadTodoCategoryNames();
 const todoSelections = Object.fromEntries(PRIORITIES.map((priority) => [priority, new Set()]));
 const todoSelectionAnchors = Object.fromEntries(PRIORITIES.map((priority) => [priority, null]));
@@ -201,17 +236,129 @@ function persistTodoCategoryNames() {
 }
 
 function applyTodoCategoryNames() {
-  PRIORITIES.forEach((categoryId) => {
+  BUILTIN_PRIORITIES.forEach((categoryId) => {
     const name = todoCategoryNames[categoryId];
     const input = document.querySelector(`.todo-category-name[data-category="${categoryId}"]`);
     const addInput = document.querySelector(`.add-row input[data-priority="${categoryId}"]`);
     if (input) input.value = name;
     if (addInput) addInput.setAttribute('aria-label', `添加${name}待办`);
   });
+  dynamicCategories.forEach((category) => {
+    const input = document.querySelector(`.todo-category-name[data-category="${category.id}"]`);
+    const addInput = document.querySelector(`.add-row input[data-priority="${category.id}"]`);
+    if (input) input.value = category.name;
+    if (addInput) addInput.setAttribute('aria-label', `添加${category.name}待办`);
+  });
+}
+
+function renderDynamicCategorySections() {
+  const container = document.getElementById('todo-sections');
+  const addButton = document.getElementById('todo-add-category');
+  if (!container || !addButton) return;
+  container.classList.toggle('has-dynamic', dynamicCategories.length > 0);
+  dynamicCategories.forEach((category) => {
+    if (container.querySelector(`.quadrant[data-priority="${category.id}"]`)) return;
+    const section = document.createElement('section');
+    section.className = 'quadrant tile dynamic-quadrant';
+    section.dataset.priority = category.id;
+    section.style.setProperty('--category-color', category.color);
+    section.innerHTML = `<div class="quadrant-header"><span class="dot" style="background:${escapeHtml(category.color)}"></span><input class="todo-category-name" data-category="${escapeHtml(category.id)}" value="${escapeHtml(category.name)}" maxlength="24" aria-label="修改待办分类名称" /><button class="todo-category-delete" type="button" data-category-delete="${escapeHtml(category.id)}" aria-label="删除${escapeHtml(category.name)}分类">×</button><span class="count" data-priority="${escapeHtml(category.id)}">0</span></div><ul class="todo-list" data-priority="${escapeHtml(category.id)}"></ul><div class="add-row"><input type="text" placeholder="添加待办，回车保存…" aria-label="添加${escapeHtml(category.name)}待办" data-priority="${escapeHtml(category.id)}" maxlength="80" /><button class="todo-deadline-trigger" type="button" data-deadline-priority="${escapeHtml(category.id)}" aria-label="选择${escapeHtml(category.name)}待办截止时间"><span>日期</span></button></div>`;
+    container.insertBefore(section, addButton);
+  });
+}
+
+renderDynamicCategorySections();
+
+const todoAddCategoryButton = document.getElementById('todo-add-category');
+const todoAddCategoryForm = document.getElementById('todo-add-category-form');
+const todoNewCategoryName = document.getElementById('todo-new-category-name');
+const todoNewCategorySave = document.getElementById('todo-new-category-save');
+const todoNewCategoryCancel = document.getElementById('todo-new-category-cancel');
+
+function closeTodoCategoryForm() {
+  if (!todoAddCategoryForm) return;
+  todoAddCategoryForm.hidden = true;
+  if (todoAddCategoryButton) todoAddCategoryButton.hidden = false;
+}
+
+function createDynamicCategory() {
+  const name = todoNewCategoryName?.value.trim() || '';
+  if (!name) {
+    todoNewCategoryName?.focus({ preventScroll: true });
+    return;
+  }
+  const id = `C${generateId()}`;
+  dynamicCategories.push({ id, name: name.slice(0, 24), color: '#8aa8ff', items: [] });
+  PRIORITIES.push(id);
+  todoSelections[id] = new Set();
+  todoSelectionAnchors[id] = null;
+  persistDynamicCategories();
+  renderDynamicCategorySections();
+  applyTodoCategoryNames();
+  bindTodoCategoryInputs();
+  bindTodoCategory(id);
+  bindTodoCategoryList(id);
+  renderList(id);
+  updateCount(id);
+  closeTodoCategoryForm();
+}
+
+todoAddCategoryButton?.addEventListener('click', () => {
+  if (!todoAddCategoryForm) return;
+  todoAddCategoryButton.hidden = true;
+  todoAddCategoryForm.hidden = false;
+  todoNewCategoryName.value = '';
+  todoNewCategoryName.focus({ preventScroll: true });
+});
+todoNewCategorySave?.addEventListener('click', createDynamicCategory);
+todoNewCategoryCancel?.addEventListener('click', closeTodoCategoryForm);
+todoNewCategoryName?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); createDynamicCategory(); }
+  if (event.key === 'Escape') closeTodoCategoryForm();
+});
+
+function bindTodoCategoryInputs() {
+  document.querySelectorAll('.todo-category-name[data-category]').forEach((input) => {
+    if (input.dataset.bound === '1') return;
+    input.dataset.bound = '1';
+    const finishCategoryEdit = () => {
+      const categoryId = input.dataset.category;
+      if (BUILTIN_PRIORITIES.includes(categoryId)) {
+        todoCategoryNames = window.NotchDomain.normalizeTodoCategoryNames({ ...todoCategoryNames, [categoryId]: input.value }, TODO_CATEGORY_DEFAULTS);
+        persistTodoCategoryNames();
+      } else {
+        const category = dynamicCategories.find((item) => item.id === categoryId);
+        if (category) category.name = input.value.trim().slice(0, 24) || '未命名分类';
+        persistDynamicCategories();
+      }
+      applyTodoCategoryNames();
+    };
+    input.addEventListener('change', finishCategoryEdit);
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); input.blur(); }
+      if (event.key === 'Escape') { input.value = BUILTIN_PRIORITIES.includes(input.dataset.category) ? todoCategoryNames[input.dataset.category] : (dynamicCategories.find((item) => item.id === input.dataset.category)?.name || ''); input.blur(); }
+    });
+  });
+  document.querySelectorAll('[data-category-delete]').forEach((button) => {
+    if (button.dataset.bound === '1') return;
+    button.dataset.bound = '1';
+    button.addEventListener('click', () => {
+      const id = button.dataset.categoryDelete;
+      const category = dynamicCategories.find((item) => item.id === id);
+      if (!category || !window.confirm(`删除分类“${category.name}”及其中的待办？`)) return;
+      dynamicCategories = dynamicCategories.filter((item) => item.id !== id);
+      const index = PRIORITIES.indexOf(id); if (index >= 0) PRIORITIES.splice(index, 1);
+      delete todoSelections[id]; delete todoSelectionAnchors[id];
+      const container = document.querySelector(`.quadrant[data-priority="${id}"]`); container?.remove();
+      persistDynamicCategories();
+      saveData(data);
+      location.reload();
+    });
+  });
 }
 if (window.notchAPI && typeof window.notchAPI.scheduleTodoReminders === 'function') {
   window.notchAPI
-    .scheduleTodoReminders(PRIORITIES.flatMap((priority) => data[priority] || []))
+    .scheduleTodoReminders(getTodoCategoryIds().flatMap((priority) => getTodoItems(priority)))
     .catch(() => {});
 }
 
@@ -219,8 +366,8 @@ if (window.notchAPI && typeof window.notchAPI.onTodoReminder === 'function') {
   window.notchAPI.onTodoReminder((payload) => {
     if (!payload || !payload.id) return;
     let changed = false;
-    PRIORITIES.forEach((priority) => {
-      const item = (data[priority] || []).find((todo) => (
+    getTodoCategoryIds().forEach((priority) => {
+      const item = getTodoItems(priority).find((todo) => (
         todo.id === payload.id && String(todo.deadline || '') === String(payload.deadline || '')
       ));
       if (!item) return;
@@ -314,7 +461,7 @@ function animateTodoOrder(priority, previousPositions) {
 function renderList(priority, options = {}) {
   const list = document.querySelector(`.todo-list[data-priority="${priority}"]`);
   if (!list) return;
-  const items = window.NotchDomain.sortTodosForDisplay(data[priority] || []);
+  const items = window.NotchDomain.sortTodosForDisplay(getTodoItems(priority));
   list.innerHTML = items.map((item) => todoItemHtml(priority, item)).join('');
   updateTodoBulkButton(priority);
   animateTodoOrder(priority, options.previousPositions);
@@ -337,7 +484,7 @@ function updateTodoBulkButton(priority) {
 function updateCount(priority) {
   const countEl = document.querySelector(`.count[data-priority="${priority}"]`);
   if (!countEl) return;
-  const items = data[priority] || [];
+  const items = getTodoItems(priority);
   const pending = items.filter((t) => !t.done).length;
   countEl.textContent = String(pending);
 }
@@ -374,8 +521,11 @@ function addTodo(priority, text, deadline) {
   const item = window.NotchDomain.createTodo(text, deadline, generateId(), Date.now());
   if (!item) return false;
   const previousPositions = captureTodoPositions(priority);
-  data[priority].push(item);
+  const items = getTodoItems(priority);
+  items.push(item);
+  setTodoItems(priority, items);
   saveData(data);
+  persistDynamicCategories();
   renderList(priority, { previousPositions });
   updateCount(priority);
   flashItemClass(priority, item.id, 'enter');
@@ -392,19 +542,22 @@ function addTodo(priority, text, deadline) {
 }
 
 function editTodo(priority, id, text, deadline) {
-  const index = (data[priority] || []).findIndex((item) => item.id === id);
+  const items = getTodoItems(priority);
+  const index = items.findIndex((item) => item.id === id);
   if (index < 0) return false;
-  const updated = window.NotchDomain.updateTodo(data[priority][index], text, deadline);
+  const updated = window.NotchDomain.updateTodo(items[index], text, deadline);
   if (!updated) return false;
   const previousPositions = captureTodoPositions(priority);
-  data[priority][index] = updated;
+  items[index] = updated;
+  setTodoItems(priority, items);
   saveData(data);
+  persistDynamicCategories();
   renderList(priority, { previousPositions, focusId: id, focusAction: 'edit' });
   return true;
 }
 
 function toggleTodo(priority, id) {
-  const list = data[priority];
+  const list = getTodoItems(priority);
   const idx = list.findIndex((t) => t.id === id);
   if (idx === -1) return;
   const previousPositions = captureTodoPositions(priority);
@@ -412,6 +565,7 @@ function toggleTodo(priority, id) {
   list[idx].done = !list[idx].done;
   const nowDone = list[idx].done;
   saveData(data);
+  persistDynamicCategories();
   renderList(priority, {
     previousPositions,
     focusId: restoreFocus ? id : '',
@@ -422,7 +576,7 @@ function toggleTodo(priority, id) {
 }
 
 function deleteTodo(priority, id) {
-  const list = data[priority];
+  const list = getTodoItems(priority);
   const index = list.findIndex((t) => t.id === id);
   if (index === -1) return;
   const [removed] = list.splice(index, 1);
@@ -433,6 +587,7 @@ function deleteTodo(priority, id) {
   const nearbyItem = itemEl && (itemEl.nextElementSibling || itemEl.previousElementSibling);
   if (itemEl) itemEl.remove();
   saveData(data);
+  persistDynamicCategories();
   updateCount(priority);
   if (shouldRestoreFocus) {
     const nextFocus =
@@ -447,7 +602,9 @@ function deleteTodo(priority, id) {
     onAction: () => {
       if (list.some((item) => item.id === removed.id)) return;
       list.splice(Math.min(index, list.length), 0, removed);
+      setTodoItems(priority, list);
       saveData(data);
+      persistDynamicCategories();
       renderList(priority);
       updateCount(priority);
       const restored = document.querySelector(
@@ -645,6 +802,12 @@ document.addEventListener('keydown', (event) => {
 }, true);
 
 syncPanelAccessibility(false);
+
+if (window.notchAPI?.onPeekChanged) {
+  window.notchAPI.onPeekChanged((visible) => {
+    if (!isExpanded) app.classList.toggle('peek', visible);
+  });
+}
 
 panel.addEventListener('click', (e) => {
   e.stopPropagation();
@@ -974,30 +1137,8 @@ function initTab() {
   setActiveTab('home');
 }
 
-document.querySelectorAll('.todo-category-name[data-category]').forEach((input) => {
-  const finishCategoryEdit = () => {
-    const categoryId = input.dataset.category;
-    todoCategoryNames = window.NotchDomain.normalizeTodoCategoryNames({
-      ...todoCategoryNames,
-      [categoryId]: input.value,
-    }, TODO_CATEGORY_DEFAULTS);
-    persistTodoCategoryNames();
-    applyTodoCategoryNames();
-  };
-  input.addEventListener('change', finishCategoryEdit);
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.isComposing) {
-      event.preventDefault();
-      input.blur();
-    }
-    if (event.key === 'Escape') {
-      input.value = todoCategoryNames[input.dataset.category];
-      input.blur();
-    }
-  });
-});
-
 applyTodoCategoryNames();
+bindTodoCategoryInputs();
 
 const todoEditorBackdrop = document.getElementById('todo-date-popover');
 const todoEditorMonth = document.getElementById('todo-editor-month');
@@ -1071,7 +1212,7 @@ function applyTodoEditorSelection(markManual = true) {
   if (todoEditorError) todoEditorError.textContent = '';
   const { priority, id, mode } = todoEditorContext;
   if (mode === 'edit') {
-    const todo = (data[priority] || []).find((item) => item.id === id);
+    const todo = getTodoItems(priority).find((item) => item.id === id);
     if (!todo) return false;
     todo.deadline = deadline;
     saveData(data);
@@ -1180,7 +1321,7 @@ function refreshDefaultTodoDeadlines(now = new Date()) {
   });
 }
 
-PRIORITIES.forEach((priority) => {
+function bindTodoCategory(priority) {
   const input = document.querySelector(`.add-row input[data-priority="${priority}"]`);
   const deadlineInput = document.querySelector(`.todo-deadline-trigger[data-deadline-priority="${priority}"]`);
   if (!input) return;
@@ -1216,9 +1357,11 @@ PRIORITIES.forEach((priority) => {
   });
   input.addEventListener('focus', () => applyDefaultTodoDeadline(deadlineInput));
   deadlineInput?.addEventListener('click', () => openTodoEditor(priority));
-});
+}
 
-PRIORITIES.forEach((priority) => {
+PRIORITIES.forEach(bindTodoCategory);
+
+function bindTodoCategoryList(priority) {
   const list = document.querySelector(`.todo-list[data-priority="${priority}"]`);
   if (!list) return;
   list.addEventListener('click', (e) => {
@@ -1228,7 +1371,7 @@ PRIORITIES.forEach((priority) => {
     if (e.shiftKey) {
       e.preventDefault();
       const result = window.NotchDomain.updateRangeSelection(
-        window.NotchDomain.sortTodosForDisplay(data[priority] || []).map((todo) => todo.id),
+        window.NotchDomain.sortTodosForDisplay(getTodoItems(priority)).map((todo) => todo.id),
         [...todoSelections[priority]],
         id,
         todoSelectionAnchors[priority],
@@ -1245,17 +1388,17 @@ PRIORITIES.forEach((priority) => {
     if (action === 'toggle') {
       toggleTodo(priority, id);
     } else if (action === 'edit') {
-      const todo = (data[priority] || []).find((item) => item.id === id);
+      const todo = getTodoItems(priority).find((item) => item.id === id);
       if (todo) {
         editingTodo = { priority, id };
         renderList(priority);
         requestAnimationFrame(() => document.querySelector(`.todo-item[data-id="${CSS.escape(id)}"] .todo-inline-name`)?.focus({ preventScroll: true }));
       }
     } else if (action === 'edit-deadline') {
-      const todo = (data[priority] || []).find((candidate) => candidate.id === id);
+      const todo = getTodoItems(priority).find((candidate) => candidate.id === id);
       if (todo) openTodoEditor(priority, todo, target);
     } else if (action === 'save-edit') {
-      const todo = (data[priority] || []).find((candidate) => candidate.id === id);
+      const todo = getTodoItems(priority).find((candidate) => candidate.id === id);
       const name = item.querySelector('.todo-inline-name')?.value.trim() || '';
       if (!todo || !name || !todo.deadline) return;
       editingTodo = null;
@@ -1275,17 +1418,20 @@ PRIORITIES.forEach((priority) => {
       item.querySelector('[data-action="save-edit"]')?.click();
     }
   });
-});
+}
+
+PRIORITIES.forEach(bindTodoCategoryList);
 
 document.querySelectorAll('.todo-bulk-delete[data-bulk-priority]').forEach((button) => {
   button.addEventListener('click', () => {
     const priority = button.dataset.bulkPriority;
     const selected = todoSelections[priority];
     if (!selected || !selected.size) return;
-    data[priority] = (data[priority] || []).filter((item) => !selected.has(item.id));
+    setTodoItems(priority, getTodoItems(priority).filter((item) => !selected.has(item.id)));
     selected.clear();
     todoSelectionAnchors[priority] = null;
     saveData(data);
+    persistDynamicCategories();
     renderList(priority);
     updateCount(priority);
     showStatusToast('已删除所选待办');

@@ -7,6 +7,7 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'app.js'), 'utf8');
 const workspaceJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'workspace.js'), 'utf8');
 const effectsJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'effects.js'), 'utf8');
+const stylesCss = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'styles.css'), 'utf8');
 
 test('clipboard rows define both favorite icons before rendering entries', () => {
   assert.match(appJs, /const starOutlineSvg\s*=/);
@@ -76,4 +77,27 @@ test('hidden visual widgets stop presentation-only background work', () => {
   assert.match(effectsJs, /setEnabled/);
   assert.match(effectsJs, /notch:home-modules-changed/);
   assert.match(workspaceJs, /NotchHome\?\.isVisible/);
+});
+
+test('todo custom categories use an inline form instead of a browser prompt', () => {
+  assert.match(html, /id="todo-add-category-form"/);
+  assert.match(appJs, /todoNewCategorySave/);
+  assert.doesNotMatch(appJs, /window\.prompt/);
+});
+
+test('Windows collapsed strip keeps its width and reduces height', () => {
+  assert.match(stylesCss, /html\.platform-win32 #app\.collapsed \.notch \{[^}]*width:\s*200px;[^}]*height:\s*6px/);
+  assert.match(stylesCss, /html\.platform-win32 #app\.collapsed\.peek \.notch \{[^}]*height:\s*var\(--notch-h/);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8'), /activeHeight = windowsPeekVisible \? Math\.min\(bounds\.height, 38\) : 6/);
+});
+
+test('todo category scroller uses the shared scrollbar tokens', () => {
+  assert.match(stylesCss, /\.sections::\-webkit\-scrollbar \{ width: var\(--scrollbar-w\); \}/);
+  assert.match(stylesCss, /\.sections::\-webkit\-scrollbar-thumb \{ background: var\(--scrollbar-thumb\)/);
+});
+
+test('Windows collapsed window ignores mouse clicks until the peek state is active', () => {
+  const mainJs = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  assert.match(mainJs, /process\.platform === 'win32' && mode === 'collapsed'[\s\S]{0,220}setIgnoreMouseEvents\(true\)/);
+  assert.match(mainJs, /windowsPeekVisible = nearTop;[\s\S]{0,120}setIgnoreMouseEvents\(!nearTop\)/);
 });
