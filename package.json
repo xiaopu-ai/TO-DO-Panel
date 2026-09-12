@@ -1,6 +1,6 @@
 {
   "name": "to-do-panel",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "TO-DO Panel - a local desktop workspace for macOS and Windows",
   "main": "main.js",
   "author": "xiaopu-ai",

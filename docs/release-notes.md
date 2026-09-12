@@ -2,20 +2,18 @@
 
 | 电脑 | 下载文件 | 安装方式 |
 | --- | --- | --- |
-| Mac · Apple Silicon · macOS 13+ | [下载 macOS 安装包（.dmg）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.1/TO-DO-Panel-1.1.1-arm64.dmg) | 打开 DMG，将应用拖入「应用程序」 |
-| Windows 10/11 · Intel / AMD 64 位（x64） | [下载 Windows 安装包（.exe）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.1/TO-DO-Panel-1.1.1-windows-x64-setup.exe) | 双击 EXE，按安装向导完成安装 |
+| Mac · Apple Silicon · macOS 13+ | [下载 macOS 安装包（.dmg）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.2/TO-DO-Panel-1.1.2-arm64.dmg) | 打开 DMG，将应用拖入「应用程序」 |
+| Windows 10/11 · Intel / AMD 64 位（x64） | [下载 Windows 安装包（.exe）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.2/TO-DO-Panel-1.1.2-windows-x64-setup.exe) | 双击 EXE，按安装向导完成安装 |
 
 `.sha256` 是对应文件的完整性校验码，不是安装包。官网提供 macOS 与 Windows 两个下载入口。
 
-## 1.1.1
+## 1.1.2
 
-- 修复录音实时转写中途断线后停止更新：断线、服务报错或会话提前结束会自动重连，保留已有文字并继续追加转写。
-- 增加连接心跳检查和最近 30 秒待发送音频缓存；连续连接失败最多重试 5 次，本机录音独立继续。
-- 首页和录制页明确显示正在重连、连接失败和缓存溢出提示，已有文字不再遮住异常状态。
-- 修复连接或重连期间结束录音时的清理、保存等待和末尾文字保留。
-- 官网下载按钮上下等宽排列，分别动态解析 macOS 和 Windows 安装包。
-
-已发送但未被服务确认的音频、以及超过缓存的离线片段仍可能缺字；本次更新不会自动补转旧录音。
+- 修复应用常驻跨天后，新建待办默认截止日期仍停留在昨天或上次添加日期的问题。
+- 日期刷新独立于首页时钟；跨天、唤醒、展开面板和切回待办时自动校准为当天 23:30。
+- 输入、打开日期选择器和回车提交时再次校准默认日期，避免睡眠恢复或定时器尚未运行时保存旧日期。
+- 保留当前待办手动选择的日期，添加完成后重置为当天默认时间；已有待办的截止日期不变。
+- 增加真实 Electron 界面的跨天、跨年、闰日和手选日期回归检查。
 
 ## 首次安装
 
