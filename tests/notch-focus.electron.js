@@ -561,6 +561,75 @@ async function main() {
     assert.deepEqual(todoDeadlineReset.resetParts, todoDeadlineReset.todayParts, '新建表单应重置为当天 23:30');
     assert.equal(todoDeadlineReset.popoverHidden, true, '提交后应关闭旧日期选择器');
 
+    const todoRollover = await window.webContents.executeJavaScript(`
+      (async () => {
+        const RealDate = window.Date;
+        let now = new RealDate(2026, 8, 11, 22).getTime();
+        window.Date = class extends RealDate {
+          constructor(...args) { super(...(args.length ? args : [now])); }
+          static now() { return now; }
+        };
+        const triggers = [...document.querySelectorAll('.todo-deadline-trigger[data-deadline-priority]')];
+        const input = document.querySelector('.add-row input[data-priority="P0"]');
+        const trigger = triggers[0];
+        const today = () => new RealDate(new Date().getFullYear(), new Date().getMonth(), new Date().getDate(), 23, 30).toISOString();
+        const stale = () => triggers.forEach(t => resetTodoDraftDeadline(t, new RealDate(2026, 8, 11, 22)));
+        const submit = (text) => {
+          input.value = text;
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+          return JSON.parse(localStorage.getItem('notch-todo-data')).P0.find(t => t.text === text)?.deadline;
+        };
+        try {
+          stale();
+          // Let the resident timer observe the previous day before crossing midnight.
+          // Otherwise the test's target date may equal the real launch day's cache.
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          now = new RealDate(2026, 8, 12, 9).getTime();
+          // Real timer on the production page: there are no legacy clock DOM nodes.
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          const automatic = triggers.every(t => t.dataset.deadline === today());
+          stale();
+          window.dispatchEvent(new Event('focus'));
+          const wake = triggers.every(t => t.dataset.deadline === today());
+          stale();
+          document.dispatchEvent(new CustomEvent('notch:modechange', { detail: { expanded: true } }));
+          const expand = triggers.every(t => t.dataset.deadline === today());
+          stale();
+          document.dispatchEvent(new CustomEvent('notch:tabchange', { detail: { tab: 'todo' } }));
+          const tab = triggers.every(t => t.dataset.deadline === today());
+          stale();
+          input.dispatchEvent(new Event('focus'));
+          const inputFocus = trigger.dataset.deadline === today();
+          stale();
+          trigger.click();
+          const calendar = document.querySelector('#todo-calendar-grid .selected')?.dataset.day === '12'
+            && trigger.dataset.deadline === today();
+          closeTodoEditor();
+          const submits = [];
+          for (const parts of [[2026, 8, 12, 9], [2027, 0, 1, 0], [2028, 1, 29, 9], [2028, 2, 1, 9], [2028, 2, 1, 23, 50]]) {
+            stale(); now = new RealDate(...parts).getTime();
+            submits.push(submit('rollover-' + parts.join('-')) === today());
+          }
+          const manualDeadline = new RealDate(2028, 2, 5, 18).toISOString();
+          trigger.dataset.deadline = manualDeadline;
+          trigger.dataset.deadlineSource = 'manual';
+          window.dispatchEvent(new Event('focus'));
+          input.dispatchEvent(new Event('focus'));
+          const manual = submit('rollover-manual') === manualDeadline;
+          const resetAfterManual = trigger.dataset.deadline === today() && trigger.dataset.deadlineSource === 'default';
+          return { automatic, wake, expand, tab, inputFocus, calendar, submits, manual, resetAfterManual };
+        } finally {
+          window.Date = RealDate;
+          closeTodoEditor();
+          triggers.forEach(t => resetTodoDraftDeadline(t));
+        }
+      })()
+    `);
+    assert.deepEqual(todoRollover, {
+      automatic: true, wake: true, expand: true, tab: true, inputFocus: true, calendar: true,
+      submits: [true, true, true, true, true], manual: true, resetAfterManual: true,
+    }, '常驻跨天、唤醒和直接提交都应使用当天 23:30；本次手选日期应保留');
+
     await window.webContents.executeJavaScript(`
       window.__measureHomepage = function measureHomepage() {
         const surface = document.getElementById('home-bento').getBoundingClientRect();

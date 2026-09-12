@@ -1234,6 +1234,7 @@ function openTodoEditor(priority, item = null, anchor = null) {
   const now = new Date();
   const addInput = document.querySelector(`.add-row input[data-priority="${priority}"]`);
   const trigger = document.querySelector(`.todo-deadline-trigger[data-deadline-priority="${priority}"]`);
+  if (!item) applyDefaultTodoDeadline(trigger, now);
   const candidate = item && item.deadline ? new Date(item.deadline) : trigger?.dataset.deadline ? new Date(trigger.dataset.deadline) : null;
   const selectedDate = candidate && Number.isFinite(candidate.getTime())
     ? candidate
@@ -1297,6 +1298,7 @@ function applyDefaultTodoDeadline(trigger, now = new Date()) {
   if (!trigger || (trigger.dataset.deadline && trigger.dataset.deadlineSource !== 'default')) return;
   const deadline = window.NotchDomain.defaultTodoDeadline(now);
   if (!deadline) return;
+  if (trigger.dataset.deadline === deadline && trigger.dataset.deadlineSource === 'default') return;
   trigger.dataset.deadline = deadline;
   trigger.dataset.deadlineSource = 'default';
   trigger.querySelector('span').textContent = new Intl.DateTimeFormat('zh-CN', {
@@ -1328,6 +1330,8 @@ function bindTodoCategory(priority) {
   const submitTodo = () => {
     const value = input.value;
     if (!value.trim()) return;
+    // Sleep or midnight may have passed since the form was rendered.
+    applyDefaultTodoDeadline(deadlineInput);
     if (!deadlineInput || !deadlineInput.dataset.deadline) {
       deadlineInput?.classList.add('invalid');
       openTodoEditor(priority);
@@ -1351,6 +1355,7 @@ function bindTodoCategory(priority) {
     if (e.repeat) return;
     submitTodo();
   });
+  input.addEventListener('focus', () => applyDefaultTodoDeadline(deadlineInput));
   deadlineInput?.addEventListener('click', () => openTodoEditor(priority));
 }
 
@@ -1433,39 +1438,35 @@ document.querySelectorAll('.todo-bulk-delete[data-bulk-priority]').forEach((butt
   });
 });
 
-// ============ 首页 · 时钟·日期 ============
-const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-const clockDateEl = document.getElementById('clock-date');
-const clockHEl = document.getElementById('clock-h');
-const clockMEl = document.getElementById('clock-m');
-const clockSsEl = document.getElementById('clock-ss');
+// ============ 待办 · 常驻跨天刷新 ============
+// Draft dates must not depend on a home clock widget being present or visible.
 let todoDefaultRefreshKey = '';
 
-function pad2(n) {
-  return n < 10 ? '0' + n : String(n);
-}
-
-function tickClock() {
-  if (!clockHEl || !clockMEl) return;
+function tickTodoDefaultDeadlines() {
   const now = new Date();
-  const h = pad2(now.getHours());
-  const m = pad2(now.getMinutes());
-  if (clockHEl.textContent !== h) clockHEl.textContent = h;
-  if (clockMEl.textContent !== m) clockMEl.textContent = m;
-  if (clockSsEl) clockSsEl.textContent = pad2(now.getSeconds());
-  if (clockDateEl) {
-    const dateStr = `${WEEKDAYS[now.getDay()]} · ${now.getMonth() + 1}/${now.getDate()}`;
-    if (clockDateEl.textContent !== dateStr) clockDateEl.textContent = dateStr;
-  }
-  const refreshKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours() > 23 || (now.getHours() === 23 && now.getMinutes() >= 30)}`;
+  const refreshKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getTimezoneOffset()}`;
   if (refreshKey !== todoDefaultRefreshKey) {
     todoDefaultRefreshKey = refreshKey;
     refreshDefaultTodoDeadlines(now);
   }
 }
 
-tickClock();
-setInterval(tickClock, 1000);
+tickTodoDefaultDeadlines();
+setInterval(tickTodoDefaultDeadlines, 1000);
+window.addEventListener('focus', () => refreshDefaultTodoDeadlines());
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) refreshDefaultTodoDeadlines();
+});
+document.addEventListener('notch:modechange', (event) => {
+  if (event.detail?.expanded) refreshDefaultTodoDeadlines();
+});
+document.addEventListener('notch:tabchange', (event) => {
+  if (event.detail?.tab === 'todo') refreshDefaultTodoDeadlines();
+});
+
+function pad2(n) {
+  return n < 10 ? '0' + n : String(n);
+}
 
 // ============ 首页 · 番茄钟 ============
 const pomodoroToggle = document.getElementById('pomodoro-toggle');
