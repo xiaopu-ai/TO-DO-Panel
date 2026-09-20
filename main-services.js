@@ -2,6 +2,12 @@ const net = require('net');
 const path = require('path');
 const crypto = require('crypto');
 
+// Expanded panels must stay below IME candidates. Only the non-editable notch
+// needs to sit above the menu bar. Keep the existing Windows behavior.
+function panelAlwaysOnTopLevel(mode, platform = process.platform) {
+  return platform === 'darwin' && mode === 'expanded' ? 'floating' : 'screen-saver';
+}
+
 function isPrivateAddress(address) {
   const value = String(address || '').trim().toLowerCase().split('%', 1)[0];
   if (!value) return true;
@@ -120,7 +126,10 @@ function createForegroundMediaPermissionCoordinator(defaults = {}) {
             layerOwner = null;
             restoreAlwaysOnTop = false;
             if (shouldRestore && targetToRestore && !targetToRestore.isDestroyed()) {
-              targetToRestore.setAlwaysOnTop(true, 'screen-saver');
+              const level = typeof defaults.getWindowLevel === 'function'
+                ? defaults.getWindowLevel()
+                : panelAlwaysOnTopLevel('expanded');
+              targetToRestore.setAlwaysOnTop(true, level);
             }
           }
         } finally {
@@ -583,6 +592,7 @@ async function controlSodaMusic(action, dependencies = {}, currentPlaying = fals
 }
 
 module.exports = {
+  panelAlwaysOnTopLevel,
   isPrivateAddress,
   decodeHtmlEntities,
   extractPageTitle,

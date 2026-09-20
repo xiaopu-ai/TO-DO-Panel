@@ -31,9 +31,17 @@ const {
   hoverSpacePollingPolicy,
   reduceClipboardObservation,
   createForegroundMediaPermissionCoordinator,
+  panelAlwaysOnTopLevel,
 } = require('../main-services');
 
-test('media permission prompts temporarily leave the screen-saver window layer', async () => {
+test('editable Mac panels use the floating layer while collapsed notches and Windows retain their layer', () => {
+  assert.equal(panelAlwaysOnTopLevel('expanded', 'darwin'), 'floating');
+  assert.equal(panelAlwaysOnTopLevel('collapsed', 'darwin'), 'screen-saver');
+  assert.equal(panelAlwaysOnTopLevel('expanded', 'win32'), 'screen-saver');
+  assert.equal(panelAlwaysOnTopLevel('collapsed', 'win32'), 'screen-saver');
+});
+
+test('media permission prompts temporarily leave and restore the editable panel layer', async () => {
   const events = [];
   let alwaysOnTop = true;
   const owner = {
@@ -48,6 +56,7 @@ test('media permission prompts temporarily leave the screen-saver window layer',
   };
 
   const coordinator = createForegroundMediaPermissionCoordinator({
+    getWindowLevel: () => panelAlwaysOnTopLevel('expanded', 'darwin'),
     activate: () => events.push(['activate']),
     track: (delta) => events.push(['track', delta]),
   });
@@ -67,23 +76,25 @@ test('media permission prompts temporarily leave the screen-saver window layer',
     ['activate'],
     ['focus'],
     ['request', false],
-    ['top', true, 'screen-saver'],
+    ['top', true, 'floating'],
     ['track', -1],
   ]);
 });
 
 test('media permission prompts restore the window layer when the system request fails', async () => {
   let alwaysOnTop = true;
+  let restoredLevel;
   const deltas = [];
   const owner = {
     isDestroyed: () => false,
     isVisible: () => true,
     isAlwaysOnTop: () => alwaysOnTop,
-    setAlwaysOnTop(value) { alwaysOnTop = value; },
+    setAlwaysOnTop(value, level) { alwaysOnTop = value; restoredLevel = level; },
     focus() {},
   };
 
   const coordinator = createForegroundMediaPermissionCoordinator({
+    getWindowLevel: () => panelAlwaysOnTopLevel('collapsed', 'darwin'),
     activate() {},
     track: (delta) => deltas.push(delta),
   });
@@ -93,20 +104,24 @@ test('media permission prompts restore the window layer when the system request 
   }), /permission service failed/);
 
   assert.equal(alwaysOnTop, true);
+  assert.equal(restoredLevel, 'screen-saver');
   assert.deepEqual(deltas, [1, -1]);
 });
 
 test('overlapping media prompts stay below system UI until every request settles', async () => {
   let alwaysOnTop = true;
+  let mode = 'collapsed';
+  let restoredLevel;
   const deltas = [];
   const releases = [];
   const owner = {
     isDestroyed: () => false,
     isAlwaysOnTop: () => alwaysOnTop,
-    setAlwaysOnTop(value) { alwaysOnTop = value; },
+    setAlwaysOnTop(value, level) { alwaysOnTop = value; restoredLevel = level; },
     focus() {},
   };
   const coordinator = createForegroundMediaPermissionCoordinator({
+    getWindowLevel: () => panelAlwaysOnTopLevel(mode, 'darwin'),
     activate() {},
     track: (delta) => deltas.push(delta),
   });
@@ -122,9 +137,11 @@ test('overlapping media prompts stay below system UI until every request settles
   assert.equal(alwaysOnTop, false, 'the second system prompt is still awaiting a decision');
   assert.deepEqual(deltas, [1, 1, -1]);
 
+  mode = 'expanded';
   releases[1](false);
   assert.equal(await microphone, false);
   assert.equal(alwaysOnTop, true);
+  assert.equal(restoredLevel, 'floating', 'restore the current mode, not the layer from before the prompts');
   assert.deepEqual(deltas, [1, 1, -1, -1]);
 });
 

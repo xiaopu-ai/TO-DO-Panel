@@ -26,6 +26,7 @@ const { execFile } = require('child_process');
 const platformPolicy = require('./platform');
 const PLATFORM_CAPABILITIES = platformPolicy.capabilities(process.platform);
 const {
+  panelAlwaysOnTopLevel,
   isPrivateAddress,
   extractPageTitle,
   recordingExtension,
@@ -177,9 +178,8 @@ const COLLAPSED_WIDTH = 200;
 const COLLAPSED_MIN_HEIGHT = 38;
 // NOTCH_LIP（原 6px 唇边）已移除：折叠条高度现在恰好等于菜单栏高（≈物理刘海高），
 // 一个像素都不超出物理刘海。虽然折叠条完全在菜单栏拦截带内，
-// 但本项目窗口使用 setAlwaysOnTop(true,'screen-saver') 级别，
-// 实测菜单栏不拦截该级别窗口的点击，折叠条仍可点击展开。
-// （见项目记忆 notch-top-geometry-constraint / commit f12aea1）
+// 折叠条使用 screen-saver 层级保证可点击；展开后改用 floating 层级，
+// 并放在菜单栏下方，避免遮挡输入法候选窗或让菜单栏挡住面板按钮。
 
 // 所有 Tab 共用同一展开尺寸，切换内容时不再改变原生窗口边界。
 // 原生窗口只在折叠/展开两个模式间切换，避免 Tab 切换产生明显的宽高跳变。
@@ -196,7 +196,7 @@ const TAB_SIZES = {
   settings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
 };
 // 与渲染层结构常量对应：panel padding-top(--s-2 8) + 顶栏(--topbar-h 40)
-// + panels margin-top(--s-3 12) + panel padding-bottom(--s-4 16)。内容顶到屏幕最上沿，不留菜单栏带。
+// + panels margin-top(--s-3 12) + panel padding-bottom(--s-4 16)。展开内容从菜单栏下沿开始。
 const EXPANDED_CHROME_Y = 76;
 const SCREEN_MARGIN = 24; // 宽度超屏时两侧保留的安全边
 const COLLAPSE_WATCHDOG_MS = 650;
@@ -252,7 +252,9 @@ let mediaPermissionBatchHadCamera = false;
 let transientSystemInteractionRequests = 0;
 let cameraBlurDeferred = false;
 let sodaMusicPlaying = false;
-const mediaPermissionCoordinator = createForegroundMediaPermissionCoordinator();
+const mediaPermissionCoordinator = createForegroundMediaPermissionCoordinator({
+  getWindowLevel: () => panelAlwaysOnTopLevel(currentMode),
+});
 
 let notificationWindow = null;
 let notificationWindowReady = false;
@@ -350,14 +352,14 @@ function getCollapsedHeight(display) {
 }
 
 // 展开尺寸按当前 Tab 取值；宽度超出屏幕时 clamp 到工作区内。
-// 窗口从屏幕最顶垂下（y=0），内容直接顶到最上沿，高度不含菜单栏带。
+// 展开窗口位于菜单栏下方，高度限制在可用工作区内。
 function getExpandedSize(display) {
   const size = TAB_SIZES[currentTab] || TAB_SIZES.home;
   return {
     width: Math.min(size.width, display.workArea.width - SCREEN_MARGIN),
     height: Math.min(
       EXPANDED_CHROME_Y + size.panelHeight,
-      Math.max(getCollapsedHeight(display), display.bounds.height - SCREEN_MARGIN)
+      Math.max(getCollapsedHeight(display), display.workArea.height - SCREEN_MARGIN)
     ),
   };
 }
@@ -370,7 +372,7 @@ function getBoundsForMode(mode, display) {
   if (process.platform === 'win32') return platformPolicy.panelBounds(process.platform, d, mode === 'expanded');
   if (mode === 'expanded') {
     const { width, height } = getExpandedSize(d);
-    return getCenteredBounds(width, height, d);
+    return { ...getCenteredBounds(width, height, d), y: d.workArea.y };
   }
   return getCenteredBounds(COLLAPSED_WIDTH, getCollapsedHeight(d), d);
 }
@@ -383,12 +385,22 @@ function cancelCollapseWatchdog() {
   }
 }
 
+function syncPanelWindowLayer() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mediaPermissionRequests > 0) {
+    mainWindow.setAlwaysOnTop(false);
+    return;
+  }
+  mainWindow.setAlwaysOnTop(true, panelAlwaysOnTopLevel(currentMode));
+}
+
 function applyMode(mode, display) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   cancelCollapseWatchdog();
+  currentMode = mode;
+  syncPanelWindowLayer();
   mainWindow.setBounds(getBoundsForMode(mode, display));
   mainWindow.setIgnoreMouseEvents(false);
-  currentMode = mode;
   if (mode === 'expanded') hideWhenCollapsed = false;
   if (mode === 'collapsed' && hideWhenCollapsed) {
     hideWhenCollapsed = false;
@@ -1014,7 +1026,7 @@ function createWindow() {
 
   installLocalWebContentsGuards(mainWindow.webContents);
 
-  mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  syncPanelWindowLayer();
   if (process.platform === 'darwin') mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   if (process.platform === 'win32') mainWindow.setMenu(null);
 
@@ -1538,7 +1550,7 @@ async function requestMacMediaAccess(mediaType) {
   if (systemPreferences.getMediaAccessStatus(mediaType) === 'granted') return true;
   return mediaPermissionCoordinator.run({
     owner: mainWindow,
-    // screen-saver 层级会压住 macOS 的 TCC 授权气泡。请求前临时降到普通层，
+    // 置顶层级可能压住 macOS 的 TCC 授权气泡。请求前临时降到普通层，
     // 并把应用激活，让“不允许 / 允许”确实处在可点击的最前方。
     activate: () => app.focus({ steal: true }),
     track: (delta) => {
