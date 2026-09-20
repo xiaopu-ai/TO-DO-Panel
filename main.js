@@ -279,6 +279,8 @@ let clipObservationState = { textFingerprint: null, imageFingerprint: null };
 let lastClipImageProbeAt = 0;
 let clipPollingGeneration = 0;
 let spaceShortcutTimer = null;
+let windowsPeekTimer = null;
+let windowsPeekVisible = false;
 let spaceShortcutRegistered = false;
 let configuredShortcut = '';
 let previousPasteTarget = null;
@@ -387,8 +389,14 @@ function applyMode(mode, display) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   cancelCollapseWatchdog();
   mainWindow.setBounds(getBoundsForMode(mode, display));
-  mainWindow.setIgnoreMouseEvents(false);
   currentMode = mode;
+  if (process.platform === 'win32' && mode === 'collapsed') {
+    windowsPeekVisible = false;
+    mainWindow.setIgnoreMouseEvents(true);
+    mainWindow.webContents.send('window:peek-changed', false);
+  } else {
+    mainWindow.setIgnoreMouseEvents(false);
+  }
   if (mode === 'expanded') hideWhenCollapsed = false;
   if (mode === 'collapsed' && hideWhenCollapsed) {
     hideWhenCollapsed = false;
@@ -3188,6 +3196,31 @@ function syncHoverSpacePolling() {
   else stopHoverSpaceShortcut();
 }
 
+function syncWindowsPeekPolling() {
+  if (process.platform !== 'win32' || windowsPeekTimer) return;
+  windowsPeekTimer = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed() || currentMode === 'expanded' || !mainWindow.isVisible()) return;
+    const bounds = mainWindow.getBounds();
+    const point = screen.getCursorScreenPoint();
+    const activeHeight = windowsPeekVisible ? Math.min(bounds.height, 38) : 6;
+    const nearTop = point.x >= bounds.x && point.x <= bounds.x + bounds.width
+      && point.y >= bounds.y && point.y <= bounds.y + activeHeight;
+    if (nearTop === windowsPeekVisible) return;
+    windowsPeekVisible = nearTop;
+    mainWindow.setIgnoreMouseEvents(!nearTop);
+    mainWindow.webContents.send('window:peek-changed', nearTop);
+  }, 80);
+}
+
+function stopWindowsPeekPolling() {
+  if (windowsPeekTimer) clearInterval(windowsPeekTimer);
+  windowsPeekTimer = null;
+  windowsPeekVisible = false;
+  if (process.platform === 'win32' && mainWindow && !mainWindow.isDestroyed() && currentMode === 'collapsed') {
+    mainWindow.setIgnoreMouseEvents(true);
+  }
+}
+
 ipcMain.handle('shortcut:hover-space-status', () => ({
   registered: spaceShortcutRegistered && globalShortcut.isRegistered('Space'),
   mode: currentMode,
@@ -3345,6 +3378,7 @@ app.whenReady().then(() => {
 
   ensureFirstRunAutoLaunch();
   createWindow();
+  syncWindowsPeekPolling();
   createTray();
   watchDisplayChanges();
   ensureClipImagesDir();
@@ -3372,6 +3406,7 @@ app.on('will-quit', () => {
   cancelCollapseWatchdog();
   clearTodoReminderTimer();
   stopHoverSpaceShortcut();
+  stopWindowsPeekPolling();
   clearTaskNotificationTimers();
   stopTaskNotificationServer();
   closeAllTranscriptionSessions();

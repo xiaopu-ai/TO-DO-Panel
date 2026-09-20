@@ -223,7 +223,7 @@
           </section>
 
           <section id="tab-todo" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-todo" aria-hidden="true" inert>
-            <div class="sections">
+            <div id="todo-sections" class="sections">
               <section class="quadrant tile" data-priority="P0">
                 <div class="quadrant-header">
                   <span class="dot dot-p0"></span>
@@ -303,6 +303,12 @@
                   <button class="todo-deadline-trigger" type="button" data-deadline-priority="P3" aria-label="选择日常待办截止时间"><span>日期</span></button>
                 </div>
               </section>
+              <button id="todo-add-category" class="todo-add-category" type="button" aria-label="新增待办分类">+ 新增分类</button>
+              <div id="todo-add-category-form" class="todo-add-category-form" hidden>
+                <input id="todo-new-category-name" type="text" maxlength="24" placeholder="分类名称" aria-label="新分类名称" />
+                <button id="todo-new-category-save" type="button" aria-label="保存新分类">保存</button>
+                <button id="todo-new-category-cancel" type="button" aria-label="取消新增分类">取消</button>
+              </div>
             </div>
           </section>
 

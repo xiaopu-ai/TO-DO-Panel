@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('notchAPI', {
   getMetrics: () => ipcRenderer.invoke('window:metrics'),
   onMetricsChanged: (cb) =>
     subscribe('window:metrics-changed', (event, metrics) => cb(metrics)),
+  onPeekChanged: (cb) => subscribe('window:peek-changed', (event, visible) => cb(Boolean(visible))),
   writeClipboard: (entry) => ipcRenderer.invoke('clipboard:write', entry),
   pasteClipboard: (entry) => ipcRenderer.invoke('clipboard:paste', entry),
   readClipImage: (imagePath) => ipcRenderer.invoke('clipboard:readImage', imagePath),
