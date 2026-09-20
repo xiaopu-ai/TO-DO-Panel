@@ -101,3 +101,8 @@ test('Windows collapsed window ignores mouse clicks until the peek state is acti
   assert.match(mainJs, /process\.platform === 'win32' && mode === 'collapsed'[\s\S]{0,220}setIgnoreMouseEvents\(true\)/);
   assert.match(mainJs, /windowsPeekVisible = nearTop;[\s\S]{0,120}setIgnoreMouseEvents\(!nearTop\)/);
 });
+
+test('todo calendar uses the panel layer rather than a scrollable category card', () => {
+  assert.match(appJs, /panel\?\.appendChild\(todoEditorBackdrop\)/);
+  assert.match(stylesCss, /\.panel > \.todo-date-popover \{ z-index: 100; \}/);
+});

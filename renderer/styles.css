@@ -4823,30 +4823,7 @@ html.platform-win32 #app.collapsed.peek .notch { width: 200px; height: var(--not
 .home-music[data-widget-size='large'] .music-controls svg { width: 19px; height: 19px; }
 
 /* 日期浮层永远属于当前象限，而不是按整块面板定位。 */
-.quadrant { position: relative; }
-.quadrant:has(> .todo-date-popover:not([hidden])) { z-index: 60; }
-.quadrant > .todo-date-popover {
-  top: auto !important;
-  right: 12px !important;
-  bottom: 58px !important;
-  left: auto !important;
-  width: 208px;
-  filter: drop-shadow(0 14px 28px rgba(0,0,0,.46));
-}
-.quadrant > .todo-date-popover .todo-editor-card {
-  width: 208px;
-  padding: 9px;
-  border-radius: var(--r-popover);
-}
-.quadrant > .todo-date-popover .todo-editor-card::after { display: none; }
-.quadrant > .todo-date-popover .todo-editor-card header { min-height: 15px; margin-bottom: 3px; }
-.quadrant > .todo-date-popover .todo-calendar-head { grid-template-columns: 20px 1fr 20px; gap: 2px; }
-.quadrant > .todo-date-popover .todo-calendar-head button { width: 20px; height: 20px; border-radius: 6px; font-size: 13px; }
-.quadrant > .todo-date-popover .todo-calendar-week { margin-bottom: 1px; font-size: 7px; }
-.quadrant > .todo-date-popover .todo-calendar-grid { min-height: 104px; gap: 1px; }
-.quadrant > .todo-date-popover .todo-calendar-grid button { height: 17px; border-radius: 6px; font-size: 8px; }
-.quadrant > .todo-date-popover .todo-time-row { margin-top: 4px; }
-.quadrant > .todo-date-popover .todo-time-row select { width: 55px; height: 27px; }
+.panel > .todo-date-popover { z-index: 100; }
 
 /* 待办 Line Sidebar：象限色、内缩竖线和安全位移，避免穿过复选框或右侧裁切。 */
 .quadrant[data-priority='P0'] .todo-list { --line-accent: var(--p0); }

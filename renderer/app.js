@@ -1252,13 +1252,27 @@ function openTodoEditor(priority, item = null, anchor = null) {
     const target = anchor || (item
       ? document.querySelector(`.todo-item[data-id="${CSS.escape(item.id)}"] .todo-inline-deadline`)
       : trigger);
-    const quadrant = target?.closest('.quadrant') || document.querySelector(`.quadrant[data-priority="${priority}"]`);
-    quadrant?.appendChild(todoEditorBackdrop);
+    panel?.appendChild(todoEditorBackdrop);
     todoEditorBackdrop.hidden = false;
-    todoEditorBackdrop.style.removeProperty('left');
-    todoEditorBackdrop.style.removeProperty('top');
-    todoEditorBackdrop.style.right = '12px';
-    todoEditorBackdrop.style.bottom = '58px';
+    todoEditorBackdrop.style.right = 'auto';
+    todoEditorBackdrop.style.bottom = 'auto';
+    todoEditorBackdrop.style.left = '0px';
+    todoEditorBackdrop.style.top = '0px';
+    if (target && panel) {
+      const panelRect = panel.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const popoverRect = todoEditorBackdrop.getBoundingClientRect();
+      const topbarRect = document.querySelector('.topbar')?.getBoundingClientRect();
+      const safeTop = Math.max(8, (topbarRect?.bottom || panelRect.top) - panelRect.top + 8);
+      const maxTop = Math.max(safeTop, panelRect.height - popoverRect.height - 14);
+      const above = targetRect.top - panelRect.top - popoverRect.height - 8;
+      const below = targetRect.bottom - panelRect.top + 8;
+      const top = Math.max(safeTop, Math.min(above >= safeTop ? above : below, maxTop));
+      const maxLeft = Math.max(12, panelRect.width - popoverRect.width - 12);
+      const left = Math.max(12, Math.min(targetRect.right - panelRect.left - popoverRect.width, maxLeft));
+      todoEditorBackdrop.style.left = `${Math.round(left)}px`;
+      todoEditorBackdrop.style.top = `${Math.round(top)}px`;
+    }
   }
   applyTodoEditorSelection(false);
 }

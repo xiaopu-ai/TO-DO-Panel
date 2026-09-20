@@ -482,6 +482,8 @@ async function main() {
         const popover = document.getElementById('todo-date-popover');
         const previousRect = previous.getBoundingClientRect();
         const nextRect = next.getBoundingClientRect();
+        const topbarRect = document.querySelector('.topbar').getBoundingClientRect();
+        const popoverRect = popover.getBoundingClientRect();
         const clicksToJanuary = 12 - base.getMonth();
         for (let index = 0; index < clicksToJanuary; index += 1) next.click();
         const expectedYear = base.getFullYear() + 1;
@@ -496,6 +498,7 @@ async function main() {
           popoverVisible: !popover.hidden && getComputedStyle(popover).display !== 'none',
           controlsUsable: [previousRect.width, previousRect.height, nextRect.width, nextRect.height]
             .every((size) => size >= 18),
+          belowTopbar: popoverRect.top >= topbarRect.bottom,
           januaryLabel,
           decemberLabel: document.getElementById('todo-editor-month').textContent.trim(),
           selected: [selected.getFullYear(), selected.getMonth(), selected.getDate()],
@@ -508,6 +511,7 @@ async function main() {
       controls: true,
       popoverVisible: true,
       controlsUsable: true,
+      belowTopbar: true,
       januaryLabel: `${new Date().getFullYear() + 1}年 1月`,
       decemberLabel: `${new Date().getFullYear()}年 12月`,
       selected: [new Date().getFullYear() + 1, 0, 2],
