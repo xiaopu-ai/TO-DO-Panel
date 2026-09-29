@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld('notchAPI', {
   openWorkspace: () => ipcRenderer.invoke('workspace:open'),
   chooseWorkspace: () => ipcRenderer.invoke('workspace:choose'),
   onWorkspaceChanged: (cb) => subscribe('workspace:changed', (event, info) => cb(info)),
+  onTodoInboxImport: (cb) => subscribe('todo-inbox:import', (event, message) => cb(message)),
+  todoInboxReady: () => ipcRenderer.invoke('todo-inbox:ready'),
+  completeTodoInbox: (token, result) => ipcRenderer.invoke('todo-inbox:complete', token, result),
   onCollapseRequest: (cb) => subscribe('window:request-collapse', () => cb()),
   getMetrics: () => ipcRenderer.invoke('window:metrics'),
   onMetricsChanged: (cb) =>

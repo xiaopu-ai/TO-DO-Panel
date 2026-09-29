@@ -497,6 +497,85 @@ function createWorkspacePersistenceGate() {
   };
 }
 
+// ============ 待办导入收件箱（todo-inbox） ============
+// 只接收顶层 *.json；点文件留给脚本写临时文件，*.report.json 是本应用写出的报告。
+function isTodoInboxCandidate(name) {
+  const value = String(name || '');
+  return /\.json$/i.test(value) && !value.startsWith('.') && !/\.report\.json$/i.test(value);
+}
+
+function parseTodoInboxBuffer(buffer) {
+  if (!Buffer.isBuffer(buffer)) return { ok: false, hash: null, error: '无法读取文件' };
+  const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+  const text = buffer.toString('utf8').replace(/^﻿/, '');
+  if (!text.trim()) return { ok: false, hash, error: '文件为空' };
+  try {
+    return { ok: true, hash, payload: JSON.parse(text) };
+  } catch (error) {
+    return { ok: false, hash, error: `JSON 解析失败：${String(error && error.message || error).slice(0, 200)}` };
+  }
+}
+
+function todoInboxArchiveNames(fileName, now = new Date(), exists = () => false) {
+  const base = path.basename(String(fileName || '')).replace(/\.json$/i, '') || 'todos';
+  const date = now instanceof Date && Number.isFinite(now.getTime()) ? now : new Date();
+  const pad = (value, size = 2) => String(value).padStart(size, '0');
+  const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
+    + `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}-${pad(date.getMilliseconds(), 3)}`;
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    const stem = `${stamp}-${base}${attempt ? `-${attempt}` : ''}`;
+    const names = { archive: `${stem}.json`, report: `${stem}.report.json` };
+    if (!exists(names.archive) && !exists(names.report)) return names;
+  }
+  const stem = `${stamp}-${base}-${crypto.randomUUID()}`;
+  return { archive: `${stem}.json`, report: `${stem}.report.json` };
+}
+
+// 渲染层回传的结果只当数据：逐字段截断，报告体积与内容都有上限。
+function buildTodoInboxReport({ fileName, processedAt = Date.now(), result = null, error = '' } = {}) {
+  const clip = (value, limit) => String(value == null ? '' : value).slice(0, limit);
+  const rows = (value) => (Array.isArray(value) ? value : [])
+    .filter((row) => row && typeof row === 'object')
+    .slice(0, 500);
+  const index = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
+  const source = result && typeof result === 'object' ? result : {};
+  const fileError = clip(error || source.error, 500);
+  const imported = fileError ? [] : rows(source.imported).map((row) => ({
+    index: index(row.index),
+    id: clip(row.id, 128),
+    category: clip(row.category, 8),
+    categoryName: clip(row.categoryName, 24),
+    text: clip(row.text, 80),
+    deadline: clip(row.deadline, 40),
+  }));
+  const skipped = rows(source.skipped).map((row) => ({
+    index: index(row.index),
+    ...(row.id ? { id: clip(row.id, 128) } : {}),
+    reason: clip(row.reason, 300),
+  }));
+  const warnings = fileError ? [] : rows(source.warnings).map((row) => ({
+    index: index(row.index),
+    ...(row.id ? { id: clip(row.id, 128) } : {}),
+    message: clip(row.message, 300),
+  }));
+  let status = 'none';
+  if (fileError) status = 'rejected';
+  else if (imported.length && skipped.length) status = 'partial';
+  else if (imported.length) status = 'imported';
+  const time = new Date(processedAt);
+  return {
+    version: 1,
+    file: clip(path.basename(String(fileName || '')), 255),
+    processedAt: Number.isFinite(time.getTime()) ? time.toISOString() : new Date().toISOString(),
+    status,
+    ...(fileError ? { error: fileError } : {}),
+    summary: { imported: imported.length, skipped: skipped.length, warnings: warnings.length },
+    imported,
+    skipped,
+    warnings,
+  };
+}
+
 function hoverSpacePollingPolicy({ shortcut, visible, mode } = {}) {
   return {
     enabled: shortcut === 'Space' && visible === true && mode === 'collapsed',
@@ -607,6 +686,10 @@ module.exports = {
   reduceClipboardObservation,
   createForegroundMediaPermissionCoordinator,
   createWorkspacePersistenceGate,
+  isTodoInboxCandidate,
+  parseTodoInboxBuffer,
+  todoInboxArchiveNames,
+  buildTodoInboxReport,
   hoverSpacePollingPolicy,
   updateFeaturePreference,
   normalizeDefaultTabPreference,

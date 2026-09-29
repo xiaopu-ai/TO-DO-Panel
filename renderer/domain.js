@@ -586,6 +586,165 @@
     };
   }
 
+  // ============ 待办外部导入（todo-inbox） ============
+  // 外部脚本写入的文件只能追加新待办：已有条目原样保留，同一 id 只收一次。
+  const TODO_IMPORT_CATEGORIES = ['P0', 'P1', 'P2', 'P3'];
+  const TODO_IMPORT_TEXT_LIMIT = 80;
+  const TODO_IMPORT_MAX_ITEMS = 200;
+  const TODO_IMPORT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
+  const TODO_IMPORT_ISO_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}(?::?\d{2})?)?)?$/i;
+  const TODO_IMPORT_MIN_MS = Date.UTC(2000, 0, 1);
+  const TODO_IMPORT_MAX_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+
+  function normalizeTodoImportLabel(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function resolveTodoImportCategory(value, categoryNames, categories = TODO_IMPORT_CATEGORIES) {
+    if (typeof value !== 'string' || !normalizeTodoImportLabel(value)) return { error: '缺少 category' };
+    const label = normalizeTodoImportLabel(value);
+    // 内部键优先：即使某个分类被改名成「P1」，P1 仍指向内部键 P1。
+    const byKey = categories.find((category) => category.toLowerCase() === label.toLowerCase());
+    if (byKey) return { category: byKey };
+    const names = categoryNames && typeof categoryNames === 'object' ? categoryNames : {};
+    const matches = categories.filter((category) => (
+      normalizeTodoImportLabel(names[category]).toLocaleLowerCase() === label.toLocaleLowerCase()
+    ));
+    if (matches.length === 1) return { category: matches[0] };
+    if (matches.length > 1) return { error: `category「${label}」同时匹配 ${matches.join('、')}，请改用 P0–P3` };
+    const available = categories.map((category) => `${category}（${normalizeTodoImportLabel(names[category]) || category}）`);
+    return { error: `未知 category「${label}」，可用：${available.join('、')}` };
+  }
+
+  function parseTodoImportDeadline(value, now = Date.now()) {
+    if (value === undefined || value === null || value === '') {
+      return { deadline: defaultTodoDeadline(new Date(now)), defaulted: true };
+    }
+    let ms;
+    if (typeof value === 'number') {
+      if (!Number.isInteger(value)) return { error: 'deadline 毫秒时间戳必须是整数' };
+      if (value > 0 && value < 1e11) return { error: 'deadline 看起来是秒级时间戳，请改用毫秒' };
+      ms = value;
+    } else if (typeof value === 'string') {
+      const match = TODO_IMPORT_ISO_RE.exec(value.trim());
+      if (!match) return { error: 'deadline 必须是 ISO 8601 字符串（如 2026-10-01T18:00:00+08:00）或毫秒时间戳' };
+      const [, y, mo, d, h, mi, s, fraction, zone] = match;
+      const year = Number(y);
+      const month = Number(mo);
+      const day = Number(d);
+      // Date.parse 会把 2 月 30 日顺延到 3 月，这里按日历严格校验。
+      if (month < 1 || month > 12 || day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate()) {
+        return { error: `deadline 日期不存在：${y}-${mo}-${d}` };
+      }
+      if (h === undefined) {
+        // 只写日期时与手动新建一致，落在当天 23:30（本机时区）。
+        ms = new Date(year, month - 1, day, 23, 30, 0, 0).getTime();
+      } else {
+        const hour = Number(h);
+        const minute = Number(mi);
+        const second = Number(s || 0);
+        const millis = Number(String(fraction || '0').padEnd(3, '0').slice(0, 3));
+        if (hour > 23 || minute > 59 || second > 59) return { error: `deadline 时间不存在：${value.trim()}` };
+        if (!zone) {
+          ms = new Date(year, month - 1, day, hour, minute, second, millis).getTime();
+        } else {
+          let offsetMinutes = 0;
+          if (zone.toUpperCase() !== 'Z') {
+            const digits = zone.slice(1).replace(':', '');
+            const offsetHours = Number(digits.slice(0, 2));
+            const offsetRest = Number(digits.slice(2) || 0);
+            if (offsetHours > 14 || offsetRest > 59) return { error: `deadline 时区偏移无效：${zone}` };
+            offsetMinutes = (offsetHours * 60 + offsetRest) * (zone[0] === '-' ? -1 : 1);
+          }
+          ms = Date.UTC(year, month - 1, day, hour, minute, second, millis) - offsetMinutes * 60 * 1000;
+        }
+      }
+    } else {
+      return { error: 'deadline 必须是 ISO 8601 字符串或毫秒时间戳' };
+    }
+    if (!Number.isFinite(ms) || ms < TODO_IMPORT_MIN_MS || ms > TODO_IMPORT_MAX_MS) {
+      return { error: 'deadline 超出可用范围（2000–9999 年）' };
+    }
+    return { deadline: new Date(ms).toISOString() };
+  }
+
+  function mergeTodoImport(data, payload, options = {}) {
+    const categories = Array.isArray(options.categories) && options.categories.length
+      ? options.categories
+      : TODO_IMPORT_CATEGORIES;
+    const now = Number.isFinite(options.now) ? options.now : Date.now();
+    const maxItems = Number.isInteger(options.maxItems) && options.maxItems > 0 ? options.maxItems : TODO_IMPORT_MAX_ITEMS;
+    const sourceId = /^[A-Za-z0-9]{1,32}$/.test(String(options.sourceId || ''))
+      ? String(options.sourceId)
+      : now.toString(36);
+    const existing = Object.fromEntries(categories.map((category) => [
+      category,
+      Array.isArray(data && data[category]) ? data[category] : [],
+    ]));
+    const result = {
+      data: Object.fromEntries(categories.map((category) => [category, [...existing[category]]])),
+      imported: [],
+      skipped: [],
+      warnings: [],
+    };
+    const entries = Array.isArray(payload)
+      ? payload
+      : payload && typeof payload === 'object' && Array.isArray(payload.todos) ? payload.todos : null;
+    if (!entries) {
+      result.error = '文件顶层必须是数组，或包含 todos 数组的对象';
+      return result;
+    }
+    const knownIds = new Set();
+    categories.forEach((category) => existing[category].forEach((item) => {
+      if (item && item.id != null) knownIds.add(String(item.id));
+    }));
+
+    entries.slice(0, maxItems).forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        result.skipped.push({ index, reason: '条目必须是对象' });
+        return;
+      }
+      const reasons = [];
+      const text = typeof entry.text === 'string' ? entry.text.replace(/\s+/g, ' ').trim() : '';
+      if (!text) reasons.push(typeof entry.text === 'string' || entry.text == null ? '缺少 text' : 'text 必须是字符串');
+      else if (text.length > TODO_IMPORT_TEXT_LIMIT) reasons.push(`text 超过 ${TODO_IMPORT_TEXT_LIMIT} 个字符`);
+      const category = resolveTodoImportCategory(entry.category, options.categoryNames, categories);
+      if (category.error) reasons.push(category.error);
+      const deadline = parseTodoImportDeadline(entry.deadline, now);
+      if (deadline.error) reasons.push(deadline.error);
+      const hasId = entry.id !== undefined && entry.id !== null && entry.id !== '';
+      const rawId = typeof entry.id === 'number' && Number.isInteger(entry.id) ? String(entry.id) : entry.id;
+      if (hasId && (typeof rawId !== 'string' || !TODO_IMPORT_ID_RE.test(rawId))) {
+        reasons.push('id 只能包含字母、数字和 . _ : -，长度 1–128');
+      }
+      // 未写 id 时按「文件内容 + 序号」生成稳定 id：同一份文件重放也只会命中重复。
+      const id = hasId ? String(rawId) : `import-${sourceId}-${index}`;
+      const skippedBase = hasId && typeof rawId === 'string' ? { index, id: rawId.slice(0, 128) } : { index };
+      if (reasons.length) {
+        result.skipped.push({ ...skippedBase, reason: reasons.join('；') });
+        return;
+      }
+      if (knownIds.has(id)) {
+        result.skipped.push({ ...skippedBase, reason: `id「${id}」已存在，未重复添加` });
+        return;
+      }
+      knownIds.add(id);
+      const todo = { id, text, done: false, createdAt: now, deadline: deadline.deadline, remindedAt: 0 };
+      if (Date.parse(todo.deadline) <= now) {
+        result.warnings.push({ index, id, message: deadline.defaulted ? '未写 deadline，默认的当天 23:30 已过' : 'deadline 早于导入时间' });
+      }
+      result.data[category.category].push(todo);
+      result.imported.push({ index, category: category.category, todo });
+    });
+    if (entries.length > maxItems) {
+      result.skipped.push({
+        index: maxItems,
+        reason: `单个文件最多导入 ${maxItems} 条，第 ${maxItems + 1}–${entries.length} 条未导入`,
+      });
+    }
+    return result;
+  }
+
   function updateRangeSelection(ids, selectedIds, clickedId, anchorId, shiftKey, toggleSelected = false) {
     const ordered = Array.isArray(ids) ? ids.map(String) : [];
     const clicked = String(clickedId || '');
@@ -950,6 +1109,9 @@
     shiftCalendarMonth,
     defaultTodoDeadline,
     todoTimeBattery,
+    resolveTodoImportCategory,
+    parseTodoImportDeadline,
+    mergeTodoImport,
     updateRangeSelection,
     normalizeHomeLayout,
     swapHomeLayoutSlots,

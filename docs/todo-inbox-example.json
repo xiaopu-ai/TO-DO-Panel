@@ -1,0 +1,24 @@
+{
+  "todos": [
+    {
+      "id": "example-lora-review",
+      "text": "复盘 LoRA 微调教程的评测结果",
+      "category": "P2",
+      "deadline": "2026-10-08T18:00:00+08:00"
+    },
+    {
+      "text": "整理本周公众号选题",
+      "category": "P1",
+      "deadline": 1791604800000
+    },
+    {
+      "text": "准备下周课程讲义",
+      "category": "P0",
+      "deadline": "2026-10-15"
+    },
+    {
+      "text": "取快递",
+      "category": "P3"
+    }
+  ]
+}

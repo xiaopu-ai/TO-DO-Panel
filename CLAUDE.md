@@ -58,6 +58,7 @@
 - 圆角：折叠条下方两角 10px（--r-notch）、展开面板下方两角 16px（--r-panel），两者上沿都贴顶不圆角
 - 动效 Motion System v2：窗口边界始终瞬时变更；展开、收起、内容级联、Tab 胶囊与控件反馈由渲染层完成；`prefers-reduced-motion` 全局降级
 - 待办提交：输入框内按一次回车新增；输入法组合态（isComposing / keyCode 229）不提交
+- 待办收件箱：工作区 `todo-inbox/*.json`，主进程 2s 轮询（mtime 静置 1s 才读）→ IPC 投递 → 渲染层纯函数 `mergeTodoImport`（domain.js）只追加进 `notch-todo-data`，**原地 push 不替换数组**（删除撤销闭包持有引用）→ 回执后主进程 `flushStorageData` 再移入 `processed/` 并写 `.report.json`。无 id 条目用「文件 sha256 前 12 位 + 序号」生成稳定 id，崩溃重放只会命中重复；渲染层重载即作废在途投递，等 `todo-inbox:ready` 重新声明
 
 ## 代码规范
 

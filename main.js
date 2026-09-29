@@ -50,6 +50,10 @@ const {
   sodaShortcutSpec,
   selectTranscriptionSettings,
   createWorkspacePersistenceGate,
+  isTodoInboxCandidate,
+  parseTodoInboxBuffer,
+  todoInboxArchiveNames,
+  buildTodoInboxReport,
   hoverSpacePollingPolicy,
   reduceClipboardObservation,
   normalizeDefaultTabPreference,
@@ -215,6 +219,14 @@ const APP_SETTINGS_FILE = 'app-settings.json';
 const WORKSPACE_SETTINGS_FILE = 'workspace-settings.json';
 const WORKSPACE_DATA_FILE = 'workspace.json';
 const MIRROR_IMAGE_FILE = 'mirror-cover.jpg';
+// 外部脚本 / AI 助手往工作区 todo-inbox/ 放 *.json 追加待办，处理后移入 processed/。
+const TODO_INBOX_DIR_NAME = 'todo-inbox';
+const TODO_INBOX_PROCESSED_DIR_NAME = 'processed';
+const TODO_INBOX_POLL_MS = 2000;
+const TODO_INBOX_SETTLE_MS = 1000; // 文件最后修改后静置这么久才读，避开写到一半
+const TODO_INBOX_MAX_BYTES = 1024 * 1024;
+const TODO_INBOX_ACK_TIMEOUT_MS = 30000;
+const TODO_INBOX_RETRY_MS = 60000;
 const workspacePersistenceGate = createWorkspacePersistenceGate();
 const SODA_MUSIC_APP = '/Applications/汽水音乐.app';
 const TRANSCRIPTION_MODEL = 'qwen3-asr-flash-realtime';
@@ -270,6 +282,11 @@ const recentTaskNotifications = new Map();
 const taskCompletionHistory = [];
 let todoReminderTimer = null;
 let scheduledTodoReminders = [];
+let todoInboxTimer = null;
+let todoInboxRendererReady = false;
+const todoInboxInFlight = new Map(); // token -> 已发给渲染层、尚未确认的文件
+const todoInboxUnarchived = new Map(); // filePath -> 已导入但移动失败，待重试归档
+const todoInboxRetryAt = new Map(); // filePath -> 渲染层要求稍后重试的时间点
 
 let clipPollTimer = null;
 let clipBaselineTimer = null;
@@ -1041,6 +1058,10 @@ function createWindow() {
   mainWindow.on('show', syncHoverSpacePolling);
   mainWindow.on('hide', syncHoverSpacePolling);
 
+  // 页面重载（工作区恢复 / 切换）后旧的导入投递作废，等新页面重新声明就绪。
+  mainWindow.webContents.on('did-start-loading', resetTodoInboxRenderer);
+  mainWindow.webContents.on('render-process-gone', resetTodoInboxRenderer);
+
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   mainWindow.once('ready-to-show', () => {
@@ -1210,7 +1231,7 @@ async function chooseWorkspaceFolder() {
   const previousRoot = workspaceRoot();
   copyWorkspaceAssets(previousRoot, selected);
   if (!writeJsonFile(getJsonSettingsPath(WORKSPACE_SETTINGS_FILE), { path: selected })) return false;
-  for (const directory of [RECORDINGS_DIR_NAME, CLIP_IMAGES_DIR_NAME]) {
+  for (const directory of [RECORDINGS_DIR_NAME, CLIP_IMAGES_DIR_NAME, TODO_INBOX_DIR_NAME]) {
     try { fs.mkdirSync(path.join(selected, directory), { recursive: true }); } catch (error) {}
   }
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:changed', { path: selected });
@@ -1513,6 +1534,158 @@ ipcMain.handle('workspace:save-data', (event, storage) => {
 });
 ipcMain.handle('workspace:open', () => shell.openPath(workspaceRoot()));
 ipcMain.handle('workspace:choose', () => chooseWorkspaceFolder());
+
+// ============ 待办导入收件箱 ============
+// 主进程只负责文件：发现、读取、归档与报告；合并由渲染层的纯函数完成，
+// 所以待办仍只有 localStorage 一个写入方，workspace.json 同步照旧。
+function todoInboxDir() {
+  return workspacePath(TODO_INBOX_DIR_NAME);
+}
+
+function ensureTodoInboxDir() {
+  try {
+    fs.mkdirSync(todoInboxDir(), { recursive: true });
+  } catch (error) {}
+}
+
+function hashFileSync(filePath) {
+  try {
+    return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  } catch (error) {
+    return null;
+  }
+}
+
+// 返回 false 表示移动失败，文件仍留在收件箱，下轮扫描只重试归档、不再导入。
+function archiveTodoInboxFile(filePath, expectedHash, report) {
+  const processedDir = path.join(path.dirname(filePath), TODO_INBOX_PROCESSED_DIR_NAME);
+  try {
+    fs.mkdirSync(processedDir, { recursive: true });
+  } catch (error) {
+    return false;
+  }
+  const names = todoInboxArchiveNames(path.basename(filePath), new Date(), (name) => fs.existsSync(path.join(processedDir, name)));
+  let archivedAs = null;
+  // 读取后脚本又改写了同名文件：新内容还没导入，不能被当作已处理移走。
+  const unchanged = expectedHash === null || hashFileSync(filePath) === expectedHash;
+  if (unchanged && fs.existsSync(filePath)) {
+    try {
+      fs.renameSync(filePath, path.join(processedDir, names.archive));
+      archivedAs = `${TODO_INBOX_PROCESSED_DIR_NAME}/${names.archive}`;
+    } catch (error) {
+      return false;
+    }
+  }
+  writeJsonFile(path.join(processedDir, names.report), { ...report, archivedAs });
+  return true;
+}
+
+function finishTodoInboxFile(filePath, hash, report) {
+  todoInboxUnarchived.set(filePath, { hash, report });
+  if (archiveTodoInboxFile(filePath, hash, report)) todoInboxUnarchived.delete(filePath);
+}
+
+function scanTodoInbox() {
+  if (!todoInboxRendererReady || !mainWindow || mainWindow.isDestroyed()) return;
+  const now = Date.now();
+  for (const [token, job] of todoInboxInFlight) {
+    // 渲染层重载或无响应：放弃这次投递，下轮重发；稳定 id 保证重发不会重复添加。
+    if (now - job.sentAt > TODO_INBOX_ACK_TIMEOUT_MS) todoInboxInFlight.delete(token);
+  }
+  const directory = todoInboxDir();
+  let names;
+  try {
+    names = fs.readdirSync(directory).filter(isTodoInboxCandidate).sort();
+  } catch (error) {
+    return;
+  }
+  const present = new Set(names.map((name) => path.join(directory, name)));
+  for (const tracked of [todoInboxUnarchived, todoInboxRetryAt]) {
+    for (const filePath of tracked.keys()) {
+      if (path.dirname(filePath) === directory && !present.has(filePath)) tracked.delete(filePath);
+    }
+  }
+  const busy = new Set([...todoInboxInFlight.values()].map((job) => job.filePath));
+  for (const name of names) {
+    const filePath = path.join(directory, name);
+    if (busy.has(filePath) || (todoInboxRetryAt.get(filePath) || 0) > now) continue;
+    let stat;
+    try {
+      stat = fs.lstatSync(filePath);
+    } catch (error) {
+      continue;
+    }
+    if (!stat.isFile() || now - stat.mtimeMs < TODO_INBOX_SETTLE_MS) continue;
+    let parsed;
+    if (stat.size > TODO_INBOX_MAX_BYTES) {
+      parsed = { ok: false, hash: null, error: `文件超过 ${TODO_INBOX_MAX_BYTES / 1024} KB 上限` };
+    } else {
+      try {
+        parsed = parseTodoInboxBuffer(fs.readFileSync(filePath));
+      } catch (error) {
+        continue;
+      }
+    }
+    const pending = todoInboxUnarchived.get(filePath);
+    if (pending && pending.hash === parsed.hash) {
+      finishTodoInboxFile(filePath, pending.hash, pending.report);
+      continue;
+    }
+    if (!parsed.ok) {
+      finishTodoInboxFile(filePath, parsed.hash, buildTodoInboxReport({ fileName: name, error: parsed.error }));
+      continue;
+    }
+    const token = crypto.randomUUID();
+    todoInboxInFlight.set(token, { filePath, fileName: name, hash: parsed.hash, sentAt: now });
+    mainWindow.webContents.send('todo-inbox:import', {
+      token,
+      fileName: name,
+      sourceId: parsed.hash.slice(0, 12),
+      payload: parsed.payload,
+    });
+  }
+}
+
+function resetTodoInboxRenderer() {
+  todoInboxRendererReady = false;
+  todoInboxInFlight.clear();
+}
+
+function startTodoInboxWatcher() {
+  ensureTodoInboxDir();
+  if (!todoInboxTimer) todoInboxTimer = setInterval(scanTodoInbox, TODO_INBOX_POLL_MS);
+}
+
+function stopTodoInboxWatcher() {
+  if (todoInboxTimer) clearInterval(todoInboxTimer);
+  todoInboxTimer = null;
+}
+
+// 渲染层完成工作区恢复后才声明就绪；启动时的首次检查也由这里触发。
+ipcMain.handle('todo-inbox:ready', (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return false;
+  todoInboxRendererReady = true;
+  ensureTodoInboxDir();
+  scanTodoInbox();
+  return true;
+});
+
+ipcMain.handle('todo-inbox:complete', (event, token, result) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) return false;
+  const job = todoInboxInFlight.get(String(token || ''));
+  if (!job) return false;
+  todoInboxInFlight.delete(String(token));
+  if (!result || typeof result !== 'object' || result.retry === true) {
+    todoInboxRetryAt.set(job.filePath, Date.now() + TODO_INBOX_RETRY_MS);
+    return false;
+  }
+  // 先把 localStorage 落盘再移走源文件，避免崩溃时两边都丢。
+  try {
+    mainWindow.webContents.session.flushStorageData();
+  } catch (error) {}
+  finishTodoInboxFile(job.filePath, job.hash, buildTodoInboxReport({ fileName: job.fileName, result }));
+  return true;
+});
 
 function getLayoutMetrics(display) {
   const d = display || getWindowDisplay();
@@ -3351,6 +3524,7 @@ app.whenReady().then(() => {
   ensureRecordingsDir();
   applyAppSettings();
   startTaskNotificationServer();
+  startTodoInboxWatcher();
   void promptForMissingPermissions();
 
   app.on('activate', () => {
@@ -3371,6 +3545,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   cancelCollapseWatchdog();
   clearTodoReminderTimer();
+  stopTodoInboxWatcher();
   stopHoverSpaceShortcut();
   clearTaskNotificationTimers();
   stopTaskNotificationServer();

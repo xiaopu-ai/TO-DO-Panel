@@ -34,7 +34,7 @@ TO-DO Panel 是一个常驻 macOS / Windows 屏幕顶部的本地工作台。Mac
 | 页面 | 解决什么问题 |
 | --- | --- |
 | **首页** | 当前窗口、镜子、快速录音、随笔记、常用指令、汽水音乐和番茄钟集中在一个 Bento 工作台 |
-| **待办** | 四个可改名的工作流，新建默认当天 23:30，常驻跨天或唤醒后自动刷新；本条手选日期保留，提交后恢复当天默认值。截止日期可逐月切换并自然跨年，按截止时间排序，并在到期前一小时提醒 |
+| **待办** | 四个可改名的工作流，新建默认当天 23:30，常驻跨天或唤醒后自动刷新；本条手选日期保留，提交后恢复当天默认值。截止日期可逐月切换并自然跨年，按截止时间排序，并在到期前一小时提醒；本机脚本或 AI 助手可[写文件导入](#从脚本或-ai-助手导入待办) |
 | **随笔记** | Markdown 速记、归档、搜索、重命名与智能标题 |
 | **链接** | 保存公开网址，后台补全标题、图标和分组 |
 | **录制** | 录音开始即创建实时记录，同步显示状态与转写，并可在页内配置 API |
@@ -111,6 +111,43 @@ curl -X POST http://127.0.0.1:43821/notify/codex \
 ```
 
 Windows 安装后的两个脚本位于安装目录的 `resources/app/scripts/` 中，可用 Node.js 调用；应用本身无需用户安装 Node.js。
+
+## 从脚本或 AI 助手导入待办
+
+本机脚本或 AI 助手把 JSON 文件放进工作区的 `todo-inbox/` 文件夹，TO-DO Panel 运行时约 2 秒检查一次，启动时也会检查，无需重启。导入只追加新待办，不会修改或删除已有待办。
+
+| 工作区 | 收件箱路径 |
+| --- | --- |
+| macOS 默认 | `~/Library/Application Support/Dynamic Panel/todo-inbox/` |
+| Windows 默认 | `%APPDATA%\Dynamic Panel\todo-inbox\` |
+| 自定义数据文件夹 | `<所选文件夹>/todo-inbox/` |
+
+当前工作区路径可在「设置 → 数据目录」或菜单栏「打开文件夹」查看；切换数据文件夹后，收件箱跟着换到新文件夹。
+
+**文件格式**：顶层可以是 `{ "todos": [...] }`，也可以直接是数组。示例见 [docs/todo-inbox-example.json](docs/todo-inbox-example.json)。
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `text` | 是 | 待办内容，最多 80 个字符 |
+| `category` | 是 | `P0`–`P3`（不区分大小写），或当前分类显示名（忽略大小写与多余空格）；两者冲突时以 `P0`–`P3` 为准 |
+| `deadline` | 否 | ISO 8601 字符串或毫秒时间戳。带时区（`2026-10-08T18:00:00+08:00`）按该时区；不带时区按本机时间；只写日期（`2026-10-15`）为当天 23:30；不填与手动新建一致，为当天 23:30 |
+| `id` | 否 | 只能包含字母、数字和 `. _ : -`，最长 128。已存在的 id 不会重复添加 |
+
+```bash
+# 推荐先写临时文件再改名，避免读到写了一半的文件；以 . 开头或不以 .json 结尾的文件会被忽略
+cp docs/todo-inbox-example.json ~/Library/Application\ Support/Dynamic\ Panel/todo-inbox/.agent.tmp
+mv ~/Library/Application\ Support/Dynamic\ Panel/todo-inbox/.agent.tmp \
+   ~/Library/Application\ Support/Dynamic\ Panel/todo-inbox/agent-$(date +%s).json
+```
+
+**处理结果**：每个文件处理完都会移入 `todo-inbox/processed/`，文件名加时间前缀（如 `20260929-153012-007-agent.json`），同时生成同名的 `.report.json` 报告：
+
+- `status`：`imported` 全部导入；`partial` 部分导入；`none` 没有新增（如全部重复）；`rejected` 整个文件无法识别（如 JSON 解析失败、文件超过 1 MB）。
+- `imported` 列出新增条目及分配的 `id`；`skipped` 按 `index`（从 0 开始）列出被跳过的条目和原因；`warnings` 提示截止时间早于导入时间等情况。
+
+**去重规则**：处理过的文件会移走，不会导入第二次。没写 `id` 的条目按「文件内容 + 序号」生成稳定 id，因此内容完全相同的文件再放一次也不会重复添加（除非之前导入的待办已被删除）。格式不对的条目只会被跳过，不影响同一文件中的其他条目。单个文件最多导入 200 条。
+
+`processed/` 不会自动清理，可随时手动删除。
 
 ## 从源码运行
 

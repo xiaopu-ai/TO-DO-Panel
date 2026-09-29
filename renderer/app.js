@@ -47,6 +47,8 @@ async function hydratePortableWorkspace() {
       return;
     }
     setInterval(() => window.notchAPI.saveWorkspaceData(collectLocalStorageSnapshot()).catch(() => {}), 2000);
+    // 恢复流程可能整页重载；只有确定不再重载后才接收外部导入。
+    startTodoInbox();
   } catch (error) {}
 }
 // Do not interrupt parser-loaded workspace scripts with a recovery navigation.
@@ -1317,6 +1319,101 @@ document.addEventListener('notch:modechange', (event) => {
 document.addEventListener('notch:tabchange', (event) => {
   if (event.detail?.tab === 'todo') refreshDefaultTodoDeadlines();
 });
+
+// ============ 待办 · 外部导入收件箱 ============
+// 主进程读取 todo-inbox/*.json 后投递到这里；合并只追加，不改动已有待办。
+
+// 导入可能在用户行内改名时到达：重绘列表前后保留输入中的草稿与光标。
+function renderListKeepingDraft(priority, options) {
+  const input = editingTodo?.priority === priority
+    ? document.querySelector(`.todo-item[data-id="${CSS.escape(editingTodo.id)}"] .todo-inline-name`)
+    : null;
+  const draft = input && {
+    value: input.value,
+    focused: document.activeElement === input,
+    start: input.selectionStart,
+    end: input.selectionEnd,
+  };
+  renderList(priority, options);
+  if (!draft) return;
+  const next = document.querySelector(`.todo-item[data-id="${CSS.escape(editingTodo.id)}"] .todo-inline-name`);
+  if (!next) return;
+  next.value = draft.value;
+  if (draft.focused) {
+    next.focus({ preventScroll: true });
+    next.setSelectionRange(draft.start, draft.end);
+  }
+}
+
+function applyTodoInboxImport(message) {
+  const result = window.NotchDomain.mergeTodoImport(data, message.payload, {
+    categories: PRIORITIES,
+    categoryNames: todoCategoryNames,
+    now: Date.now(),
+    sourceId: message.sourceId,
+  });
+  const report = {
+    error: result.error || '',
+    imported: result.imported.map(({ index, category, todo }) => ({
+      index,
+      id: todo.id,
+      category,
+      categoryName: todoCategoryNames[category],
+      text: todo.text,
+      deadline: todo.deadline,
+    })),
+    skipped: result.skipped,
+    warnings: result.warnings,
+  };
+  if (!result.imported.length) return report;
+  const touched = [...new Set(result.imported.map(({ category }) => category))];
+  const previousPositions = Object.fromEntries(touched.map((priority) => [priority, captureTodoPositions(priority)]));
+  // 追加进现有数组而不是整体替换：删除「撤销」的闭包还持有这些数组引用。
+  result.imported.forEach(({ category, todo }) => data[category].push(todo));
+  saveData(data);
+  if (localStorage.getItem(STORAGE_KEY) !== JSON.stringify(data)) {
+    // 本地存储写入失败（如配额已满）：回滚内存，让主进程稍后重试，源文件保留。
+    const addedIds = new Set(result.imported.map(({ todo }) => todo.id));
+    touched.forEach((priority) => {
+      const list = data[priority];
+      for (let index = list.length - 1; index >= 0; index -= 1) {
+        if (addedIds.has(list[index].id)) list.splice(index, 1);
+      }
+    });
+    saveData(data);
+    return { retry: true };
+  }
+  touched.forEach((priority) => {
+    renderListKeepingDraft(priority, { previousPositions: previousPositions[priority] });
+    updateCount(priority);
+  });
+  result.imported.forEach(({ category, todo }) => flashItemClass(category, todo.id, 'enter'));
+  // 不顶掉正在等待「撤销」的提示。
+  if (!statusToastActionHandler) {
+    const skippedText = result.skipped.length ? `，跳过 ${result.skipped.length} 条` : '';
+    showStatusToast(`已导入 ${result.imported.length} 条待办${skippedText}`);
+  }
+  return report;
+}
+
+function startTodoInbox() {
+  if (!window.notchAPI?.onTodoInboxImport || !window.notchAPI?.todoInboxReady) return;
+  window.notchAPI.onTodoInboxImport(async (message) => {
+    if (!message || typeof message.token !== 'string') return;
+    let result;
+    try {
+      result = applyTodoInboxImport(message);
+    } catch (error) {
+      // 意外异常时不归档；稍后重试时稳定 id 会挡住已写入的条目。
+      result = { retry: true };
+    }
+    if (result.imported?.length) {
+      await window.notchAPI.saveWorkspaceData(collectLocalStorageSnapshot()).catch(() => {});
+    }
+    window.notchAPI.completeTodoInbox(message.token, result).catch(() => {});
+  });
+  window.notchAPI.todoInboxReady().catch(() => {});
+}
 
 function pad2(n) {
   return n < 10 ? '0' + n : String(n);
