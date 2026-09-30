@@ -39,8 +39,9 @@ DANGEROUS_PATTERNS=(
     "mkfs\."             # 格式化磁盘
     ":(){ :|:& };:"      # fork 炸弹
     "dd if="             # 磁盘写入
-    "curl.*|.*bash"      # 下载并执行
-    "wget.*|.*bash"      # 下载并执行
+    # 下载并交给 shell 执行（curl/wget … | [sudo] [/bin/]sh|bash|zsh）。
+    # grep -E 里裸 | 是「或」，管道符必须写成 [|]，否则任何含 curl/bash 的命令都会被误拦。
+    '(curl|wget).*[|][[:space:]]*(sudo[[:space:]]+)?([^[:space:]|]*/)?(ba|z)?sh([[:space:]]|$)'
     "chmod -R 777"       # 过度开放权限
     "git push.*--force"  # 强制推送
     "git push.*-f "      # 强制推送缩写
