@@ -1073,6 +1073,28 @@
     return Math.round(next * 100) / 100;
   }
 
+  // 镜子要照真人：Mac 上所有摄像头都不报告朝向，不指定设备时 Chromium 会按枚举顺序
+  // 选到排在最前的虚拟摄像头，而宿主 App 没开时它能打开却永远不出帧。
+  // 自带相机 → 外接实体相机 → iPhone 连续互通（会唤醒手机）→ 虚拟摄像头垫底。
+  const BUILTIN_CAMERA_PATTERN = /facetime|macbook|imac|built-?in|integrated|内建|内置/i;
+  const CONTINUITY_CAMERA_PATTERN = /iphone|ipad|continuity|连续互通/i;
+  const VIRTUAL_CAMERA_PATTERN = /virtual|虚拟|filteronme|尚镜|snap camera|mmhmm|manycam|xsplit|camo\b|camtwist|ecamm|nvidia broadcast/i;
+
+  function mirrorCameraTier(label) {
+    if (VIRTUAL_CAMERA_PATTERN.test(label)) return 3;
+    if (BUILTIN_CAMERA_PATTERN.test(label)) return 0;
+    if (CONTINUITY_CAMERA_PATTERN.test(label)) return 2;
+    return 1;
+  }
+
+  function rankMirrorCameras(devices) {
+    return (Array.isArray(devices) ? devices : [])
+      .filter((device) => device && device.kind === 'videoinput' && device.deviceId)
+      .map((device, index) => ({ id: device.deviceId, tier: mirrorCameraTier(String(device.label || '')), index }))
+      .sort((a, b) => a.tier - b.tier || a.index - b.index)
+      .map((entry) => entry.id);
+  }
+
   return {
     normalizeHttpUrl,
     classifyLink,
@@ -1128,5 +1150,6 @@
     shouldTogglePanelForSpace,
     shouldHandleMirrorPinch,
     adjustMirrorZoom,
+    rankMirrorCameras,
   };
 });

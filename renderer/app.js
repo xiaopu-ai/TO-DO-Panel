@@ -3044,7 +3044,10 @@ let mirrorLastTrailAt = 0;
 let mirrorWaterRipples = [];
 let mirrorStream = null;
 let mirrorStarting = false;
+let mirrorSession = 0;
 let mirrorZoom = 1;
+// 虚拟摄像头宿主没开时 getUserMedia 照样成功但永远不出帧，play() 会一直挂起。
+const MIRROR_FIRST_FRAME_TIMEOUT_MS = 3000;
 
 function replayMirrorPixelReveal() {
   if (!mirrorPixelReveal || !homeMirror || activeTab !== 'home') return;
@@ -3119,6 +3122,7 @@ function setMirrorZoom(value) {
 }
 
 function stopMirror() {
+  mirrorSession += 1;
   if (mirrorStream) {
     mirrorStream.getTracks().forEach((track) => track.stop());
     mirrorStream = null;
@@ -3145,8 +3149,50 @@ function stopMirror() {
   mirrorStage?.removeAttribute('aria-busy');
 }
 
+function isMirrorSessionActive(session) {
+  return session === mirrorSession && mirrorStarting && isExpanded && activeTab === 'home';
+}
+
+// 在镜子上试一个摄像头，首帧超时就释放它，交给下一个候选。
+async function openMirrorCamera(deviceId, session) {
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' }),
+        width: { ideal: 1280 },
+        height: { ideal: 1280 },
+      },
+    });
+  } catch (error) {
+    if (error?.name === 'NotAllowedError') throw error;
+    return false;
+  }
+  if (!isMirrorSessionActive(session)) {
+    stream.getTracks().forEach((track) => track.stop());
+    return false;
+  }
+  mirrorStream = stream;
+  mirrorVideo.srcObject = stream;
+  let timer;
+  const playing = await Promise.race([
+    mirrorVideo.play().then(() => true),
+    new Promise((resolve) => { timer = setTimeout(resolve, MIRROR_FIRST_FRAME_TIMEOUT_MS, false); }),
+  ]).finally(() => clearTimeout(timer));
+  if (playing) return true;
+  stream.getTracks().forEach((track) => track.stop());
+  if (mirrorStream === stream) {
+    mirrorStream = null;
+    mirrorVideo.srcObject = null;
+  }
+  return false;
+}
+
 async function startMirror() {
   if (mirrorStarting || mirrorStream || !mirrorVideo) return;
+  const session = ++mirrorSession;
+  let activated = false;
   mirrorStarting = true;
   homeMirror?.classList.add('camera-starting');
   mirrorStage?.setAttribute('aria-busy', 'true');
@@ -3155,37 +3201,39 @@ async function startMirror() {
       ? true
       : await window.notchAPI.ensureCamera();
     if (!permitted) throw new Error('camera_permission_denied');
-    if (!mirrorStarting || !isExpanded || activeTab !== 'home') return;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        facingMode: 'user',
-        width: { ideal: 1280 },
-        height: { ideal: 1280 },
-      },
-    });
-    if (!isExpanded || activeTab !== 'home' || !mirrorStarting) {
-      stream.getTracks().forEach((track) => track.stop());
-      return;
+    if (!isMirrorSessionActive(session)) return;
+    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+    const candidates = window.NotchDomain.rankMirrorCameras(devices);
+    let live = false;
+    for (const deviceId of candidates.length ? candidates : [null]) {
+      if (!isMirrorSessionActive(session)) return;
+      live = await openMirrorCamera(deviceId, session);
+      if (live) break;
     }
-    mirrorStream = stream;
-    mirrorVideo.srcObject = stream;
-    await mirrorVideo.play();
+    if (!isMirrorSessionActive(session)) return;
+    if (!live) throw new Error('camera_no_frames');
     setMirrorZoom(1);
     homeMirror?.classList.remove('liquid-active');
     homeMirror?.classList.add('live');
     mirrorStage?.setAttribute('aria-label', '关闭实时镜子');
     mirrorStage?.setAttribute('aria-pressed', 'true');
+    activated = true;
   } catch (error) {
+    // 会话号变了说明用户已收起 / 切走 / 再点关闭，被打断的 play() 不算失败。
+    if (session !== mirrorSession) return;
     stopMirror();
     const denied = error && (
       error.name === 'NotAllowedError' || error.message === 'camera_permission_denied'
     );
     showStatusToast(denied ? '需要摄像头权限才能打开镜子' : '暂时无法打开摄像头');
   } finally {
-    mirrorStarting = false;
-    homeMirror?.classList.remove('camera-starting');
-    mirrorStage?.removeAttribute('aria-busy');
+    if (session === mirrorSession) {
+      mirrorStarting = false;
+      homeMirror?.classList.remove('camera-starting');
+      mirrorStage?.removeAttribute('aria-busy');
+      // 中途离开首页却没走 stopMirror 时，不能把已打开的摄像头留在后台。
+      if (!activated && mirrorStream) stopMirror();
+    }
   }
 }
 

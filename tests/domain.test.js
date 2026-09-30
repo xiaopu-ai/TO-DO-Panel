@@ -807,6 +807,23 @@ test('mirror pinch zooms only a live camera and stays within safe bounds', () =>
   assert.equal(domain.adjustMirrorZoom?.(2.55, -100), 2.6);
 });
 
+test('mirror prefers the built-in camera and tries virtual cameras last', () => {
+  const camera = (deviceId, label) => ({ kind: 'videoinput', deviceId, label });
+  assert.deepEqual(domain.rankMirrorCameras([
+    camera('filteronme', 'Filteronme Camera'),
+    { kind: 'audioinput', deviceId: 'mic', label: 'MacBook Pro麦克风' },
+    camera('iphone', '“iPhone 15 Pro Max ”的相机'),
+    camera('obs', 'OBS Virtual Camera'),
+    camera('usb', 'Logitech BRIO'),
+    camera('shangjing', '尚镜 (竖屏)'),
+    camera('builtin', 'MacBook Pro的相机 (0000:0001)'),
+  ]), ['builtin', 'usb', 'iphone', 'filteronme', 'obs', 'shangjing']);
+  // 权限未授予时标签为空，保持系统枚举顺序
+  assert.deepEqual(domain.rankMirrorCameras([camera('a', ''), camera('b', '')]), ['a', 'b']);
+  assert.deepEqual(domain.rankMirrorCameras([camera('', 'FaceTime HD Camera')]), []);
+  assert.deepEqual(domain.rankMirrorCameras(null), []);
+});
+
 test('todo time battery reports the remaining share with exact color boundaries', () => {
   const createdAt = Date.parse('2026-08-21T00:00:00.000Z');
   const deadline = '2026-08-21T10:00:00.000Z';
