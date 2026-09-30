@@ -2,18 +2,18 @@
 
 | 电脑 | 下载文件 | 安装方式 |
 | --- | --- | --- |
-| Mac · Apple Silicon · macOS 13+ | [下载 macOS 安装包（.dmg）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.2/TO-DO-Panel-1.1.2-arm64.dmg) | 打开 DMG，将应用拖入「应用程序」 |
-| Windows 10/11 · Intel / AMD 64 位（x64） | [下载 Windows 安装包（.exe）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.2/TO-DO-Panel-1.1.2-windows-x64-setup.exe) | 双击 EXE，按安装向导完成安装 |
+| Mac · Apple Silicon · macOS 13+ | [下载 macOS 安装包（.dmg）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.2.0/TO-DO-Panel-1.2.0-arm64.dmg) | 打开 DMG，将应用拖入「应用程序」 |
+| Windows 10/11 · Intel / AMD 64 位（x64） | [下载 Windows 安装包（.exe）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.2.0/TO-DO-Panel-1.2.0-windows-x64-setup.exe) | 双击 EXE，按安装向导完成安装 |
 
 `.sha256` 是对应文件的完整性校验码，不是安装包。官网提供 macOS 与 Windows 两个下载入口。
 
-## 1.1.2
+## 1.2.0
 
-- 修复应用常驻跨天后，新建待办默认截止日期仍停留在昨天或上次添加日期的问题。
-- 日期刷新独立于首页时钟；跨天、唤醒、展开面板和切回待办时自动校准为当天 23:30。
-- 输入、打开日期选择器和回车提交时再次校准默认日期，避免睡眠恢复或定时器尚未运行时保存旧日期。
-- 保留当前待办手动选择的日期，添加完成后重置为当天默认时间；已有待办的截止日期不变。
-- 增加真实 Electron 界面的跨天、跨年、闰日和手选日期回归检查。
+- 新增待办收件箱：本机脚本或 AI 助手把 JSON 放进工作区 `todo-inbox/`，运行中约 2 秒、启动时各检查一次，按 `P0`–`P3` 或分类显示名追加待办，无需重启。
+- 收件箱只追加、不改动已有待办；处理后的文件移入 `processed/` 并生成报告，逐条记录跳过原因，同一文件、同一 id 不会重复导入。
+- 修复装了 Filteronme、OBS、尚镜等虚拟摄像头后镜子打不开的问题：镜子不再默认选中排在最前的虚拟摄像头。
+- 镜子优先使用电脑自带相机，其次外接相机和 iPhone 连续互通，虚拟摄像头排在最后；某个摄像头 3 秒内不出画面就自动换下一个。
+- 镜子启动中途再次点击取消时，不再误报「暂时无法打开摄像头」，并立即释放摄像头。
 
 ## 首次安装
 
