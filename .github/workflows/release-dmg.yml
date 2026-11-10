@@ -17,7 +17,9 @@ jobs:
   mac:
     name: Build Apple Silicon DMG
     # macos-14 的托管 runner 已被 GitHub 下线（任务一启动即被取消，提示配置不受支持）。
-    runs-on: macos-latest
+    # 不用 macos-latest：它现在指向 macos-26，tests/notch-focus.electron.js 在那个镜像上
+    # 展开面板的断言会超时——改动前的旧代码在上面同样失败，是镜像环境差异，尚未适配。
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
