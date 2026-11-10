@@ -6,6 +6,13 @@ const { app, BrowserWindow } = require('electron');
 
 const isolatedUserData = process.env.TODO_TEST_USER_DATA || fs.mkdtempSync(path.join(os.tmpdir(), 'to-do-panel-electron-test-'));
 app.setPath('userData', isolatedUserData);
+// 托管的 macOS 构建机上测试窗口可能被判定为「被遮挡 / 不可见」，Chromium 随即暂停 requestAnimationFrame，
+// 而展开与收起都要等动画帧——表现为收起停在 expanded closing、或展开永远等不到 expanded。
+// 窗口选项里的 backgroundThrottling: false 在新镜像上不足以阻止这一点，这里在进程级别关掉遮挡检测与后台降频。
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
 function diagnostic(message) {
   console.log(message);
   if (process.env.TODO_TEST_LOG) fs.appendFileSync(process.env.TODO_TEST_LOG, `${message}\n`);
@@ -168,8 +175,24 @@ async function main() {
           }
           return false;
         };
+        // 诊断：记录等待期间实际跑了多少动画帧、用了多久，失败时能分清「帧被暂停」与「逻辑卡住」。
+        let frames = 0;
+        let counting = true;
+        const countFrame = () => { frames += 1; if (counting) requestAnimationFrame(countFrame); };
+        requestAnimationFrame(countFrame);
+        const classBefore = document.getElementById('app').className;
+        const startedAt = performance.now();
         document.getElementById('notch').click();
         const opened = await waitForClass('expanded');
+        counting = false;
+        const openDiagnostics = {
+          classBefore,
+          classAfter: document.getElementById('app').className,
+          frames,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          visibility: document.visibilityState,
+          focused: document.hasFocus(),
+        };
         const todoButton = document.getElementById('tab-button-todo');
         const rect = todoButton.getBoundingClientRect();
         const hitTarget = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
@@ -185,13 +208,14 @@ async function main() {
         const collapsedBySpace = await waitForClass('collapsed');
         return {
           opened,
+          openDiagnostics,
           todoActivated,
           tabHit: Boolean(hitTarget?.closest('#tab-button-todo')),
           collapsedBySpace,
         };
       })()
     `);
-    assert.equal(topbarTabAndSpaceToggle.opened, true);
+    assert.equal(topbarTabAndSpaceToggle.opened, true, `收起后再次点击刘海必须展开；${JSON.stringify(topbarTabAndSpaceToggle.openDiagnostics)}`);
     assert.equal(topbarTabAndSpaceToggle.tabHit, true, '空白穿透不得破坏真实 Tab 的点击命中');
     assert.equal(topbarTabAndSpaceToggle.todoActivated, true, '真实 Tab 点击必须继续切换页面');
     assert.equal(topbarTabAndSpaceToggle.collapsedBySpace, true, '展开后 Space 必须继续收起');

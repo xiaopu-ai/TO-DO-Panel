@@ -52,7 +52,8 @@ function matchInstalledPlayers(entries, systemDir = '/System/Applications') {
         id: player.id,
         name: player.name,
         strategy: player.strategy,
-        appPath: path.join(entry.dir, `${entry.name}.app`),
+        // 这些都是 macOS 路径；用 posix 拼接，测试在 Windows 上跑时结果也一致。
+        appPath: path.posix.join(entry.dir, `${entry.name}.app`),
       });
     }
   }

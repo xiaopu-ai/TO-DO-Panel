@@ -720,7 +720,8 @@ ipcMain.handle('pomodoro:notify', (event, minutes) => {
 });
 
 function islandTools() {
-  if (!agentMonitorEnabled) return [];
+  // 耳朵是贴着物理刘海 / 菜单栏画的，Windows 上没有对应的位置；那里只保留完成提醒。
+  if (!agentMonitorEnabled || process.platform !== 'darwin') return [];
   // 固定顺序：Claude 在左、Codex 在右。位置不随活跃度互换，用户才能凭位置认工具。
   return ['claude', 'codex'].map((key) => usageSnapshot[key]).filter(Boolean);
 }

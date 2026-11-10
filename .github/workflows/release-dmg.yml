@@ -16,7 +16,9 @@ concurrency:
 jobs:
   mac:
     name: Build Apple Silicon DMG
-    runs-on: macos-14
+    # macos-14 的托管 runner 已被 GitHub 下线（任务一启动即被取消，提示配置不受支持）。
+    # 固定到 macos-15，不跟随 macos-latest（现指向 macos-26），避免镜像升级时构建行为跟着变。
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
