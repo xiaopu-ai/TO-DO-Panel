@@ -23,6 +23,12 @@
     "artifactName": "TO-DO-Panel-${version}-${arch}.${ext}",
     "copyright": "© 2026 xiaopu-ai",
     "asar": false,
+    "electronLanguages": [
+      "zh_CN",
+      "zh-CN",
+      "en",
+      "en-US"
+    ],
     "directories": {
       "output": "dist.noindex",
       "buildResources": "build"

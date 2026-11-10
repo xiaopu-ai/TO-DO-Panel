@@ -210,7 +210,10 @@ button {
 /* 状态不只靠颜色：运行中 = 图标呼吸，完成未读 = 右上角实心点，空闲 = 图标变暗。 */
 .island-ear[data-state='running'] .ear-glyph {
   color: var(--color-text-1);
-  animation: ear-breathe 1.6s ease-in-out infinite;
+  /* 分 5 级跳变而不是连续渐变：岛是常驻的透明窗口，连续动画意味着只要有任务在跑，
+     合成器就以屏幕刷新率（120Hz）不停出帧——实测岛进程 1.5% + GPU 进程 2–3% 的常驻 CPU。
+     分级后每秒只更新约 6 次，观感仍是呼吸。 */
+  animation: ear-breathe 0.9s steps(5, jump-none) infinite alternate;
 }
 
 .island-ear[data-unread='true'] .ear-glyph::after {
@@ -233,11 +236,10 @@ button {
 }
 
 @keyframes ear-breathe {
-  0%,
-  100% {
+  from {
     opacity: 1;
   }
-  50% {
+  to {
     opacity: 0.35;
   }
 }
