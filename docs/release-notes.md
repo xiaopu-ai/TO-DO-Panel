@@ -2,18 +2,20 @@
 
 | 电脑 | 下载文件 | 安装方式 |
 | --- | --- | --- |
-| Mac · Apple Silicon · macOS 13+ | [下载 macOS 安装包（.dmg）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.2.0/TO-DO-Panel-1.2.0-arm64.dmg) | 打开 DMG，将应用拖入「应用程序」 |
-| Windows 10/11 · Intel / AMD 64 位（x64） | [下载 Windows 安装包（.exe）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.2.0/TO-DO-Panel-1.2.0-windows-x64-setup.exe) | 双击 EXE，按安装向导完成安装 |
+| Mac · Apple Silicon · macOS 13+ | [下载 macOS 安装包（.dmg）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.3.0/TO-DO-Panel-1.3.0-arm64.dmg) | 打开 DMG，将应用拖入「应用程序」 |
+| Windows 10/11 · Intel / AMD 64 位（x64） | [下载 Windows 安装包（.exe）](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.3.0/TO-DO-Panel-1.3.0-windows-x64-setup.exe) | 双击 EXE，按安装向导完成安装 |
 
 `.sha256` 是对应文件的完整性校验码，不是安装包。官网提供 macOS 与 Windows 两个下载入口。
 
-## 1.2.0
+## 1.3.0
 
-- 新增待办收件箱：本机脚本或 AI 助手把 JSON 放进工作区 `todo-inbox/`，运行中约 2 秒、启动时各检查一次，按 `P0`–`P3` 或分类显示名追加待办，无需重启。
-- 收件箱只追加、不改动已有待办；处理后的文件移入 `processed/` 并生成报告，逐条记录跳过原因，同一文件、同一 id 不会重复导入。
-- 修复装了 Filteronme、OBS、尚镜等虚拟摄像头后镜子打不开的问题：镜子不再默认选中排在最前的虚拟摄像头。
-- 镜子优先使用电脑自带相机，其次外接相机和 iPhone 连续互通，虚拟摄像头排在最后；某个摄像头 3 秒内不出画面就自动换下一个。
-- 镜子启动中途再次点击取消时，不再误报「暂时无法打开摄像头」，并立即释放摄像头。
+- 新增灵动岛：刘海两侧常驻显示 Claude Code 与 Codex 的上下文占用，悬停展开上下文、5 小时额度与每周额度明细，任务完成的提醒从同一个岛体向下长出。数据只读取本机会话记录，不联网、不读取凭证；Claude 额度需配置可选的状态栏脚本。仅 macOS。
+- 新增权限引导窗口：逐项说明用途，一键弹出系统授权框或跳到系统设置对应页面，解决系统权限提示被其他窗口遮挡的问题。仅 macOS。
+- 音乐组件支持多个播放器：自动识别汽水音乐、网易云音乐、QQ音乐、酷狗、酷我、Spotify 与 Apple Music，可在组件标题或菜单栏切换。仅 macOS。
+- 删除可撤销：密钥、录音、链接、分组、笔记、常用指令与批量删除待办后，5 秒内可恢复。
+- 展开面板不再等待后台脚本，点击后立即展开。
+- 文字对比度提高、最小字号调整为 10px，键盘操作与小按钮的点击区域改进。
+- 安装包只保留中文与英文语言资源，体积减小。
 
 ## 首次安装
 
