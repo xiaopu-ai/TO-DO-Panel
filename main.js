@@ -281,6 +281,8 @@ const mediaPermissionCoordinator = createForegroundMediaPermissionCoordinator();
 let islandWindow = null;
 let islandWindowReady = false;
 let islandPeekHeight = 0;
+let islandMode = 'hidden';
+let islandHotRect = null; // 岛实际占据的屏幕区域，供悬停 + 空格判断
 let islandAlertDisplay = null; // 提醒出现时锁定的屏幕，避免中途跟着光标跳屏
 let agentMonitorEnabled = false;
 let usageSnapshot = { codex: null, claude: null, updatedAt: 0 };
@@ -743,24 +745,29 @@ function getIslandLayout() {
   const rightEar = tools.length > 1 ? ISLAND_EAR_WIDTH : 0;
   const screenCenter = area.x + area.width / 2;
 
+  // 窗口的横向位置与宽度在三种形态之间保持不变，只改高度。
+  // 此前 live 形态的窗口刚好包住耳朵、展开时再换成更宽的窗口：窗口换位置和页面换布局
+  // 不在同一帧生效，中间那一两帧旧画面被贴到新位置上，耳朵图标就在旁边闪出一个重影。
+  // 现在 live 形态两侧多出来的透明区域靠 setIgnoreMouseEvents 放行点击（见 island:interactive）。
+  const width = Math.min(ISLAND_CANVAS_WIDTH, Math.max(280, area.width - ISLAND_SCREEN_MARGIN * 2));
+  const x = Math.round(screenCenter - width / 2);
   let mode = 'hidden';
-  let x = 0;
-  let width = 0;
   let height = 0;
   if (alert || peek) {
     mode = alert ? 'alert' : 'peek';
-    width = Math.min(ISLAND_CANVAS_WIDTH, Math.max(280, area.width - ISLAND_SCREEN_MARGIN * 2));
     height = menuBarHeight + (alert ? ISLAND_ALERT_BODY_HEIGHT : islandPeekHeight);
-    x = Math.round(screenCenter - width / 2);
   } else if (live) {
     mode = 'live';
-    width = leftEar + coreWidth + rightEar;
     height = menuBarHeight;
-    x = Math.round(screenCenter - coreWidth / 2 - leftEar);
   }
+  // 真正「是岛」的那一块（屏幕坐标）：live 形态下只有刘海 + 耳朵，展开后是整个窗口。
+  const hotRect = mode === 'live'
+    ? { x: screenCenter - coreWidth / 2 - leftEar, y: area.y, width: leftEar + coreWidth + rightEar, height }
+    : { x, y: area.y, width, height };
   return {
     mode,
     bounds: { x, y: area.y, width: Math.round(width), height: Math.round(height) },
+    hotRect,
     metrics: {
       mode,
       // 刘海中心在窗口内的横坐标：窗口左右不对称（只有一只耳朵）时内容仍以刘海为轴。
@@ -779,6 +786,9 @@ function syncIsland() {
   const layout = getIslandLayout();
   if (layout.mode === 'hidden') {
     islandPeekHeight = 0;
+    islandMode = 'hidden';
+    islandHotRect = null;
+    syncIslandHoverPolling();
     if (islandWindow && !islandWindow.isDestroyed()) {
       if (islandWindowReady) islandWindow.webContents.send('island:layout', layout.metrics);
       if (islandWindow.isVisible()) islandWindow.hide();
@@ -788,8 +798,59 @@ function syncIsland() {
   const targetWindow = createIslandWindow();
   if (!islandWindowReady || !targetWindow || targetWindow.isDestroyed()) return;
   targetWindow.setBounds(layout.bounds);
+  islandHotRect = layout.hotRect;
+  if (layout.mode !== islandMode) {
+    islandMode = layout.mode;
+    // live：默认整窗放行点击（两侧透明区下面是菜单栏），光标移到耳朵 / 刘海上才接管（见 pollIslandHover）。
+    // 展开后整窗都是岛，直接接管。
+    if (layout.mode === 'live' && !islandHovering) targetWindow.setIgnoreMouseEvents(true, { forward: true });
+    else targetWindow.setIgnoreMouseEvents(false);
+  }
+  syncIslandHoverPolling();
   targetWindow.webContents.send('island:layout', layout.metrics);
   if (!targetWindow.isVisible()) targetWindow.showInactive();
+}
+
+// 悬停判断由主进程按光标位置轮询，而不是靠页面里的鼠标事件：
+// live 形态的窗口默认放行点击，放行状态下页面收不收得到鼠标事件取决于系统转发，不能依赖。
+// 光标进入「刘海 + 耳朵」→ 窗口接管鼠标并通知页面；离开 → 放行并通知页面。
+const ISLAND_HOVER_POLL_MS = 60;
+let islandHoverTimer = null;
+let islandHovering = false;
+
+function setIslandHovering(hovering) {
+  if (hovering === islandHovering) return;
+  islandHovering = hovering;
+  if (!islandWindow || islandWindow.isDestroyed()) return;
+  if (islandMode === 'live') {
+    if (hovering) islandWindow.setIgnoreMouseEvents(false);
+    else islandWindow.setIgnoreMouseEvents(true, { forward: true });
+  }
+  if (islandWindowReady) islandWindow.webContents.send('island:hover', hovering);
+}
+
+function pollIslandHover() {
+  if (!islandHotRect || !islandWindow || islandWindow.isDestroyed() || !islandWindow.isVisible()) {
+    setIslandHovering(false);
+    return;
+  }
+  const point = screen.getCursorScreenPoint();
+  const rect = islandHotRect;
+  setIslandHovering(
+    point.x >= rect.x && point.x < rect.x + rect.width
+    && point.y >= rect.y && point.y < rect.y + rect.height
+  );
+}
+
+function syncIslandHoverPolling() {
+  const needed = islandMode === 'live' || islandMode === 'peek';
+  if (needed && !islandHoverTimer) {
+    islandHoverTimer = setInterval(pollIslandHover, ISLAND_HOVER_POLL_MS);
+  } else if (!needed && islandHoverTimer) {
+    clearInterval(islandHoverTimer);
+    islandHoverTimer = null;
+    setIslandHovering(false);
+  }
 }
 
 function sendIslandUsage() {
@@ -806,6 +867,8 @@ function recoverClosedTaskNotificationWindow(targetWindow) {
   clearTaskNotificationTimers();
   islandWindow = null;
   islandWindowReady = false;
+  islandMode = 'hidden';
+  islandHotRect = null;
   activeTaskNotification = null;
   taskNotificationLeaving = false;
   taskNotificationPaused = false;
@@ -3752,7 +3815,7 @@ function startHoverSpaceShortcut() {
       && point.y >= bounds.y && point.y < bounds.y + bounds.height;
     // 岛的耳朵比折叠条宽：悬停在耳朵上按空格也应该能唤出面板。
     const hovering = inside(mainWindow.getBounds())
-      || Boolean(islandWindow && !islandWindow.isDestroyed() && islandWindow.isVisible() && inside(islandWindow.getBounds()));
+      || Boolean(islandHotRect && islandWindow && !islandWindow.isDestroyed() && islandWindow.isVisible() && inside(islandHotRect));
     setHoverSpaceShortcut(hovering);
   }, policy.intervalMs);
 }
@@ -3986,6 +4049,7 @@ app.on('will-quit', () => {
   clearTaskNotificationTimers();
   stopTaskNotificationServer();
   agentUsageMonitor.stop();
+  if (islandHoverTimer) clearInterval(islandHoverTimer);
   closeAllTranscriptionSessions();
   globalShortcut.unregisterAll();
   stopClipboardPolling();

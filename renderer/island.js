@@ -283,23 +283,31 @@ async function requestPeek() {
 function dismissPeek() {
   closeTimer = null;
   if (metrics.mode !== 'peek') return;
-  // 窗口刚放大时可能补发一次 pointerleave；鼠标其实还在岛上就不收。
-  if (root.matches(':hover')) return;
+  // 窗口变高的瞬间可能补发一次离开事件；鼠标其实还在岛上就不收。
+  if (pointerInside) return;
   closeShell(() => {
     peekRequested = false;
     api.peek(false, 0);
   });
 }
 
-root.addEventListener('pointerenter', () => {
-  closeTimer = clearTimer(closeTimer);
-  if (metrics.mode === 'live' && !openTimer) openTimer = setTimeout(requestPeek, HOVER_OPEN_MS);
-});
+// 悬停状态由主进程按光标位置给出（见 main.js 的 pollIslandHover）：live 形态的窗口比岛宽、
+// 默认放行点击，页面自己的鼠标事件在那种状态下不可靠。
+let pointerInside = false;
 
-root.addEventListener('pointerleave', () => {
-  openTimer = clearTimer(openTimer);
-  if (metrics.mode === 'peek' && !closeTimer) closeTimer = setTimeout(dismissPeek, HOVER_CLOSE_MS);
-});
+function setPointerInside(inside) {
+  if (inside === pointerInside) return;
+  pointerInside = inside;
+  if (inside) {
+    closeTimer = clearTimer(closeTimer);
+    if (metrics.mode === 'live' && !openTimer) openTimer = setTimeout(requestPeek, HOVER_OPEN_MS);
+  } else {
+    openTimer = clearTimer(openTimer);
+    if (metrics.mode === 'peek' && !closeTimer) closeTimer = setTimeout(dismissPeek, HOVER_CLOSE_MS);
+  }
+}
+
+api.onHover(setPointerInside);
 
 function openPanel() {
   openTimer = clearTimer(openTimer);

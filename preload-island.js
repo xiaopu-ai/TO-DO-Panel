@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('islandAPI', {
   onUsage: (cb) => subscribe('island:usage', (event, usage) => cb(usage)),
   peek: (open, height) => ipcRenderer.invoke('island:peek', { open: open === true, height }),
   openPanel: () => ipcRenderer.send('island:open-panel'),
+  onHover: (cb) => subscribe('island:hover', (event, hovering) => cb(hovering === true)),
   onTaskNotification: (cb) =>
     subscribe('task-notification:show', (event, notification) => cb(notification)),
   onTaskNotificationQueue: (cb) =>
