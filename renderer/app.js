@@ -514,8 +514,22 @@ const PANEL_MOTION_FALLBACK_MS = 440;
 const OPENING_SETTLE_MS = 360;
 const HEAVY_LOAD_AFTER_OPEN_MS = 360;
 
+// 展开 / 收起的状态机每一步都要等一帧。窗口被系统判定为不可见（被遮挡、屏幕休眠、
+// 无人值守的构建机）时浏览器会暂停动画帧，此前状态机就永远停在半路（例如一直是 expanded closing）。
+// 正常情况下帧在十几毫秒内到来，行为不变；帧迟迟不来时由定时器兜底继续往下走。
+const ANIMATION_FRAME_FALLBACK_MS = 120;
 function nextAnimationFrame() {
-  return new Promise((resolve) => requestAnimationFrame(resolve));
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, ANIMATION_FRAME_FALLBACK_MS);
+    requestAnimationFrame(finish);
+  });
 }
 
 function waitForPanelMotion() {
