@@ -175,8 +175,24 @@ async function main() {
           }
           return false;
         };
+        // 诊断：记录等待期间实际跑了多少动画帧、用了多久，失败时能分清「帧被暂停」与「逻辑卡住」。
+        let frames = 0;
+        let counting = true;
+        const countFrame = () => { frames += 1; if (counting) requestAnimationFrame(countFrame); };
+        requestAnimationFrame(countFrame);
+        const classBefore = document.getElementById('app').className;
+        const startedAt = performance.now();
         document.getElementById('notch').click();
         const opened = await waitForClass('expanded');
+        counting = false;
+        const openDiagnostics = {
+          classBefore,
+          classAfter: document.getElementById('app').className,
+          frames,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          visibility: document.visibilityState,
+          focused: document.hasFocus(),
+        };
         const todoButton = document.getElementById('tab-button-todo');
         const rect = todoButton.getBoundingClientRect();
         const hitTarget = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
@@ -192,13 +208,14 @@ async function main() {
         const collapsedBySpace = await waitForClass('collapsed');
         return {
           opened,
+          openDiagnostics,
           todoActivated,
           tabHit: Boolean(hitTarget?.closest('#tab-button-todo')),
           collapsedBySpace,
         };
       })()
     `);
-    assert.equal(topbarTabAndSpaceToggle.opened, true);
+    assert.equal(topbarTabAndSpaceToggle.opened, true, `收起后再次点击刘海必须展开；${JSON.stringify(topbarTabAndSpaceToggle.openDiagnostics)}`);
     assert.equal(topbarTabAndSpaceToggle.tabHit, true, '空白穿透不得破坏真实 Tab 的点击命中');
     assert.equal(topbarTabAndSpaceToggle.todoActivated, true, '真实 Tab 点击必须继续切换页面');
     assert.equal(topbarTabAndSpaceToggle.collapsedBySpace, true, '展开后 Space 必须继续收起');
