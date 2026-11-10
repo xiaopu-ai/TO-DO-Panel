@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('notchAPI', {
   notifyPomodoro: (minutes) => ipcRenderer.invoke('pomodoro:notify', minutes),
   onTodoReminder: (cb) => subscribe('todo:reminded', (event, payload) => cb(payload)),
   onEscape: (cb) => subscribe('key:escape', () => cb()),
+  onFlushPending: (cb) => subscribe('app:flush-pending', () => cb()),
+  flushDone: () => ipcRenderer.send('app:flush-done'),
   onToggleShortcut: (cb) => subscribe('shortcut:toggle-panel', () => cb()),
   getHoverSpaceStatus: () => ipcRenderer.invoke('shortcut:hover-space-status'),
   getAppSettings: () => ipcRenderer.invoke('settings:get'),

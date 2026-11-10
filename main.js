@@ -3952,7 +3952,28 @@ app.whenReady().then(() => {
 // 常驻菜单栏应用：所有窗口暂时关闭时仍保持后台运行。
 app.on('window-all-closed', () => {});
 
-app.on('before-quit', () => {
+// 退出前给渲染层一次机会把「撤销窗口内尚未真正执行的删除」落地（删音频文件、删保险库记录），
+// 否则删了一半就退出：密钥还留在保险库里，录音的音频成了孤儿文件。最多等 0.8 秒。
+let quitFlushStarted = false;
+app.on('before-quit', (event) => {
+  const canFlush = mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed();
+  if (!quitFlushStarted && canFlush) {
+    quitFlushStarted = true;
+    event.preventDefault();
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      setTimeout(() => app.quit(), 150); // 留给已发出的文件删除落盘
+    };
+    const timer = setTimeout(finish, 800);
+    ipcMain.once('app:flush-done', () => {
+      clearTimeout(timer);
+      finish();
+    });
+    mainWindow.webContents.send('app:flush-pending');
+    return;
+  }
   isQuitting = true;
   hideWhenCollapsed = false;
 });

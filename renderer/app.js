@@ -138,6 +138,11 @@ if (statusToastAction) {
 }
 
 window.addEventListener('beforeunload', () => dismissStatusToast(true));
+// 应用退出前主进程会来问一次：把还在撤销窗口内的删除立即执行掉，再回执。
+window.notchAPI?.onFlushPending?.(() => {
+  dismissStatusToast(true);
+  window.notchAPI.flushDone();
+});
 
 function loadData() {
   try {
