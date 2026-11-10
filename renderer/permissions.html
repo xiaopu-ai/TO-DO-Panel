@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TO-DO Panel 权限设置</title>
+    <link rel="stylesheet" href="./permissions.css" />
+  </head>
+  <body>
+    <div class="drag-region" aria-hidden="true"></div>
+    <main class="permissions">
+      <header class="permissions-header">
+        <img class="permissions-logo" src="./assets/app-logo-128.png" alt="" width="44" height="44" />
+        <div>
+          <h1>开启 TO-DO Panel 需要的权限</h1>
+          <p id="permissions-summary">点击右侧按钮，会直接弹出系统授权框，或跳到系统设置里对应的那一页。</p>
+        </div>
+      </header>
+
+      <ul id="permissions-list" class="permissions-list" aria-live="polite"></ul>
+
+      <p id="permissions-relaunch-note" class="permissions-note" hidden>
+        「屏幕录制」已开启，需要重新启动 TO-DO Panel 才会生效。
+      </p>
+
+      <footer class="permissions-footer">
+        <label class="permissions-skip">
+          <input id="permissions-skip" type="checkbox" />
+          <span>启动时不再自动显示</span>
+        </label>
+        <div class="permissions-actions">
+          <button id="permissions-relaunch" class="button" type="button" hidden>重新启动</button>
+          <button id="permissions-done" class="button button-primary" type="button">完成</button>
+        </div>
+      </footer>
+    </main>
+
+    <script src="./permissions.js" defer></script>
+  </body>
+</html>

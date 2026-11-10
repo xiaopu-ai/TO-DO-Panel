@@ -82,7 +82,7 @@
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'SF Pro Display', 'SF Pro Text',
     'PingFang SC', sans-serif;
   --font-mono: 'SF Mono', ui-monospace, monospace;
-  --fs-micro: 9px;
+  --fs-micro: 10px;
   --fs-caption: 10.5px;
   --fs-small: 11px;
   --fs-code: 11.5px;
@@ -1296,7 +1296,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text-4);
   pointer-events: none;
 }
@@ -1940,7 +1940,8 @@ body {
 }
 
 .clip-fav-btn {
-  right: 28px;
+  /* 两个 24px 按钮此前相距 20px，重叠 4px；现在并排并留 4px 间隙。 */
+  right: calc(var(--s-2) + 24px + var(--s-1));
 }
 
 .clip-item:hover .clip-fav-btn,
@@ -2605,8 +2606,10 @@ body {
   --tile-highlight: rgba(255, 255, 255, 0.09);
   --text-1: #f7f7f8;
   --text-2: #b4b4bb;
-  --text-3: #7b7b84;
-  --text-4: #54545c;
+  /* 这两级被大量用于真实内容（域名、时间、说明文字、空状态），不只是占位符。
+     原值在瓷砖底色上只有 4.0:1 / 2.2:1；现值在最亮的瓷砖底色上分别为 6.0:1 / 4.6:1，过 WCAG AA。 */
+  --text-3: #9b9ba3;
+  --text-4: #86868e;
   --r-panel: 28px;
   --r-tile: 22px;
   --r-squircle: 14px;
@@ -2620,9 +2623,9 @@ body {
     linear-gradient(155deg, rgba(18, 18, 21, 0.985), rgba(5, 5, 7, 0.995) 64%);
   border: 1px solid rgba(255, 255, 255, 0.055);
   border-top: 0;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.055),
-    0 24px 80px rgba(0, 0, 0, 0.68);
+  /* 外投影已删：面板贴着窗口边缘并被 clip-path 裁切，80px 的投影一个像素都露不出来，
+     却要在每次展开 / 收起的每一帧里重算。 */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
 }
 
 .panel::after {
@@ -2715,7 +2718,9 @@ body {
 .tile {
   position: relative;
   overflow: hidden;
-  transition: border-color 180ms var(--ease), box-shadow 240ms var(--ease-out);
+  /* 不对 box-shadow 做过渡：它是绘制属性，鼠标在瓷砖间移动时会让两块瓷砖
+     连同 40px 的外沿在主线程逐帧重绘。悬停反馈由边框与 ::after 高光承担。 */
+  transition: border-color 180ms var(--ease);
 }
 
 .tile::after {
@@ -2786,7 +2791,6 @@ body {
   opacity: 0;
   transform: translateY(-3px) scale(.94);
   cursor: pointer;
-  backdrop-filter: blur(12px);
   transition: opacity 140ms var(--ease), transform 180ms var(--ease-out), color 140ms var(--ease), background 140ms var(--ease);
 }
 .tile:hover > .widget-size-control,
@@ -2977,7 +2981,7 @@ body {
 }
 .todo-ddl {
   color: var(--text-3);
-  font: 9px/1.2 var(--font-mono);
+  font: 10px/1.2 var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 .todo-item.done .todo-ddl { opacity: .5; }
@@ -3191,6 +3195,8 @@ body {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    /* 只压时长不够：infinite 动画会以 0.01ms 为周期狂闪。 */
+    animation-iteration-count: 1 !important;
     animation-delay: 0ms !important;
     transition-duration: 0s !important;
     transition-delay: 0ms !important;
@@ -3232,8 +3238,9 @@ body {
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), inset 0 1px 0 rgba(255,255,255,.12), 0 14px 28px rgba(0,0,0,.34);
 }
 .music-artwork img { width: 78%; height: 78%; object-fit: contain; border-radius: 13px; }
-.music-pulse { position: absolute; inset: -8px; display: flex; align-items: flex-end; justify-content: center; gap: 3px; opacity: 0; filter: blur(.1px); transition: opacity 220ms var(--ease); }
-.music-pulse i { width: 3px; height: 12px; border-radius: 99px; background: linear-gradient(#baffd1, #55e68a); transform-origin: center bottom; animation: music-pulse 760ms ease-in-out infinite alternate; }
+.music-pulse { position: absolute; inset: -8px; display: flex; align-items: flex-end; justify-content: center; gap: 3px; opacity: 0; transition: opacity 220ms var(--ease); }
+.music-pulse i { width: 3px; height: 12px; border-radius: 99px; background: linear-gradient(#baffd1, #55e68a); transform-origin: center bottom; animation: music-pulse 760ms ease-in-out infinite alternate; animation-play-state: paused; }
+.music-playing .music-pulse i { animation-play-state: running; }
 .music-pulse i:nth-child(2) { height: 19px; animation-delay: -420ms; }
 .music-pulse i:nth-child(3) { height: 15px; animation-delay: -180ms; }
 .music-pulse i:nth-child(4) { height: 9px; animation-delay: -590ms; }
@@ -3242,9 +3249,9 @@ body {
 .music-copy { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
 .music-copy strong,
 .music-copy > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.music-kicker { color: rgba(177,255,207,.62); font: 7px/1.2 var(--font-mono); letter-spacing: 1.15px; }
+.music-kicker { color: rgba(177,255,207,.62); font: 10px/1.2 var(--font-mono); letter-spacing: 1.15px; }
 .music-copy strong { color: var(--text-1); font-size: 14px; font-weight: 640; letter-spacing: -.2px; }
-.music-copy > span:last-child { color: var(--text-3); font-size: 9px; }
+.music-copy > span:last-child { color: var(--text-3); font-size: 10px; }
 .music-controls { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .music-controls button {
   width: 25px;
@@ -3299,7 +3306,7 @@ body {
 .todo-copy .todo-text { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .todo-ddl { white-space: nowrap; }
 .todo-copy .todo-battery { width: 58px; height: 14px; }
-.todo-battery b { font-size: 8px; line-height: 14px; }
+.todo-battery b { font-size: 10px; line-height: 14px; }
 .add-row { grid-template-columns: minmax(120px, 1fr) 148px; }
 .todo-deadline-trigger {
   min-width: 0;
@@ -3348,7 +3355,7 @@ body {
 .todo-editor-card header span { color: var(--text-3); font: 10px var(--font-mono); }
 .todo-editor-card header button { width: 28px; height: 28px; border: 0; border-radius: 10px; background: rgba(255,255,255,.055); color: var(--text-2); cursor: pointer; }
 .todo-editor-name { display: flex; flex-direction: column; gap: 6px; margin-bottom: 13px; }
-.todo-editor-name span { color: var(--text-3); font-size: 9px; }
+.todo-editor-name span { color: var(--text-3); font-size: 10px; }
 .todo-editor-name input { height: 38px; padding: 0 11px; border: 0; border-radius: 12px; outline: none; background: rgba(255,255,255,.06); color: var(--text-1); font: 12px var(--font); }
 .todo-calendar-week,
 .todo-calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
@@ -3363,7 +3370,7 @@ body {
 .todo-time-row { justify-content: flex-end; gap: 7px; margin-top: 12px; }
 .todo-time-row > span { margin-right: auto; color: var(--text-3); font-size: 10px; }
 .todo-time-row select { width: 66px; height: 34px; padding: 0 8px; border: 0; border-radius: 11px; outline: none; background: rgba(255,255,255,.06); color: var(--text-1); font: 11px var(--font-mono); }
-#todo-editor-error { min-height: 16px; margin: 8px 0 0; color: #ff817b; font-size: 9px; }
+#todo-editor-error { min-height: 16px; margin: 8px 0 0; color: #ff817b; font-size: 10px; }
 .todo-editor-card footer { justify-content: flex-end; gap: 7px; }
 
 /* 录音只保留底部三枚控制按钮。 */
@@ -3372,7 +3379,7 @@ body {
 
 /* 半尺寸组件与番茄钟。 */
 .home-pomodoro { padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr) 25px; grid-template-rows: auto 1fr; gap: 2px 6px; align-items: center; }
-.pomodoro-label { color: var(--text-4); font-size: 8px; }
+.pomodoro-label { color: var(--text-4); font-size: 10px; }
 .home-pomodoro strong { color: var(--text-1); font: 600 15px var(--font-mono); letter-spacing: -.5px; }
 .home-pomodoro button { grid-column: 2; grid-row: 1 / 3; width: 25px; height: 25px; border: 0; border-radius: 9px; background: rgba(255,255,255,.09); color: var(--text-1); cursor: pointer; }
 
@@ -3435,7 +3442,8 @@ body {
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.055);
 }
 .todo-battery i { position: absolute; inset: 0 auto 0 0; width: var(--battery); border-radius: inherit; opacity: .9; }
-.todo-battery b { position: relative; z-index: 1; display: block; color: rgba(255,255,255,.84); font: 500 8px/15px var(--font-mono); text-align: center; }
+/* 标签压在彩色填充上：白字在黄 / 绿上只有 1.4–2.9:1，改用带深色描边阴影的白字保证两种底上都可读。 */
+.todo-battery b { position: relative; z-index: 1; display: block; color: #fff; font: 600 10px/15px var(--font-mono); text-align: center; text-shadow: 0 0 2px rgba(0,0,0,.9), 0 0 1px rgba(0,0,0,.9); }
 .todo-battery[data-tone='green'] i { background: linear-gradient(90deg, #209f5a, #48d989); }
 .todo-battery[data-tone='yellow'] i { background: linear-gradient(90deg, #b89421, #f0ce52); }
 .todo-battery[data-tone='orange'] i { background: linear-gradient(90deg, #bd682a, #f69a4b); }
@@ -3458,7 +3466,8 @@ body {
   letter-spacing: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .todo-battery[data-overdue='true'] { animation: todo-overdue-pulse 2s var(--ease-soft) infinite; }
+  /* 只在待办页真的可见时脉冲；box-shadow 动画跑在主线程，折叠或停在别的页时不该空转。 */
+  #app.expanded #tab-todo.active .todo-battery[data-overdue='true'] { animation: todo-overdue-pulse 2s var(--ease-soft) infinite; }
 }
 @keyframes todo-overdue-pulse {
   0%, 100% { box-shadow: inset 0 0 0 1px rgba(255,255,255,.22), 0 0 0 2px rgba(255,95,87,.16); }
@@ -3491,7 +3500,7 @@ body {
 .credentials-library-head > div { display: flex; flex-direction: column; gap: 3px; }
 .credentials-heading strong,
 .credentials-library-head strong { color: var(--text-1); font-size: 18px; font-weight: 620; }
-.secure-chip { padding: 5px 8px; border-radius: 999px; background: rgba(67,209,122,.1); color: #5add8c; font-size: 9px; }
+.secure-chip { padding: 5px 8px; border-radius: 999px; background: rgba(67,209,122,.1); color: #5add8c; font-size: 10px; }
 .credentials-form-card label { display: flex; flex-direction: column; gap: 6px; }
 .credentials-form-card label span { color: var(--text-3); font-size: 10px; }
 .credentials-form-card input { width: 100%; height: 38px; padding: 0 11px; border: 0; border-radius: 12px; outline: none; background: rgba(255,255,255,.055); color: var(--text-1); font: 12px var(--font); box-shadow: inset 0 1px 0 rgba(255,255,255,.045); }
@@ -3556,13 +3565,13 @@ body {
 .settings-card-heading > div { display: flex; flex-direction: column; gap: 3px; }
 .settings-card-heading strong,
 .settings-mirror-card strong { color: var(--text-1); font-size: 16px; font-weight: 640; }
-.settings-card-heading > small { color: var(--text-4); font-size: 9px; }
-.settings-card p { margin: 0; color: var(--text-4); font-size: 9px; line-height: 1.55; }
+.settings-card-heading > small { color: var(--text-4); font-size: 10px; }
+.settings-card p { margin: 0; color: var(--text-4); font-size: 10px; line-height: 1.55; }
 
 .settings-status-list { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: var(--s-2); margin: 16px 0 11px; }
 .settings-status-list > div { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 11px; border-radius: 12px; background: rgba(255,255,255,.04); }
 .settings-status-list span { overflow: hidden; color: var(--text-2); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.settings-status-list small { flex: 0 0 auto; color: var(--text-4); font-size: 9px; }
+.settings-status-list small { flex: 0 0 auto; color: var(--text-4); font-size: 10px; }
 .settings-status-list small[data-state='saved'] { color: #65d9a1; }
 .settings-status-list small[data-state='warning'] { color: #ffb16d; }
 
@@ -3572,7 +3581,7 @@ body {
 .settings-feature-grid label:hover { background: rgba(255,255,255,.065); transform: translateY(-1px); }
 .settings-feature-grid label > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .settings-feature-grid b { color: var(--text-2); font-size: 11px; font-weight: 600; }
-.settings-feature-grid small { color: var(--text-4); font-size: 8px; }
+.settings-feature-grid small { color: var(--text-4); font-size: 10px; }
 .settings-feature-grid input,
 .settings-auto-launch-row input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .settings-feature-grid i,
@@ -3596,7 +3605,7 @@ body {
 .settings-device-card { display: flex; flex-direction: column; }
 .settings-device-row { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; border-bottom: 1px solid var(--hairline-soft); }
 .settings-device-row > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.settings-device-row span { color: var(--text-3); font-size: 9px; }
+.settings-device-row span { color: var(--text-3); font-size: 10px; }
 .settings-device-row strong { overflow: hidden; color: var(--text-2); font-size: 10px; font-weight: 540; text-overflow: ellipsis; white-space: nowrap; }
 .settings-device-row em { color: #8eb2ff; font-style: normal; }
 .settings-device-row button { flex: 0 0 auto; min-height: 28px; padding: 0 10px; border: 0; border-radius: 9px; background: rgba(255,255,255,.06); color: var(--text-3); font: 9px var(--font); cursor: pointer; transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease); }
@@ -3811,7 +3820,7 @@ body {
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   color: var(--text-3);
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1.35;
 }
 
@@ -3823,7 +3832,7 @@ body {
 .credential-inline-head button { border:0; background:transparent; color:var(--text-3); cursor:pointer; }
 .credential-inline-fields { min-width:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
 .credential-inline-fields label { min-width:0; display:flex; flex-direction:column; gap:4px; }
-.credential-inline-fields span { color:var(--text-4); font-size:8px; }
+.credential-inline-fields span { color:var(--text-4); font-size:10px; }
 .credential-inline-fields input { width:100%; height:32px; padding:0 9px; border:0; border-radius:10px; outline:none; background:rgba(255,255,255,.055); color:var(--text-1); }
 .credential-inline-editor > button { align-self:end; }
 
@@ -3851,7 +3860,7 @@ body {
 .shortcut-recorder[hidden] { display: none; }
 .shortcut-recorder > span { color: var(--text-1); font-size: 11px; font-weight: 620; }
 .shortcut-recorder kbd { justify-self: end; padding: 5px 8px; border-radius: 9px; background: rgba(255,255,255,.08); color: #cbd9ff; font: 10px var(--font-mono); }
-.shortcut-recorder small { color: var(--text-4); font-size: 8px; line-height: 1.4; }
+.shortcut-recorder small { color: var(--text-4); font-size: 10px; line-height: 1.4; }
 .shortcut-recorder button { border: 0; background: transparent; color: var(--text-3); font: 9px var(--font); cursor: pointer; }
 
 /* 汽水音乐在四档尺寸中保持完全相同的信息顺序：Logo、名称、三枚控制键。 */
@@ -3955,13 +3964,13 @@ body {
 .home-windows[data-widget-size='mini'] .window-item { padding: 2px; gap: 1px; }
 .home-windows[data-widget-size='mini'] .window-item:nth-child(n+4) { display: none; }
 .home-windows[data-widget-size='mini'] .window-app-mark { width: 28px; height: 28px; border-radius: 8px; }
-.home-windows[data-widget-size='mini'] .window-item > strong { font-size: 7px; }
-.home-windows[data-widget-size='mini'] .window-empty { padding: 3px; font-size: 8px; }
+.home-windows[data-widget-size='mini'] .window-item > strong { font-size: 10px; }
+.home-windows[data-widget-size='mini'] .window-empty { padding: 3px; font-size: 10px; }
 .home-commands[data-widget-size='mini'] .command-list { overflow: hidden; }
 .home-commands[data-widget-size='mini'] .command-item { min-height: 30px; padding-left: 7px; }
 .home-commands[data-widget-size='mini'] .command-item:nth-child(n+2) { display: none; }
 .home-commands[data-widget-size='mini'] .command-actions { display: none; }
-.home-commands[data-widget-size='mini'] .command-empty { padding: 3px; font-size: 8px; }
+.home-commands[data-widget-size='mini'] .command-empty { padding: 3px; font-size: 10px; }
 .home-note[data-widget-size='mini'] { padding: 8px; }
 .home-note[data-widget-size='mini'] .note-toolbar { min-height: 18px; }
 .home-note[data-widget-size='mini'] .note-format-actions,
@@ -3969,7 +3978,7 @@ body {
 .home-note[data-widget-size='mini'] #note-edit-btn { display: none; }
 .home-note[data-widget-size='mini'] .note-body { min-height: 0; overflow: hidden; }
 .home-note[data-widget-size='mini'] .note-input { display: none !important; }
-.home-note[data-widget-size='mini'] .note-preview { display: -webkit-box !important; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; font-size: 8px; line-height: 1.35; }
+.home-note[data-widget-size='mini'] .note-preview { display: -webkit-box !important; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; font-size: 10px; line-height: 1.35; }
 .home-mirror[data-widget-size='mini'] { padding: 0; }
 .home-mirror[data-widget-size='mini']::before { content: none; }
 .home-mirror[data-widget-size='mini'] .mirror-stage { width: 100%; height: 100%; }
@@ -4005,12 +4014,12 @@ body {
 .home-note[data-widget-size='mini'] .note-body { display: block; min-height: 0; overflow: hidden; }
 .home-note[data-widget-size='mini'] .note-input {
   display: block !important;
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1.42;
   padding: 2px;
 }
 .home-note[data-widget-size='mini'] .note-save-btn { display: grid; }
-.home-note[data-widget-size='mini'] .note-toolbar .tile-label { font-size: 8px; }
+.home-note[data-widget-size='mini'] .note-toolbar .tile-label { font-size: 10px; }
 .home-note[data-widget-size='mini'] .note-persist-actions { transform: scale(.76); transform-origin: right center; }
 .note-library { padding: 2px; }
 .note-library-row {
@@ -4054,14 +4063,14 @@ body {
   margin: 0 0 5px;
   justify-content: center;
 }
-.todo-date-popover .todo-editor-card header span { font-size: 9px; }
+.todo-date-popover .todo-editor-card header span { font-size: 10px; }
 .todo-date-popover .todo-calendar-grid { min-height: 122px; }
-.todo-date-popover .todo-calendar-grid button { height: 19px; border-radius: 7px; font-size: 9px; }
-.todo-date-popover .todo-calendar-week { margin-bottom: 2px; font-size: 8px; }
+.todo-date-popover .todo-calendar-grid button { height: 19px; border-radius: 7px; font-size: 10px; }
+.todo-date-popover .todo-calendar-week { margin-bottom: 2px; font-size: 10px; }
 .todo-date-popover .todo-time-row { margin-top: 6px; }
 .todo-date-popover .todo-time-row > span { display: none; }
 .todo-date-popover .todo-time-row select { width: 58px; height: 29px; border-radius: 9px; font-size: 10px; }
-.todo-date-popover #todo-editor-error { min-height: 0; margin: 5px 0 0; font-size: 8px; }
+.todo-date-popover #todo-editor-error { min-height: 0; margin: 5px 0 0; font-size: 10px; }
 
 /* ============ Vue Bits inspired motion + radius audit ============ */
 /* 两个首页背景由本地 WebGL 绘制，切换组件尺寸时无需替换图片。 */
@@ -4123,7 +4132,6 @@ body {
   transform: translateX(calc(var(--line-effect) * 3px));
   transform-origin: center left;
   transition: background var(--d-fast) var(--ease), border-color var(--d-fast) var(--ease);
-  will-change: transform;
 }
 .line-sidebar-list [data-line-sidebar-item]::before {
   content: '';
@@ -4807,9 +4815,9 @@ body {
 .quadrant > .todo-date-popover .todo-editor-card header { min-height: 15px; margin-bottom: 3px; }
 .quadrant > .todo-date-popover .todo-calendar-head { grid-template-columns: 20px 1fr 20px; gap: 2px; }
 .quadrant > .todo-date-popover .todo-calendar-head button { width: 20px; height: 20px; border-radius: 6px; font-size: 13px; }
-.quadrant > .todo-date-popover .todo-calendar-week { margin-bottom: 1px; font-size: 7px; }
+.quadrant > .todo-date-popover .todo-calendar-week { margin-bottom: 1px; font-size: 10px; }
 .quadrant > .todo-date-popover .todo-calendar-grid { min-height: 104px; gap: 1px; }
-.quadrant > .todo-date-popover .todo-calendar-grid button { height: 17px; border-radius: 6px; font-size: 8px; }
+.quadrant > .todo-date-popover .todo-calendar-grid button { height: 17px; border-radius: 6px; font-size: 10px; }
 .quadrant > .todo-date-popover .todo-time-row { margin-top: 4px; }
 .quadrant > .todo-date-popover .todo-time-row select { width: 55px; height: 27px; }
 
@@ -4888,9 +4896,9 @@ body {
 .line-sidebar-list .credential-item.editing:hover { transform: none; }
 .credential-edit-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
 .credential-edit-head strong { color: var(--text-1); font-size: 13px; }
-.credential-edit-head span { color: var(--text-4); font-size: 9px; }
+.credential-edit-head span { color: var(--text-4); font-size: 10px; }
 .credential-item.editing label { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.credential-item.editing label span { color: var(--text-4); font-size: 8px; }
+.credential-item.editing label span { color: var(--text-4); font-size: 10px; }
 .credential-item.editing input {
   width: 100%;
   height: 36px;
@@ -4921,7 +4929,7 @@ body {
   min-height: 16px;
   margin-top: 2px;
   padding: 0;
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1.3;
   -webkit-line-clamp: 2;
 }
@@ -5334,7 +5342,7 @@ body {
 }
 .home-bento > .home-note[data-layout-variant] .note-persist-actions { transform: none; }
 .home-bento > .home-note[data-layout-variant='mini'] { padding: 8px; }
-.home-bento > .home-note[data-layout-variant='mini'] .note-input { font-size: 8px; line-height: 1.42; padding: 2px; }
+.home-bento > .home-note[data-layout-variant='mini'] .note-input { font-size: 10px; line-height: 1.42; padding: 2px; }
 
 .home-bento > .home-mirror[data-layout-variant] { padding: 0; }
 .home-bento > .home-mirror[data-layout-variant] .mirror-stage { display: block; width: 100%; height: 100%; }
@@ -5374,7 +5382,7 @@ body {
 .settings-home-module-grid label:has(input:disabled):hover { background: rgba(255,255,255,.035); transform: none; }
 .settings-home-module-grid label > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .settings-home-module-grid b { color: var(--text-2); font-size: 11px; font-weight: 600; }
-.settings-home-module-grid small { color: var(--text-4); font-size: 8px; }
+.settings-home-module-grid small { color: var(--text-4); font-size: 10px; }
 .settings-home-module-grid input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .settings-home-module-grid i { position: relative; flex: 0 0 32px; width: 32px; height: 18px; border-radius: var(--r-pill); background: rgba(255,255,255,.1); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); transition: background var(--d-fast) var(--ease), box-shadow var(--d-fast) var(--ease); }
 .settings-home-module-grid i::after { content: ''; position: absolute; left: 3px; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: #8c8c91; transition: transform var(--d-fast) var(--ease-spring), background var(--d-fast) var(--ease); }
@@ -5383,3 +5391,17 @@ body {
 .settings-home-module-grid input:focus-visible + i { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .settings-home-module-grid input:disabled + i { opacity: .55; }
 #settings-home-module-status[data-state='warning'] { color: #ffb16d; }
+
+
+/* ============ 可达性补丁 ============ */
+/* 待办勾选框视觉 18px，命中区补到 26px；描边从 2.2:1 提到可辨识。 */
+.todo-item .checkbox { position: relative; border-color: var(--text-3); }
+.todo-item .checkbox::before { content: ''; position: absolute; inset: -4px; }
+
+/* 输入类控件统一的键盘焦点环：此前各处 outline:none 后各自为政，有的完全没有焦点指示。 */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}

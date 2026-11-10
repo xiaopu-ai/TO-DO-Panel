@@ -1028,6 +1028,7 @@
 
   function openTranscriptionSettings() {
     if (!transcriptionSettingsBackdrop) return;
+    transcriptionSettingsOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     transcriptionSettingsBackdrop.hidden = false;
     transcriptionSettingsNote.classList.remove('error', 'success');
     transcriptionSettingsNote.textContent = transcriptionConfig.asrNeedsReentry || transcriptionConfig.llmNeedsReentry
@@ -1041,9 +1042,19 @@
     setTimeout(() => transcriptionApiKey?.focus(), 0);
   }
 
+  let transcriptionSettingsOpener = null;
   function closeTranscriptionSettings() {
-    if (transcriptionSettingsBackdrop) transcriptionSettingsBackdrop.hidden = true;
+    if (!transcriptionSettingsBackdrop || transcriptionSettingsBackdrop.hidden) return;
+    transcriptionSettingsBackdrop.hidden = true;
+    // 把焦点还给打开它的控件，键盘用户不会被丢回页面开头。
+    if (transcriptionSettingsOpener && transcriptionSettingsOpener.isConnected) transcriptionSettingsOpener.focus();
+    transcriptionSettingsOpener = null;
   }
+  document.addEventListener('notch:close-overlays', closeTranscriptionSettings);
+  // 面板收起时浮层一并关闭，否则下次展开它还盖在上面。
+  document.addEventListener('notch:modechange', (event) => {
+    if (!(event.detail && event.detail.expanded)) closeTranscriptionSettings();
+  });
 
   async function saveTranscriptionSettings() {
     if (!window.notchAPI || !transcriptionSettingsSave) return;
@@ -1110,8 +1121,20 @@
   }
 
   function persistRecordings() {
+    clearTimeout(persistRecordingsTimer);
+    persistRecordingsTimer = null;
     saveJson(RECORDINGS_KEY, recordings.filter((recording) => !recording.isDraft));
   }
+
+  // 转写文本逐键输入时用：整份录音列表的序列化合并到停手之后。
+  let persistRecordingsTimer = null;
+  function persistRecordingsSoon() {
+    clearTimeout(persistRecordingsTimer);
+    persistRecordingsTimer = setTimeout(persistRecordings, 300);
+  }
+  window.addEventListener('pagehide', () => {
+    if (persistRecordingsTimer) persistRecordings();
+  });
 
   function currentDuration() {
     return Domain.calculateRecordingDuration({
@@ -1906,7 +1929,10 @@
     });
     transcript.addEventListener('input', () => {
       recording.transcript = transcript.value;
-      persistRecordings();
+      persistRecordingsSoon();
+    });
+    transcript.addEventListener('blur', () => {
+      if (persistRecordingsTimer) persistRecordings();
     });
     actions.addEventListener('click', async (event) => {
       const action = event.target.closest('[data-action]');
@@ -2160,11 +2186,14 @@
     });
   }
 
+  const WINDOWS_REFRESH_AFTER_OPEN_MS = 380;
+
   async function refreshWindows(force = false) {
     if (!window.NotchHome?.isVisible?.('windows')) return;
     if (windowsLoading || !window.notchAPI || (!force && (!workspaceExpanded || workspaceTab !== 'home'))) return;
     windowsLoading = true;
-    renderWindows();
+    // 只有首次（还没有任何内容）才先画占位；已有列表时不为了一次轮询把它拆掉重建。
+    if (windowsSignature === null) renderWindows();
     let result;
     try {
       result = await window.notchAPI.listWindows();
@@ -2172,9 +2201,18 @@
       result = { items: [], error: 'accessibility_permission_required' };
     }
     windowsLoading = false;
-    windows = result && Array.isArray(result.items) ? result.items : [];
-    renderWindows(result && result.error);
+    const nextWindows = result && Array.isArray(result.items) ? result.items : [];
+    const error = (result && result.error) || '';
+    // 6 秒一次的轮询绝大多数时候什么都没变。此前无论变没变都 replaceChildren 两次，
+    // 鼠标正悬停的图标被销毁重建，悬停放大随之抖一下。
+    const signature = `${error}|${nextWindows.map((item) => `${item.id}:${item.displayName || item.title || ''}:${item.appPath || ''}:${item.icon ? 1 : 0}`).join('|')}`;
+    windows = nextWindows;
+    if (!force && signature === windowsSignature) return;
+    windowsSignature = signature;
+    renderWindows(error);
   }
+
+  let windowsSignature = null;
 
   if (windowsRefresh) windowsRefresh.addEventListener('click', () => refreshWindows(true));
   if (windowsHidden) {
@@ -2261,7 +2299,11 @@
   document.addEventListener('notch:modechange', (event) => {
     clearWindowDragVisuals();
     workspaceExpanded = !!(event.detail && event.detail.expanded);
-    if (workspaceExpanded && workspaceTab === 'home') refreshWindows();
+    // 展开事件与入场动画在同一帧触发；窗口枚举要起 osascript 并重建列表，
+    // 放到入场播完之后，别和动画抢主线程。
+    if (workspaceExpanded && workspaceTab === 'home') {
+      setTimeout(() => { if (workspaceExpanded) refreshWindows(); }, WINDOWS_REFRESH_AFTER_OPEN_MS);
+    }
   });
   document.addEventListener('notch:home-modules-changed', (event) => {
     const nextVisible = Array.isArray(event.detail?.visibleIds)
@@ -2643,6 +2685,7 @@
   });
 
   setInterval(() => refreshWindows(), 6000);
+
 
   window.addEventListener('beforeunload', () => {
     stopSpeechRecognition();

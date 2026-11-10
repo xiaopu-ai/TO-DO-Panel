@@ -24,6 +24,17 @@ function collectLocalStorageSnapshot() {
   return result;
 }
 
+// 工作区快照只在 localStorage 真的被写过之后才发：此前每 2 秒无条件把全部键值
+// 序列化一遍过 IPC（折叠、空闲时也一样），主进程再整体 parse / stringify 比对。
+let workspaceDirty = true;
+for (const method of ['setItem', 'removeItem', 'clear']) {
+  const original = Storage.prototype[method];
+  Storage.prototype[method] = function patchedStorageWrite(...args) {
+    if (this === localStorage) workspaceDirty = true;
+    return original.apply(this, args);
+  };
+}
+
 let workspaceReloadPending = false;
 async function hydratePortableWorkspace() {
   if (!window.notchAPI?.loadWorkspaceData) return;
@@ -46,7 +57,13 @@ async function hydratePortableWorkspace() {
       location.reload();
       return;
     }
-    setInterval(() => window.notchAPI.saveWorkspaceData(collectLocalStorageSnapshot()).catch(() => {}), 2000);
+    setInterval(() => {
+      if (!workspaceDirty) return;
+      workspaceDirty = false;
+      window.notchAPI.saveWorkspaceData(collectLocalStorageSnapshot()).catch(() => {
+        workspaceDirty = true; // 没写成功，下一轮重试
+      });
+    }, 2000);
     // 恢复流程可能整页重载；只有确定不再重载后才接收外部导入。
     startTodoInbox();
   } catch (error) {}
@@ -250,18 +267,20 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+const todoDeadlineFormat = new Intl.DateTimeFormat('zh-CN', {
+  month: 'numeric',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 function todoItemHtml(priority, item) {
   const doneClass = item.done ? ' done' : '';
   const selectedClass = todoSelections[priority]?.has(item.id) ? ' multi-selected' : '';
   const safeId = escapeHtml(item.id);
   const safeText = escapeHtml(item.text);
   const deadline = Number.isFinite(Date.parse(String(item.deadline || '')))
-    ? new Intl.DateTimeFormat('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(item.deadline))
+    ? todoDeadlineFormat.format(new Date(item.deadline))
     : '';
   const toggleLabel = item.done ? `恢复未完成：${safeText}` : `标记完成：${safeText}`;
   const battery = window.NotchDomain.todoTimeBattery(item, Date.now());
@@ -351,7 +370,24 @@ function renderAll() {
   });
 }
 
-setInterval(() => PRIORITIES.forEach(renderList), 60_000);
+// 每分钟刷新一次剩余时间。折叠时没人看，推迟到下次展开；
+// 正在列表里输入（行内改名）时也不重建，否则 innerHTML 会把输入中的文字冲掉。
+let todoListsStale = false;
+function refreshTodoListsForClock() {
+  const editing = document.activeElement
+    && document.activeElement.closest('.todo-list')
+    && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+  if (!isExpanded || editing) {
+    todoListsStale = true;
+    return;
+  }
+  todoListsStale = false;
+  PRIORITIES.forEach(renderList);
+}
+setInterval(refreshTodoListsForClock, 60_000);
+document.addEventListener('notch:modechange', (event) => {
+  if (event.detail?.expanded && todoListsStale) refreshTodoListsForClock();
+});
 
 // 渲染重建 innerHTML 后，给指定条目挂一次性动画类；动画结束即卸载，不污染后续渲染
 function flashItemClass(priority, id, cls) {
@@ -657,6 +693,17 @@ panel.addEventListener('click', (e) => {
 // Escape 不会原生到达页面（被浏览器层吞掉），由主进程 before-input-event 转发
 if (window.notchAPI && typeof window.notchAPI.onEscape === 'function') {
   window.notchAPI.onEscape(() => {
+    // 先关最上层的浮层。此前 Esc 直接落到「失焦 → 收起整个面板」，
+    // 浮层本身没关，下次展开时它还开着。
+    if (todoEditorContext) {
+      closeTodoEditor();
+      return;
+    }
+    const overlay = document.getElementById('transcription-settings-backdrop');
+    if (overlay && !overlay.hidden) {
+      document.dispatchEvent(new CustomEvent('notch:close-overlays'));
+      return;
+    }
     const el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
       el.blur();
@@ -2142,7 +2189,8 @@ if (noteInput) {
 
   noteInput.addEventListener('input', () => {
     if (!noteInput.value.trim()) localStorage.removeItem(NOTE_ACTIVE_ARCHIVE_KEY);
-    renderNotePreview();
+    // 编辑态下预览是隐藏的，切到预览时会重新渲染；没必要每个按键解析一遍整篇 Markdown。
+    if (notePreview && !notePreview.hidden) renderNotePreview();
     clearTimeout(noteTimer);
     noteTimer = setTimeout(saveNote, 300);
   });

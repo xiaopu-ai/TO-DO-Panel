@@ -43,8 +43,6 @@ const {
   installLocalWebContentsGuards,
   runOwnedOpenDialog,
   readClipboardObservation,
-  screenRecordingProbePolicy,
-  taskNotificationWindowPolicy,
   updateFeaturePreference,
   controlSodaMusic,
   sodaShortcutSpec,
@@ -60,6 +58,13 @@ const {
   updateDefaultTabPreference,
   createForegroundMediaPermissionCoordinator,
 } = require('./main-services');
+const { createAgentUsageMonitor } = require('./main/agent-usage');
+const { createNotchGeometry } = require('./main/notch-geometry');
+const {
+  buildPermissionList,
+  missingRequiredPermissions,
+  permissionSettingsUrl,
+} = require('./main/permissions');
 
 // Keep the historical data directory so upgrading users retain notes, links,
 // recordings and encrypted settings after the public product rename.
@@ -237,9 +242,17 @@ const LINK_FETCH_TIMEOUT_MS = 8000;
 const LINK_FETCH_MAX_BYTES = 512 * 1024;
 const LINK_FETCH_MAX_REDIRECTS = 3;
 
-const TASK_NOTIFICATION_WIDTH = 400;
-const TASK_NOTIFICATION_HEIGHT = 96;
-const TASK_NOTIFICATION_SCREEN_MARGIN = 12;
+// 灵动岛：常驻窗口，三种形态共用一个窗口。
+//   live  = 物理刘海 + 左右「耳朵」，高度等于菜单栏，显示各 AI 工具的上下文占用
+//   peek  = 悬停后从刘海向下长出的用量明细
+//   alert = 任务完成 / 待办到期提醒，同样从刘海向下长出
+const ISLAND_EAR_WIDTH = 62;
+const ISLAND_CANVAS_WIDTH = 380;
+const ISLAND_ALERT_BODY_HEIGHT = 64;
+const ISLAND_PEEK_MAX_HEIGHT = 300;
+const ISLAND_SCREEN_MARGIN = 12;
+// 监控轮询与 Stop 钩子可能为同一次完成各报一次，跨通道在这个窗口内只保留先到的那条。
+const TASK_NOTIFICATION_CROSS_CHANNEL_MS = 8000;
 const TASK_NOTIFICATION_VISIBLE_MS = 6000;
 const TASK_NOTIFICATION_LEAVE_MS = 360;
 const TASK_NOTIFICATION_DEDUPE_MS = 2000;
@@ -266,8 +279,13 @@ let cameraBlurDeferred = false;
 let sodaMusicPlaying = false;
 const mediaPermissionCoordinator = createForegroundMediaPermissionCoordinator();
 
-let notificationWindow = null;
-let notificationWindowReady = false;
+let islandWindow = null;
+let islandWindowReady = false;
+let islandPeekHeight = 0;
+let islandAlertDisplay = null; // 提醒出现时锁定的屏幕，避免中途跟着光标跳屏
+let agentMonitorEnabled = false;
+let usageSnapshot = { codex: null, claude: null, updatedAt: 0 };
+const lastTaskNotificationByChannel = new Map(); // `${source}:${channel}` -> 时间戳
 let notificationServer = null;
 let notificationServerAvailable = false;
 let activeTaskNotification = null;
@@ -299,6 +317,7 @@ let spaceShortcutTimer = null;
 let spaceShortcutRegistered = false;
 let configuredShortcut = '';
 let previousPasteTarget = null;
+let clipFeatureEnabled = false;
 let windowScanCache = new Map();
 const windowIconCache = new Map();
 const transcriptionSessions = new Map();
@@ -413,6 +432,7 @@ function applyMode(mode, display) {
     refreshTrayMenu();
   }
   syncHoverSpacePolling();
+  syncIsland();
 }
 
 // 纯重新定位不能改变收起事务，否则屏幕变化会取消 watchdog 并重新吞掉鼠标。
@@ -556,14 +576,14 @@ function getPendingTaskNotificationCount() {
 
 function sendTaskNotificationQueueCount() {
   if (
-    !notificationWindow ||
-    notificationWindow.isDestroyed() ||
-    !notificationWindowReady ||
+    !islandWindow ||
+    islandWindow.isDestroyed() ||
+    !islandWindowReady ||
     !activeTaskNotification
   ) {
     return;
   }
-  notificationWindow.webContents.send(
+  islandWindow.webContents.send(
     'task-notification:queue',
     getPendingTaskNotificationCount()
   );
@@ -575,6 +595,12 @@ function enqueueTaskNotification(notification) {
   for (const [key, seenAt] of recentTaskNotifications) {
     if (now - seenAt > TASK_NOTIFICATION_DEDUPE_MS) recentTaskNotifications.delete(key);
   }
+
+  const channel = notification.channel === 'monitor' ? 'monitor' : 'hook';
+  const otherChannel = channel === 'monitor' ? 'hook' : 'monitor';
+  const otherSeenAt = lastTaskNotificationByChannel.get(`${notification.source}:${otherChannel}`);
+  if (otherSeenAt && now - otherSeenAt <= TASK_NOTIFICATION_CROSS_CHANNEL_MS) return 'duplicate';
+  lastTaskNotificationByChannel.set(`${notification.source}:${channel}`, now);
 
   const identity = notification.taskId || `${notification.title}:${notification.project}`;
   const dedupeKey = `${notification.source}:${identity}`;
@@ -692,21 +718,95 @@ ipcMain.handle('pomodoro:notify', (event, minutes) => {
   return { ok: true, result: enqueueTaskNotification(notification) };
 });
 
-function getTaskNotificationBounds(display) {
-  const d = display || getTargetDisplay();
-  const width = Math.min(
-    TASK_NOTIFICATION_WIDTH,
-    Math.max(280, d.bounds.width - TASK_NOTIFICATION_SCREEN_MARGIN * 2)
-  );
-  return getCenteredBounds(width, TASK_NOTIFICATION_HEIGHT, d);
+function islandTools() {
+  if (!agentMonitorEnabled) return [];
+  // 固定顺序：Claude 在左、Codex 在右。位置不随活跃度互换，用户才能凭位置认工具。
+  return ['claude', 'codex'].map((key) => usageSnapshot[key]).filter(Boolean);
+}
+
+function islandLiveVisible() {
+  return islandTools().length > 0
+    && currentMode !== 'expanded'
+    && Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible());
+}
+
+// 岛的形态完全由状态推导：有提醒 → alert；悬停明细 → peek；有会话 → live；否则隐藏。
+function getIslandLayout() {
+  const alert = Boolean(activeTaskNotification);
+  const live = islandLiveVisible();
+  const peek = live && !alert && islandPeekHeight > 0;
+  const display = alert ? (islandAlertDisplay || getTargetDisplay()) : getWindowDisplay();
+  const area = process.platform === 'win32' ? display.workArea : display.bounds;
+  const menuBarHeight = getCollapsedHeight(display);
+  const coreWidth = notchGeometry.coreWidth(display);
+  const tools = live ? islandTools() : [];
+  const leftEar = tools.length > 0 ? ISLAND_EAR_WIDTH : 0;
+  const rightEar = tools.length > 1 ? ISLAND_EAR_WIDTH : 0;
+  const screenCenter = area.x + area.width / 2;
+
+  let mode = 'hidden';
+  let x = 0;
+  let width = 0;
+  let height = 0;
+  if (alert || peek) {
+    mode = alert ? 'alert' : 'peek';
+    width = Math.min(ISLAND_CANVAS_WIDTH, Math.max(280, area.width - ISLAND_SCREEN_MARGIN * 2));
+    height = menuBarHeight + (alert ? ISLAND_ALERT_BODY_HEIGHT : islandPeekHeight);
+    x = Math.round(screenCenter - width / 2);
+  } else if (live) {
+    mode = 'live';
+    width = leftEar + coreWidth + rightEar;
+    height = menuBarHeight;
+    x = Math.round(screenCenter - coreWidth / 2 - leftEar);
+  }
+  return {
+    mode,
+    bounds: { x, y: area.y, width: Math.round(width), height: Math.round(height) },
+    metrics: {
+      mode,
+      // 刘海中心在窗口内的横坐标：窗口左右不对称（只有一只耳朵）时内容仍以刘海为轴。
+      centerX: screenCenter - x,
+      coreWidth,
+      menuBarHeight,
+      earWidth: ISLAND_EAR_WIDTH,
+      leftEar: leftEar > 0,
+      rightEar: rightEar > 0,
+      hasNotch: notchGeometry.hasNotch(display),
+    },
+  };
+}
+
+function syncIsland() {
+  const layout = getIslandLayout();
+  if (layout.mode === 'hidden') {
+    islandPeekHeight = 0;
+    if (islandWindow && !islandWindow.isDestroyed()) {
+      if (islandWindowReady) islandWindow.webContents.send('island:layout', layout.metrics);
+      if (islandWindow.isVisible()) islandWindow.hide();
+    }
+    return;
+  }
+  const targetWindow = createIslandWindow();
+  if (!islandWindowReady || !targetWindow || targetWindow.isDestroyed()) return;
+  targetWindow.setBounds(layout.bounds);
+  targetWindow.webContents.send('island:layout', layout.metrics);
+  if (!targetWindow.isVisible()) targetWindow.showInactive();
+}
+
+function sendIslandUsage() {
+  if (!islandWindow || islandWindow.isDestroyed() || !islandWindowReady) return;
+  islandWindow.webContents.send('island:usage', {
+    tools: islandTools(),
+    updatedAt: usageSnapshot.updatedAt,
+  });
 }
 
 function recoverClosedTaskNotificationWindow(targetWindow) {
-  if (notificationWindow !== targetWindow) return;
+  if (islandWindow !== targetWindow) return;
   const interruptedNotification = activeTaskNotification;
   clearTaskNotificationTimers();
-  notificationWindow = null;
-  notificationWindowReady = false;
+  islandWindow = null;
+  islandWindowReady = false;
   activeTaskNotification = null;
   taskNotificationLeaving = false;
   taskNotificationPaused = false;
@@ -714,14 +814,20 @@ function recoverClosedTaskNotificationWindow(targetWindow) {
   if (!isQuitting && interruptedNotification) {
     taskNotificationQueue.unshift(interruptedNotification);
   }
-  if (!isQuitting) setTimeout(showNextTaskNotification, 80);
+  islandPeekHeight = 0;
+  if (!isQuitting) {
+    setTimeout(() => {
+      showNextTaskNotification();
+      syncIsland();
+    }, 80);
+  }
 }
 
-function createTaskNotificationWindow() {
-  if (notificationWindow && !notificationWindow.isDestroyed()) return notificationWindow;
-  const bounds = getTaskNotificationBounds();
-  notificationWindowReady = false;
-  notificationWindow = new BrowserWindow({
+function createIslandWindow() {
+  if (islandWindow && !islandWindow.isDestroyed()) return islandWindow;
+  const bounds = getCenteredBounds(ISLAND_CANVAS_WIDTH, getCollapsedHeight(getTargetDisplay()));
+  islandWindowReady = false;
+  islandWindow = new BrowserWindow({
     ...bounds,
     frame: false,
     transparent: true,
@@ -739,7 +845,7 @@ function createTaskNotificationWindow() {
     roundedCorners: false,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload-island.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -747,18 +853,20 @@ function createTaskNotificationWindow() {
     },
   });
 
-  installLocalWebContentsGuards(notificationWindow.webContents);
+  installLocalWebContentsGuards(islandWindow.webContents);
 
-  const targetWindow = notificationWindow;
-  notificationWindow.setAlwaysOnTop(true, 'screen-saver', 1);
-  if (process.platform === 'darwin') notificationWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  notificationWindow.setIgnoreMouseEvents(false);
-  notificationWindow.loadFile(path.join(__dirname, 'renderer', 'notification.html'));
+  const targetWindow = islandWindow;
+  islandWindow.setAlwaysOnTop(true, 'screen-saver', 1);
+  if (process.platform === 'darwin') islandWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  islandWindow.setIgnoreMouseEvents(false);
+  islandWindow.loadFile(path.join(__dirname, 'renderer', 'island.html'));
 
   targetWindow.webContents.once('did-finish-load', () => {
-    if (notificationWindow !== targetWindow || targetWindow.isDestroyed()) return;
-    notificationWindowReady = true;
+    if (islandWindow !== targetWindow || targetWindow.isDestroyed()) return;
+    islandWindowReady = true;
+    sendIslandUsage();
     showNextTaskNotification();
+    syncIsland();
   });
 
   targetWindow.webContents.on('render-process-gone', () => {
@@ -767,7 +875,7 @@ function createTaskNotificationWindow() {
   targetWindow.on('closed', () => {
     recoverClosedTaskNotificationWindow(targetWindow);
   });
-  return notificationWindow;
+  return islandWindow;
 }
 
 function clearTaskNotificationTimers() {
@@ -810,15 +918,16 @@ function setTaskNotificationPaused(paused) {
 
 function showNextTaskNotification() {
   if (activeTaskNotification || taskNotificationQueue.length === 0 || isQuitting) return;
-  const targetWindow = createTaskNotificationWindow();
-  if (!notificationWindowReady || !targetWindow || targetWindow.isDestroyed()) return;
+  const targetWindow = createIslandWindow();
+  if (!islandWindowReady || !targetWindow || targetWindow.isDestroyed()) return;
 
   activeTaskNotification = taskNotificationQueue.shift();
+  islandAlertDisplay = getTargetDisplay();
+  islandPeekHeight = 0;
   taskNotificationLeaving = false;
   taskNotificationPaused = false;
   taskNotificationRemainingMs = TASK_NOTIFICATION_VISIBLE_MS;
-  targetWindow.setBounds(getTaskNotificationBounds(getTargetDisplay()));
-  targetWindow.showInactive();
+  syncIsland();
   targetWindow.webContents.send('task-notification:show', {
     ...activeTaskNotification,
     pendingCount: getPendingTaskNotificationCount(),
@@ -832,8 +941,8 @@ function beginTaskNotificationDismiss() {
   taskNotificationLeaving = true;
   clearTaskNotificationTimers();
   const eventId = activeTaskNotification.eventId;
-  if (notificationWindow && !notificationWindow.isDestroyed() && notificationWindowReady) {
-    notificationWindow.webContents.send('task-notification:hide', eventId);
+  if (islandWindow && !islandWindow.isDestroyed() && islandWindowReady) {
+    islandWindow.webContents.send('task-notification:hide', eventId);
   }
   taskNotificationFallbackTimer = setTimeout(
     () => finishTaskNotification(eventId),
@@ -844,26 +953,15 @@ function beginTaskNotificationDismiss() {
 function finishTaskNotification(eventId) {
   if (!activeTaskNotification || activeTaskNotification.eventId !== eventId) return;
   clearTaskNotificationTimers();
-  const completedWindow = notificationWindow;
-  if (completedWindow && !completedWindow.isDestroyed()) completedWindow.hide();
   activeTaskNotification = null;
+  islandAlertDisplay = null;
   taskNotificationLeaving = false;
   taskNotificationPaused = false;
   taskNotificationRemainingMs = TASK_NOTIFICATION_VISIBLE_MS;
+  // 窗口常驻、不再销毁：下一条提醒不必等页面冷启动，没有提醒时退回 live 形态或隐藏。
   setTimeout(() => {
     showNextTaskNotification();
-    const policy = taskNotificationWindowPolicy({
-      active: Boolean(activeTaskNotification),
-      queueLength: taskNotificationQueue.length,
-    });
-    if (
-      policy === 'dispose'
-      && notificationWindow === completedWindow
-      && completedWindow
-      && !completedWindow.isDestroyed()
-    ) {
-      completedWindow.destroy();
-    }
+    if (!activeTaskNotification) syncIsland();
   }, 80);
 }
 
@@ -893,10 +991,12 @@ function startTaskNotificationServer() {
       return;
     }
 
+    // /usage/claude：Claude Code 状态栏脚本上报的额度（会话记录里没有这项数据）。
+    const isClaudeUsage = requestUrl.pathname === '/usage/claude';
     const sourceMatch = /^\/notify\/([a-z0-9-]{1,32})$/i.exec(requestUrl.pathname);
     const requestedSource = sourceMatch ? sourceMatch[1].toLowerCase() : '';
     const source = TASK_NOTIFICATION_SOURCES.has(requestedSource) ? requestedSource : null;
-    if (request.method !== 'POST' || !source) {
+    if (request.method !== 'POST' || (!source && !isClaudeUsage)) {
       sendTaskNotificationResponse(response, 404, { ok: false, error: 'not_found' });
       return;
     }
@@ -941,6 +1041,12 @@ function startTaskNotificationServer() {
         sendTaskNotificationResponse(response, 400, { ok: false, error: 'invalid_payload' });
         return;
       }
+      if (isClaudeUsage) {
+        const accepted = agentUsageMonitor.setClaudeQuota(payload);
+        if (accepted) void agentUsageMonitor.tick();
+        sendTaskNotificationResponse(response, accepted ? 202 : 400, { ok: accepted });
+        return;
+      }
       const result = enqueueTaskNotification(normalizeTaskNotification(payload, source));
       sendTaskNotificationResponse(response, 202, { ok: true, result });
     });
@@ -976,9 +1082,9 @@ function stopTaskNotificationServer() {
 
 ipcMain.on('task-notification:hover', (event, paused) => {
   if (
-    notificationWindow &&
-    !notificationWindow.isDestroyed() &&
-    event.sender === notificationWindow.webContents
+    islandWindow &&
+    !islandWindow.isDestroyed() &&
+    event.sender === islandWindow.webContents
   ) {
     setTaskNotificationPaused(paused === true);
   }
@@ -986,14 +1092,81 @@ ipcMain.on('task-notification:hover', (event, paused) => {
 
 ipcMain.on('task-notification:dismissed', (event, eventId) => {
   if (
-    notificationWindow &&
-    !notificationWindow.isDestroyed() &&
-    event.sender === notificationWindow.webContents &&
+    islandWindow &&
+    !islandWindow.isDestroyed() &&
+    event.sender === islandWindow.webContents &&
     typeof eventId === 'string'
   ) {
     finishTaskNotification(eventId);
   }
 });
+
+function isIslandSender(event) {
+  return Boolean(islandWindow && !islandWindow.isDestroyed() && event.sender === islandWindow.webContents);
+}
+
+// 悬停明细：渲染层先申请放大窗口再播入场；退场播完再申请缩回。
+ipcMain.handle('island:peek', (event, payload) => {
+  if (!isIslandSender(event) || activeTaskNotification) return false;
+  const open = Boolean(payload && payload.open === true);
+  const height = open
+    ? Math.max(0, Math.min(ISLAND_PEEK_MAX_HEIGHT, Math.round(Number(payload.height) || 0)))
+    : 0;
+  islandPeekHeight = islandLiveVisible() ? height : 0;
+  syncIsland();
+  return islandPeekHeight > 0;
+});
+
+function summonPanel() {
+  if (!mainWindow || mainWindow.isDestroyed() || currentMode === 'expanded') return;
+  hideWhenCollapsed = false;
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send('shortcut:toggle-panel');
+}
+
+// live 形态的岛盖在折叠条上方，点击由岛转交给主面板展开。
+ipcMain.on('island:open-panel', (event) => {
+  if (!isIslandSender(event)) return;
+  islandPeekHeight = 0;
+  summonPanel();
+});
+
+const notchGeometry = createNotchGeometry({
+  fallbackWidth: COLLAPSED_WIDTH,
+  onChange: () => syncIsland(),
+});
+
+const agentUsageMonitor = createAgentUsageMonitor({
+  onSnapshot: (snapshot) => {
+    usageSnapshot = snapshot;
+    sendIslandUsage();
+    syncIsland();
+  },
+  onCompletion: (completion) => {
+    enqueueTaskNotification({
+      eventId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
+      source: completion.source,
+      channel: 'monitor',
+      taskId: completion.turnId || completion.sessionId,
+      title: completion.title || (completion.source === 'codex' ? 'Codex 任务已完成' : 'Claude 任务已完成'),
+      project: completion.project,
+      completedAt: Date.now(),
+    });
+  },
+});
+
+function setAgentMonitorEnabled(enabled) {
+  agentMonitorEnabled = enabled === true;
+  if (agentMonitorEnabled) {
+    agentUsageMonitor.start();
+  } else {
+    agentUsageMonitor.stop();
+    usageSnapshot = { codex: null, claude: null, updatedAt: 0 };
+  }
+  sendIslandUsage();
+  syncIsland();
+}
 
 function createWindow() {
   const initial = getCenteredBounds(COLLAPSED_WIDTH, getCollapsedHeight(getTargetDisplay()));
@@ -1055,8 +1228,8 @@ function createWindow() {
   mainWindow.on('focus', () => {
     cameraBlurDeferred = false;
   });
-  mainWindow.on('show', syncHoverSpacePolling);
-  mainWindow.on('hide', syncHoverSpacePolling);
+  mainWindow.on('show', () => { syncHoverSpacePolling(); syncIsland(); });
+  mainWindow.on('hide', () => { syncHoverSpacePolling(); syncIsland(); });
 
   // 页面重载（工作区恢复 / 切换）后旧的导入投递作废，等新页面重新声明就绪。
   mainWindow.webContents.on('did-start-loading', resetTodoInboxRenderer);
@@ -1145,6 +1318,7 @@ function writeJsonFile(filePath, value) {
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(temporaryPath, JSON.stringify(value, null, 2), { mode: 0o600 });
     fs.renameSync(temporaryPath, filePath);
+    if (path.basename(filePath) === WORKSPACE_SETTINGS_FILE) cachedWorkspaceRoot = null;
     return true;
   } catch (error) {
     try { fs.unlinkSync(temporaryPath); } catch (unlinkError) {}
@@ -1159,6 +1333,7 @@ function readAppSettings() {
     features,
     shortcut: isValidPanelShortcut(stored.shortcut) ? stored.shortcut : 'Space',
     defaultTab: normalizeDefaultTabPreference(stored.defaultTab, features),
+    agentMonitor: stored.agentMonitor !== false,
   };
 }
 
@@ -1170,10 +1345,15 @@ function saveAppSettings(settings) {
   return writeJsonFile(getJsonSettingsPath(APP_SETTINGS_FILE), settings);
 }
 
+// 缓存：2 秒一次的收件箱扫描和工作区快照都要问「工作区在哪」，此前每次都同步读一遍设置文件。
+// 设置文件只会被本进程写（writeJsonFile 里统一失效）。
+let cachedWorkspaceRoot = null;
 function workspaceRoot() {
+  if (cachedWorkspaceRoot) return cachedWorkspaceRoot;
   const settings = readJsonFile(getJsonSettingsPath(WORKSPACE_SETTINGS_FILE));
   const configured = String(settings.path || '').trim();
-  return configured && path.isAbsolute(configured) ? configured : app.getPath('userData');
+  cachedWorkspaceRoot = configured && path.isAbsolute(configured) ? configured : app.getPath('userData');
+  return cachedWorkspaceRoot;
 }
 
 function workspacePath(name) {
@@ -1241,6 +1421,7 @@ async function chooseWorkspaceFolder() {
 
 function applyFeatureServices(features) {
   const policy = clipboardServicePolicy(features);
+  clipFeatureEnabled = policy.recordHistory === true;
   if (policy.recordHistory) startClipboardPolling();
   else stopClipboardPolling();
 }
@@ -1291,6 +1472,7 @@ function setPanelShortcut(shortcut) {
 function applyAppSettings() {
   const settings = readAppSettings();
   applyFeatureServices(settings.features);
+  if (settings.agentMonitor !== agentMonitorEnabled) setAgentMonitorEnabled(settings.agentMonitor);
   if (!setPanelShortcut(settings.shortcut)) {
     settings.shortcut = 'Space';
     saveAppSettings(settings);
@@ -1316,11 +1498,19 @@ function mirrorImagePath() {
   return workspacePath(MIRROR_IMAGE_FILE);
 }
 
+// 镜子配图：此前每次调用都在主线程同步解码 JPEG 再重编码成 PNG dataURL
+// （启动时两次，每次打开设置页一次）。按文件修改时间缓存。
+let mirrorImageCache = { key: '', dataUrl: null };
 function mirrorImageDataUrl() {
   try {
-    const image = nativeImage.createFromPath(mirrorImagePath());
-    if (image.isEmpty()) return null;
-    return image.toDataURL();
+    const filePath = mirrorImagePath();
+    const stat = fs.statSync(filePath);
+    const key = `${filePath}:${stat.mtimeMs}:${stat.size}`;
+    if (mirrorImageCache.key === key) return mirrorImageCache.dataUrl;
+    const image = nativeImage.createFromPath(filePath);
+    const dataUrl = image.isEmpty() ? null : image.toDataURL();
+    mirrorImageCache = { key, dataUrl };
+    return dataUrl;
   } catch (error) {
     return null;
   }
@@ -1381,9 +1571,25 @@ function refreshTrayMenu() {
       })),
     },
     {
+      label: '灵动岛显示 AI 用量（Claude / Codex）',
+      type: 'checkbox',
+      checked: settings.agentMonitor,
+      click: (item) => {
+        const next = readAppSettings();
+        next.agentMonitor = item.checked;
+        saveAppSettings(next);
+        applyAppSettings();
+        refreshTrayMenu();
+      },
+    },
+    {
       label: `设置快捷键…  当前：${settings.shortcut}`,
       click: () => openRendererPanel('app:record-shortcut'),
     },
+    ...(process.platform === 'darwin' ? [{
+      label: '权限设置…',
+      click: openPermissionsWindow,
+    }] : []),
     {
       label: '数据文件夹',
       submenu: [
@@ -1446,7 +1652,10 @@ function createTray() {
 }
 
 ipcMain.handle('window:set-mode', async (event, mode) => {
-  if (mode === 'expanded') await rememberPasteTarget();
+  // 「上一个前台应用」只有剪贴板的自动粘贴会用到，而读取它要起一个 osascript 进程
+  // （热启动上百毫秒，冷启动更久）。此前每次展开都在这里等它，等待期间折叠条已隐藏、
+  // 窗口还没放大，屏幕上什么都没有——这是展开卡顿的头号来源。
+  if (mode === 'expanded' && clipFeatureEnabled) await rememberPasteTarget();
   applyMode(mode === 'expanded' ? 'expanded' : 'collapsed');
 });
 
@@ -1783,62 +1992,126 @@ ipcMain.handle('shell:open-privacy-settings', (event, pane) => {
 // 系统对前者根本不弹提示，所以只能由应用自己说，否则用户完全无从下手。
 const PERMISSION_PROMPT_SKIP_FILE = 'permission-prompt-skipped';
 
-// 先尊重系统的明确状态，尤其不能在 not-determined 时调用 desktopCapturer，
-// 否则启动自检本身就会抢先弹出系统录屏框。只有系统报告 granted 时才通过
-// 无缩略图的窗口标题做二次确认；未知状态 fail-open，等用户实际使用时再申请。
-async function hasScreenRecordingAccess() {
-  const policy = screenRecordingProbePolicy(systemPreferences.getMediaAccessStatus('screen'));
-  if (!policy.inspectWindowTitles) return policy.hasAccess;
-  try {
-    const sources = await desktopCapturer.getSources({
-      types: ['window'],
-      thumbnailSize: { width: 0, height: 0 },
-      fetchWindowIcons: false,
-    });
-    if (sources.length === 0) return true; // 拿不到源无法判定，不误报
-    return sources.some((source) => String(source.name || '').trim().length > 0);
-  } catch (error) {
-    return true; // 探测本身失败时不打扰用户
-  }
+// 权限引导窗口。此前用 dialog.showMessageBox：LSUIElement 应用没有 Dock 图标、启动时也不是
+// 前台应用，无父窗口的系统对话框会直接出现在别的窗口后面，用户根本看不到，也就无从授权。
+// 现在改成一个自己的普通窗口：浮在其他窗口之上、主动拿到前台，逐项列出权限，
+// 每项一个按钮——能弹系统授权框的直接弹，只能手动开的直接跳到系统设置对应那一页，
+// 并每秒回读状态，用户拨完开关这里立刻打勾。
+let permissionsWindow = null;
+let accessibilityPromptShown = false;
+
+function readPermissionStatuses() {
+  if (process.platform !== 'darwin') return {};
+  return {
+    accessibility: systemPreferences.isTrustedAccessibilityClient(false) ? 'granted' : 'denied',
+    'screen-recording': systemPreferences.getMediaAccessStatus('screen'),
+    microphone: systemPreferences.getMediaAccessStatus('microphone'),
+    camera: systemPreferences.getMediaAccessStatus('camera'),
+  };
 }
 
-async function promptForMissingPermissions() {
+function isPermissionsSender(event) {
+  return Boolean(
+    permissionsWindow
+    && !permissionsWindow.isDestroyed()
+    && event.sender === permissionsWindow.webContents
+  );
+}
+
+function openPermissionsWindow() {
+  if (process.platform !== 'darwin') return;
+  if (permissionsWindow && !permissionsWindow.isDestroyed()) {
+    permissionsWindow.show();
+    app.focus({ steal: true });
+    permissionsWindow.focus();
+    return;
+  }
+  permissionsWindow = new BrowserWindow({
+    width: 560,
+    height: 660,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    titleBarStyle: 'hiddenInset',
+    backgroundColor: '#111113',
+    alwaysOnTop: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-permissions.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  installLocalWebContentsGuards(permissionsWindow.webContents);
+  const targetWindow = permissionsWindow;
+  targetWindow.loadFile(path.join(__dirname, 'renderer', 'permissions.html'));
+  targetWindow.once('ready-to-show', () => {
+    if (targetWindow.isDestroyed()) return;
+    targetWindow.show();
+    app.focus({ steal: true });
+    targetWindow.focus();
+  });
+  targetWindow.on('closed', () => {
+    if (permissionsWindow === targetWindow) permissionsWindow = null;
+  });
+}
+
+ipcMain.handle('permissions:status', (event) => (
+  isPermissionsSender(event) ? buildPermissionList(readPermissionStatuses()) : []
+));
+
+ipcMain.handle('permissions:request', async (event, id) => {
+  if (!isPermissionsSender(event)) return false;
+  const statuses = readPermissionStatuses();
+  const item = buildPermissionList(statuses).find((entry) => entry.id === id);
+  if (!item || item.state === 'granted') return false;
+
+  if (item.state === 'prompt') {
+    // 摄像头 / 麦克风还没被问过：系统授权框一步到位，不必进系统设置。
+    try { await systemPreferences.askForMediaAccess(id); } catch (error) {}
+    return true;
+  }
+  // 以下两步只为把应用登记进系统设置的列表，否则用户打开面板可能找不到 TO-DO Panel 这一项。
+  if (id === 'accessibility' && !accessibilityPromptShown) {
+    accessibilityPromptShown = true;
+    systemPreferences.isTrustedAccessibilityClient(true);
+  }
+  if (id === 'screen-recording' && statuses['screen-recording'] === 'not-determined') {
+    try {
+      await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } });
+    } catch (error) {}
+  }
+  const url = permissionSettingsUrl(id);
+  if (!url) return false;
+  await shell.openExternal(url);
+  return true;
+});
+
+ipcMain.on('permissions:relaunch', (event) => {
+  if (!isPermissionsSender(event)) return;
+  app.relaunch();
+  app.quit();
+});
+
+ipcMain.on('permissions:close', (event, payload) => {
+  if (!isPermissionsSender(event)) return;
+  const skipFlag = path.join(app.getPath('userData'), PERMISSION_PROMPT_SKIP_FILE);
+  try {
+    if (payload && payload.skip === true) fs.writeFileSync(skipFlag, new Date().toISOString());
+  } catch (error) {}
+  permissionsWindow.close();
+});
+
+// 启动自检：只在缺少必需权限、且用户没有勾选「不再自动显示」时打开引导窗口。
+// 这里只查询状态，不触碰任何会弹系统框的接口。
+function showPermissionsOnboardingIfNeeded() {
   if (process.platform !== 'darwin') return;
   const skipFlag = path.join(app.getPath('userData'), PERMISSION_PROMPT_SKIP_FILE);
   if (fs.existsSync(skipFlag)) return;
-
-  const missing = [];
-  // 传 false 只查询不弹系统框：先把缺失项攒齐一次性告知，避免连弹两个系统对话框。
-  if (!systemPreferences.isTrustedAccessibilityClient(false)) missing.push('accessibility');
-  if (!await hasScreenRecordingAccess()) missing.push('screen-recording');
-  if (missing.length === 0) return;
-
-  const names = missing.map((key) => (key === 'accessibility' ? '辅助功能' : '屏幕录制'));
-  const { response, checkboxChecked } = await dialog.showMessageBox({
-    type: 'info',
-    message: `TO-DO Panel 需要「${names.join('」和「')}」权限`,
-    detail: [
-      '缺少这些权限时，「当前窗口」会读不到任何窗口，汽水音乐的播放控制也不会生效。',
-      '',
-      '授权后需要重新启动 TO-DO Panel 才会生效。',
-      'ad-hoc 签名的应用每次重新打包都要重新授权一次，这是没有开发者账号分发的固有限制。',
-    ].join('\n'),
-    buttons: ['打开系统设置', '以后再说'],
-    defaultId: 0,
-    cancelId: 1,
-    checkboxLabel: '不再提示',
-    checkboxChecked: false,
-  });
-
-  if (checkboxChecked) {
-    try { fs.writeFileSync(skipFlag, new Date().toISOString()); } catch (error) {}
-  }
-  if (response !== 0) return;
-
-  // 顺带用 true 触发一次系统的辅助功能提示：这一步会把应用登记进系统设置的列表里，
-  // 否则用户打开设置面板可能找不到 TO-DO Panel 这一项、只能手动拖进去。
-  if (missing.includes('accessibility')) systemPreferences.isTrustedAccessibilityClient(true);
-  shell.openExternal(PRIVACY_SETTINGS_PANES[missing[0]]);
+  if (missingRequiredPermissions(readPermissionStatuses()).length === 0) return;
+  openPermissionsWindow();
 }
 
 async function validatePublicHttpUrl(value) {
@@ -2246,7 +2519,7 @@ async function activateActiveTaskNotification(eventId = null) {
 }
 
 ipcMain.handle('task-notification:activate', async (event, eventId) => {
-  if (!notificationWindow || notificationWindow.isDestroyed() || event.sender !== notificationWindow.webContents) return false;
+  if (!islandWindow || islandWindow.isDestroyed() || event.sender !== islandWindow.webContents) return false;
   return activateActiveTaskNotification(eventId);
 });
 
@@ -2607,6 +2880,18 @@ async function sendSodaShortcut(action) {
   }
 }
 
+// 应用图标不会变；此前每次查询播放状态（启动、每次点击后 500ms）都起一个 osascript 读它。
+let sodaMusicIconPromise = null;
+function readSodaMusicIcon() {
+  if (!sodaMusicIconPromise) {
+    sodaMusicIconPromise = readSystemAppIconNow(SODA_MUSIC_APP).then((icon) => {
+      if (!icon) sodaMusicIconPromise = null; // 读失败不缓存，下次再试
+      return icon;
+    });
+  }
+  return sodaMusicIconPromise;
+}
+
 ipcMain.handle('music:status', async () => {
   const installed = fs.existsSync(SODA_MUSIC_APP);
   const running = installed ? await sodaMusicRunning() : false;
@@ -2618,7 +2903,7 @@ ipcMain.handle('music:status', async () => {
     playing: running && sodaMusicPlaying,
     title: '',
     artist: '',
-    icon: installed ? await readSystemAppIconNow(SODA_MUSIC_APP) : null,
+    icon: installed ? await readSodaMusicIcon() : null,
   };
 });
 
@@ -3307,7 +3592,7 @@ function setHoverSpaceShortcut(enabled) {
         mainWindow.webContents.send('shortcut:toggle-panel');
         return;
       }
-      await rememberPasteTarget();
+      if (clipFeatureEnabled) await rememberPasteTarget();
       hideWhenCollapsed = false;
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
@@ -3478,6 +3763,9 @@ ipcMain.handle('clipboard:paste', async (event, entry) => {
 function ensureFirstRunAutoLaunch() {
   // 首次运行时默认开启开机自启；之后尊重用户在托盘菜单的选择
   if (process.platform !== 'darwin') return;
+  // 只对打包后的应用生效：开发态与测试跑的是 node_modules 里的 Electron.app，
+  // 在这里登记自启会把「Electron」本身加进用户的登录项。
+  if (!app.isPackaged) return;
   const marker = path.join(app.getPath('userData'), '.first-run-done');
   if (fs.existsSync(marker)) return;
   try {
@@ -3500,9 +3788,8 @@ function watchDisplayChanges() {
       if (!mainWindow.webContents.isDestroyed()) {
         mainWindow.webContents.send('window:metrics-changed', getLayoutMetrics());
       }
-      if (notificationWindow && !notificationWindow.isDestroyed() && notificationWindow.isVisible()) {
-        notificationWindow.setBounds(getTaskNotificationBounds());
-      }
+      notchGeometry.refresh();
+      syncIsland();
     }, 100);
   };
   screen.on('display-added', reposition);
@@ -3520,17 +3807,17 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   watchDisplayChanges();
+  notchGeometry.refresh();
   ensureClipImagesDir();
   ensureRecordingsDir();
   applyAppSettings();
   startTaskNotificationServer();
   startTodoInboxWatcher();
-  void promptForMissingPermissions();
+  showPermissionsOnboardingIfNeeded();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    // 岛窗口与权限窗口也算在 getAllWindows 里，这里只关心主面板是否还在。
+    if (!mainWindow) createWindow();
   });
 });
 
@@ -3549,6 +3836,7 @@ app.on('will-quit', () => {
   stopHoverSpaceShortcut();
   clearTaskNotificationTimers();
   stopTaskNotificationServer();
+  agentUsageMonitor.stop();
   closeAllTranscriptionSessions();
   globalShortcut.unregisterAll();
   stopClipboardPolling();

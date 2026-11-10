@@ -25,3 +25,6 @@ website/public/product-captures/raw/
 .env
 .env.*
 !.env.example
+
+# Local portable toolchain
+.tools/
