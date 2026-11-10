@@ -4833,3 +4833,11 @@ select:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+
+/* 文字型小按钮的命中区补到 24px（此前 11–22px）。 */
+.api-key-help,
+.bulk-delete,
+.windows-hidden,
+.shortcut-recorder button { min-height: 24px; }
+.windows-refresh { min-width: 24px; min-height: 24px; }
+.todo-date-popover .todo-calendar-grid button { min-height: 24px; }

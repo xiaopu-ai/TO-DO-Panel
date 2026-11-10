@@ -2196,7 +2196,8 @@
     );
     if (windowsHidden) {
       windowsHidden.hidden = hiddenWindows.size === 0;
-      windowsHidden.textContent = '隐藏';
+      // 这个按钮的作用是「恢复」被隐藏的窗口，此前显示的文字却是「隐藏」。
+      windowsHidden.textContent = `恢复 ${hiddenWindows.size}`;
       windowsHidden.setAttribute('aria-label', `恢复已隐藏的 ${hiddenWindows.size} 个窗口`);
     }
     if (!visibleWindows.length) {
@@ -2640,6 +2641,13 @@
         saveCredential();
       }
     });
+  });
+  // 卡片能被 Tab 聚焦，就必须能用键盘触发；此前只响应鼠标点击。
+  credentialList?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (!event.target.matches('.credential-item[data-id]')) return;
+    event.preventDefault();
+    event.target.querySelector('.credential-copy')?.click();
   });
   credentialList?.addEventListener('click', async (event) => {
     const row = event.target.closest('.credential-item[data-id]');

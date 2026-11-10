@@ -963,6 +963,8 @@ function keyEventToAccelerator(event) {
 
 shortcutRecorder?.addEventListener('keydown', async (event) => {
   if (!shortcutRecorderActive) return;
+  // Tab 留给焦点移动，否则「取消」按钮用键盘到不了。
+  if (event.key === 'Tab') return;
   event.preventDefault();
   event.stopPropagation();
   if (event.key === 'Escape') {
