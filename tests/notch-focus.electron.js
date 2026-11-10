@@ -6,6 +6,13 @@ const { app, BrowserWindow } = require('electron');
 
 const isolatedUserData = process.env.TODO_TEST_USER_DATA || fs.mkdtempSync(path.join(os.tmpdir(), 'to-do-panel-electron-test-'));
 app.setPath('userData', isolatedUserData);
+// 托管的 macOS 构建机上测试窗口可能被判定为「被遮挡 / 不可见」，Chromium 随即暂停 requestAnimationFrame，
+// 而展开与收起都要等动画帧——表现为收起停在 expanded closing、或展开永远等不到 expanded。
+// 窗口选项里的 backgroundThrottling: false 在新镜像上不足以阻止这一点，这里在进程级别关掉遮挡检测与后台降频。
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
 function diagnostic(message) {
   console.log(message);
   if (process.env.TODO_TEST_LOG) fs.appendFileSync(process.env.TODO_TEST_LOG, `${message}\n`);
