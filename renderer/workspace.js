@@ -20,6 +20,30 @@
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
   }
 
+  // 删除类操作统一给 5 秒撤销。commit 用于「撤销窗口过了才真正执行」的不可逆动作
+  //（删磁盘文件、删保险库记录）；被下一条提示顶掉或页面卸载时同样会触发。
+  function offerUndo(message, undo, commit) {
+    if (typeof showStatusToast !== 'function') {
+      if (commit) commit();
+      return;
+    }
+    showStatusToast(message, { actionLabel: '撤销', duration: 5000, onAction: undo, onExpire: commit });
+  }
+
+  function restoreCommands(before) {
+    // 撤销窗口内新增的指令保留在前面（新增是插到头部的）。
+    const known = new Set(before.map((item) => item.id));
+    commands = [...commands.filter((item) => !known.has(item.id)), ...before];
+    persistCommands();
+    renderCommands();
+  }
+
+  function restoreLinkGroups(before) {
+    linkGroups = before;
+    persistLinks();
+    renderLinkGroups();
+  }
+
   function loadJson(key, fallback) {
     try {
       const parsed = JSON.parse(localStorage.getItem(key));
@@ -181,10 +205,12 @@
       if (!action) return;
       if (action.dataset.action === 'edit-command') editCommand(row);
       if (action.dataset.action === 'delete-command') {
+        const before = commands;
         commands = commands.filter((item) => item.id !== command.id);
         commandSelection.delete(command.id);
         persistCommands();
         renderCommands();
+        offerUndo('指令已删除', () => restoreCommands(before));
       }
       if (action.dataset.action === 'copy-command' && window.notchAPI) {
         const copied = await window.notchAPI.writeClipboard({ type: 'text', text: command.text });
@@ -197,11 +223,13 @@
   }
   commandBulkDelete?.addEventListener('click', () => {
     if (!commandSelection.size) return;
+    const before = commands;
     commands = commands.filter((command) => !commandSelection.has(command.id));
     commandSelection.clear();
     commandSelectionAnchor = null;
     persistCommands();
     renderCommands();
+    offerUndo(`已删除 ${before.length - commands.length} 条指令`, () => restoreCommands(before));
   });
 
   // ============ 链接收藏夹 ============
@@ -514,19 +542,24 @@
         renderLinkGroups();
       }
       if (action.dataset.action === 'delete-group') {
+        const before = structuredClone(linkGroups);
+        const count = (group.links || []).length;
         (group.links || []).forEach((item) => linkSelection.delete(item.id));
         linkGroups = linkGroups.filter((item) => item.id !== groupId);
         persistLinks();
         renderLinkGroups();
+        offerUndo(count ? `已删除分组及其中 ${count} 个链接` : '分组已删除', () => restoreLinkGroups(before));
       }
       if (action.dataset.action === 'open-link' && link && window.notchAPI) {
         window.notchAPI.openExternal(link.url);
       }
       if (action.dataset.action === 'delete-link' && link) {
+        const before = structuredClone(linkGroups);
         group.links = group.links.filter((item) => item.id !== link.id);
         linkSelection.delete(link.id);
         persistLinks();
         renderLinkGroups();
+        offerUndo('链接已删除', () => restoreLinkGroups(before));
       }
       if (action.dataset.action === 'edit-link' && link && row) {
         const openButton = row.querySelector('.link-open');
@@ -680,6 +713,8 @@
 
   linkBulkDelete?.addEventListener('click', () => {
     if (!linkSelection.size) return;
+    const before = structuredClone(linkGroups);
+    const count = linkSelection.size;
     linkGroups = linkGroups.map((group) => ({
       ...group,
       links: (group.links || []).filter((link) => !linkSelection.has(link.id)),
@@ -688,6 +723,7 @@
     linkSelectionAnchor = null;
     persistLinks();
     renderLinkGroups();
+    offerUndo(`已删除 ${count} 个链接`, () => restoreLinkGroups(before));
     setLinksStatus('已删除所选链接');
   });
 
@@ -1028,6 +1064,7 @@
 
   function openTranscriptionSettings() {
     if (!transcriptionSettingsBackdrop) return;
+    transcriptionSettingsOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     transcriptionSettingsBackdrop.hidden = false;
     transcriptionSettingsNote.classList.remove('error', 'success');
     transcriptionSettingsNote.textContent = transcriptionConfig.asrNeedsReentry || transcriptionConfig.llmNeedsReentry
@@ -1041,9 +1078,19 @@
     setTimeout(() => transcriptionApiKey?.focus(), 0);
   }
 
+  let transcriptionSettingsOpener = null;
   function closeTranscriptionSettings() {
-    if (transcriptionSettingsBackdrop) transcriptionSettingsBackdrop.hidden = true;
+    if (!transcriptionSettingsBackdrop || transcriptionSettingsBackdrop.hidden) return;
+    transcriptionSettingsBackdrop.hidden = true;
+    // 把焦点还给打开它的控件，键盘用户不会被丢回页面开头。
+    if (transcriptionSettingsOpener && transcriptionSettingsOpener.isConnected) transcriptionSettingsOpener.focus();
+    transcriptionSettingsOpener = null;
   }
+  document.addEventListener('notch:close-overlays', closeTranscriptionSettings);
+  // 面板收起时浮层一并关闭，否则下次展开它还盖在上面。
+  document.addEventListener('notch:modechange', (event) => {
+    if (!(event.detail && event.detail.expanded)) closeTranscriptionSettings();
+  });
 
   async function saveTranscriptionSettings() {
     if (!window.notchAPI || !transcriptionSettingsSave) return;
@@ -1110,8 +1157,20 @@
   }
 
   function persistRecordings() {
+    clearTimeout(persistRecordingsTimer);
+    persistRecordingsTimer = null;
     saveJson(RECORDINGS_KEY, recordings.filter((recording) => !recording.isDraft));
   }
+
+  // 转写文本逐键输入时用：整份录音列表的序列化合并到停手之后。
+  let persistRecordingsTimer = null;
+  function persistRecordingsSoon() {
+    clearTimeout(persistRecordingsTimer);
+    persistRecordingsTimer = setTimeout(persistRecordings, 300);
+  }
+  window.addEventListener('pagehide', () => {
+    if (persistRecordingsTimer) persistRecordings();
+  });
 
   function currentDuration() {
     return Domain.calculateRecordingDuration({
@@ -1906,7 +1965,10 @@
     });
     transcript.addEventListener('input', () => {
       recording.transcript = transcript.value;
-      persistRecordings();
+      persistRecordingsSoon();
+    });
+    transcript.addEventListener('blur', () => {
+      if (persistRecordingsTimer) persistRecordings();
     });
     actions.addEventListener('click', async (event) => {
       const action = event.target.closest('[data-action]');
@@ -1927,9 +1989,7 @@
   async function deleteSingleRecording(recordingId) {
     const recording = recordings.find((item) => item.id === recordingId);
     if (!recording) return;
-    if (window.notchAPI && recording.audioPath) {
-      await window.notchAPI.deleteRecording(recording.audioPath).catch(() => false);
-    }
+    const before = recordings;
     const next = Domain.removeRecordingState(
       recordings,
       recording.id,
@@ -1942,6 +2002,23 @@
     recordingSelectionAnchor = selectedRecordingId || null;
     persistRecordings();
     renderRecordings();
+    offerRecordingUndo('录音已删除', before, [recording]);
+  }
+
+  // 录音先从列表移除，磁盘上的音频等撤销窗口过了才真正删除——音频删了就找不回来。
+  function offerRecordingUndo(message, before, removed) {
+    offerUndo(message, () => {
+      recordings = before;
+      selectedRecordingId = removed[0].id;
+      recordingSelectionAnchor = selectedRecordingId;
+      persistRecordings();
+      renderRecordings();
+    }, () => {
+      if (!window.notchAPI) return;
+      removed.forEach((recording) => {
+        if (recording.audioPath) window.notchAPI.deleteRecording(recording.audioPath).catch(() => false);
+      });
+    });
   }
 
   function renderRecordingList() {
@@ -2033,11 +2110,7 @@
     if (!recordingSelection.size) return;
     const targets = recordings.filter((recording) => !recording.isDraft && recordingSelection.has(recording.id));
     if (!targets.length) return;
-    if (window.notchAPI) {
-      await Promise.all(targets.map((recording) => recording.audioPath
-        ? window.notchAPI.deleteRecording(recording.audioPath).catch(() => false)
-        : Promise.resolve(true)));
-    }
+    const before = recordings;
     const targetIds = new Set(targets.map((recording) => recording.id));
     recordings = recordings.filter((recording) => !targetIds.has(recording.id));
     recordingSelection.clear();
@@ -2045,6 +2118,7 @@
     recordingSelectionAnchor = selectedRecordingId || null;
     persistRecordings();
     renderRecordings();
+    offerRecordingUndo(`已删除 ${targets.length} 条录音`, before, targets);
   });
 
   // ============ 当前窗口 ============
@@ -2122,7 +2196,8 @@
     );
     if (windowsHidden) {
       windowsHidden.hidden = hiddenWindows.size === 0;
-      windowsHidden.textContent = '隐藏';
+      // 这个按钮的作用是「恢复」被隐藏的窗口，此前显示的文字却是「隐藏」。
+      windowsHidden.textContent = `恢复 ${hiddenWindows.size}`;
       windowsHidden.setAttribute('aria-label', `恢复已隐藏的 ${hiddenWindows.size} 个窗口`);
     }
     if (!visibleWindows.length) {
@@ -2160,11 +2235,14 @@
     });
   }
 
+  const WINDOWS_REFRESH_AFTER_OPEN_MS = 380;
+
   async function refreshWindows(force = false) {
     if (!window.NotchHome?.isVisible?.('windows')) return;
     if (windowsLoading || !window.notchAPI || (!force && (!workspaceExpanded || workspaceTab !== 'home'))) return;
     windowsLoading = true;
-    renderWindows();
+    // 只有首次（还没有任何内容）才先画占位；已有列表时不为了一次轮询把它拆掉重建。
+    if (windowsSignature === null) renderWindows();
     let result;
     try {
       result = await window.notchAPI.listWindows();
@@ -2172,9 +2250,18 @@
       result = { items: [], error: 'accessibility_permission_required' };
     }
     windowsLoading = false;
-    windows = result && Array.isArray(result.items) ? result.items : [];
-    renderWindows(result && result.error);
+    const nextWindows = result && Array.isArray(result.items) ? result.items : [];
+    const error = (result && result.error) || '';
+    // 6 秒一次的轮询绝大多数时候什么都没变。此前无论变没变都 replaceChildren 两次，
+    // 鼠标正悬停的图标被销毁重建，悬停放大随之抖一下。
+    const signature = `${error}|${nextWindows.map((item) => `${item.id}:${item.displayName || item.title || ''}:${item.appPath || ''}:${item.icon ? 1 : 0}`).join('|')}`;
+    windows = nextWindows;
+    if (!force && signature === windowsSignature) return;
+    windowsSignature = signature;
+    renderWindows(error);
   }
+
+  let windowsSignature = null;
 
   if (windowsRefresh) windowsRefresh.addEventListener('click', () => refreshWindows(true));
   if (windowsHidden) {
@@ -2261,7 +2348,11 @@
   document.addEventListener('notch:modechange', (event) => {
     clearWindowDragVisuals();
     workspaceExpanded = !!(event.detail && event.detail.expanded);
-    if (workspaceExpanded && workspaceTab === 'home') refreshWindows();
+    // 展开事件与入场动画在同一帧触发；窗口枚举要起 osascript 并重建列表，
+    // 放到入场播完之后，别和动画抢主线程。
+    if (workspaceExpanded && workspaceTab === 'home') {
+      setTimeout(() => { if (workspaceExpanded) refreshWindows(); }, WINDOWS_REFRESH_AFTER_OPEN_MS);
+    }
   });
   document.addEventListener('notch:home-modules-changed', (event) => {
     const nextVisible = Array.isArray(event.detail?.visibleIds)
@@ -2274,13 +2365,16 @@
   });
   document.addEventListener('notch:recording-state-changed', renderHomeModuleSettings);
 
-  // ============ 本地汽水音乐 ============
+  // ============ 本地音乐播放器 ============
+  // 用哪个播放器由主进程识别（见 main/music-players.js），这里只按返回的状态渲染。
   const homeMusic = document.getElementById('home-music');
   const musicArtwork = document.getElementById('music-artwork');
   const musicTitle = document.getElementById('music-title');
   const musicStatus = document.getElementById('music-status');
+  const musicSwitch = document.getElementById('music-switch');
   const musicPlayToggle = document.getElementById('music-play-toggle');
   let musicPlaying = false;
+  let musicPlayerName = '';
 
   function renderMusicPlaybackState() {
     if (!homeMusic || !musicPlayToggle) return;
@@ -2292,11 +2386,12 @@
       : '<svg viewBox="0 0 24 24"><path d="m9 7 8 5-8 5z" /></svg>';
   }
 
-  async function refreshMusicStatus() {
-    if (!homeMusic || !window.notchAPI || typeof window.notchAPI.getMusicStatus !== 'function') return;
-    let status;
-    try { status = await window.notchAPI.getMusicStatus(); } catch (error) { status = null; }
+  function applyMusicStatus(status) {
+    if (!homeMusic) return;
+    const installed = Boolean(status && status.installed);
+    musicPlayerName = installed ? status.name : '';
     homeMusic.classList.toggle('music-running', Boolean(status && status.running));
+    homeMusic.setAttribute('aria-label', installed ? `音乐播放器：${status.name}` : '音乐播放器');
     if (status && typeof status.playing === 'boolean') {
       musicPlaying = status.playing;
       renderMusicPlaybackState();
@@ -2308,41 +2403,73 @@
       image.alt = '';
       musicArtwork.appendChild(image);
     }
-    if (musicTitle) musicTitle.textContent = status && status.installed ? '汽水音乐' : '未安装汽水音乐';
-    if (musicStatus) musicStatus.textContent = status && status.running ? (musicPlaying ? '正在播放' : '已连接') : status && status.installed ? '轻触即播' : '需要本地客户端';
+    // 能读到曲名（Apple Music / Spotify）就显示曲名，否则显示播放器名。
+    const song = installed && status.title ? (status.artist ? `${status.title} · ${status.artist}` : status.title) : '';
+    if (musicTitle) {
+      musicTitle.textContent = song || (installed ? status.name : '未找到音乐播放器');
+      musicTitle.title = song ? `${song}（${status.name}）` : '';
+    }
+    if (musicSwitch) {
+      const choices = status && Array.isArray(status.choices) ? status.choices : [];
+      // 只装了一个播放器时没什么可切的，不显示成可点的样子。
+      const switchable = choices.length > 1;
+      musicSwitch.dataset.switchable = String(switchable);
+      musicSwitch.disabled = !switchable;
+      musicSwitch.setAttribute(
+        'aria-label',
+        switchable ? `切换音乐播放器，当前：${status.name}` : installed ? status.name : '未找到音乐播放器'
+      );
+    }
+    if (musicStatus) musicStatus.textContent = status && status.running ? (musicPlaying ? '正在播放' : '已连接') : installed ? '轻触即播' : '需要本地客户端';
   }
 
+  async function refreshMusicStatus() {
+    if (!homeMusic || !window.notchAPI || typeof window.notchAPI.getMusicStatus !== 'function') return;
+    let status;
+    try { status = await window.notchAPI.getMusicStatus(); } catch (error) { status = null; }
+    applyMusicStatus(status);
+  }
+
+  function musicErrorMessage(error) {
+    const name = musicPlayerName || '音乐播放器';
+    if (error === 'not_installed') return '未找到音乐播放器';
+    if (error === 'accessibility_permission_required') return '需要“辅助功能”权限，已为你打开权限设置';
+    if (error === 'automation_permission_required') return `请在 系统设置 → 隐私与安全性 → 自动化 中允许控制 ${name}`;
+    if (error === 'no_active_session' || error === 'soda_session_inactive') return `${name} 还没打开，请先点播放`;
+    if (error === 'launch_failed') return `打不开 ${name}`;
+    return `${name} 暂时无法控制`;
+  }
+
+  musicSwitch?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (musicSwitch.dataset.switchable === 'true') window.notchAPI?.chooseMusicPlayer?.();
+  });
+
   homeMusic?.addEventListener('click', async (event) => {
-    if (event.target.closest('[data-widget-size-cycle]') || !window.notchAPI) return;
+    if (event.target.closest('[data-widget-size-cycle]') || event.target.closest('#music-switch') || !window.notchAPI) return;
     const control = event.target.closest('[data-music-action]') || musicPlayToggle;
-    if (!control) return;
+    if (!control || control.disabled) return;
     event.stopPropagation();
     control.disabled = true;
     const action = control.dataset.musicAction;
     let result;
     try { result = await window.notchAPI.controlMusic(action); } catch (error) { result = { ok: false }; }
     control.disabled = false;
+    if (result && result.status) applyMusicStatus(result.status);
     if (!result || !result.ok) {
-      const needsSession = result && ['no_active_session', 'soda_session_inactive'].includes(result.error);
-      const needsPermission = result && result.error === 'accessibility_permission_required';
-      if (musicStatus) musicStatus.textContent = result && result.error === 'not_installed'
-        ? '需要本地客户端'
-        : needsPermission ? '需要辅助功能权限'
-          : needsSession ? '请先点播放' : '控制暂不可用';
-      if (typeof showStatusToast === 'function') {
-        showStatusToast(result && result.error === 'not_installed'
-          ? '未安装汽水音乐'
-          : needsPermission ? '请在系统设置中允许 TO-DO Panel 使用辅助功能'
-            : needsSession ? '请先点击播放，再使用切歌控制' : '汽水音乐控制暂不可用');
-      }
-    } else {
-      if (typeof result.playing === 'boolean') musicPlaying = result.playing;
-      else if (action === 'play') musicPlaying = true;
-      else if (action === 'pause') musicPlaying = false;
-      renderMusicPlaybackState();
-      if (musicStatus) musicStatus.textContent = action === 'next' ? '下一首' : action === 'previous' ? '上一首' : musicPlaying ? '正在播放' : '已暂停';
+      if (typeof showStatusToast === 'function') showStatusToast(musicErrorMessage(result && result.error), { duration: 3200 });
+      return;
     }
-    setTimeout(refreshMusicStatus, 500);
+    if (!result.status) {
+      if (typeof result.playing === 'boolean') musicPlaying = result.playing;
+      renderMusicPlaybackState();
+    }
+  });
+
+  window.notchAPI?.onMusicChanged?.(() => refreshMusicStatus());
+  // 面板收起期间用户可能开了 / 关了播放器，每次展开重新识别一次（放在入场动画之后）。
+  document.addEventListener('notch:modechange', (event) => {
+    if (event.detail && event.detail.expanded) setTimeout(refreshMusicStatus, WINDOWS_REFRESH_AFTER_OPEN_MS);
   });
 
   renderMusicPlaybackState();
@@ -2463,11 +2590,39 @@
     updateCredentialBulkAction();
   }
 
+  // 密钥先从列表隐藏，保险库里的记录等撤销窗口过了才真正删除——密码删了无法恢复。
+  const pendingCredentialDeletes = new Set();
+  function queueCredentialDelete(ids) {
+    ids.forEach((id) => {
+      pendingCredentialDeletes.add(id);
+      credentialSelection.delete(id);
+    });
+    if (ids.includes(editingCredentialId)) {
+      editingCredentialId = '';
+      editingCredential = null;
+    }
+    credentials = credentials.filter((item) => !pendingCredentialDeletes.has(item.id));
+    renderCredentials();
+    offerUndo(ids.length > 1 ? `已删除 ${ids.length} 项密钥` : '密钥已删除', () => {
+      ids.forEach((id) => pendingCredentialDeletes.delete(id));
+      loadCredentials();
+    }, async () => {
+      const result = await window.notchAPI.deleteCredentials(ids).catch(() => ({ ok: false }));
+      ids.forEach((id) => pendingCredentialDeletes.delete(id));
+      await loadCredentials();
+      if (!result?.ok && credentialsNote) {
+        credentialsNote.textContent = '删除失败，请稍后重试。';
+        credentialsNote.classList.add('error');
+      }
+    });
+  }
+
   async function loadCredentials() {
     if (!window.notchAPI || typeof window.notchAPI.listCredentials !== 'function') return;
     let result;
     try { result = await window.notchAPI.listCredentials(); } catch (error) { result = null; }
-    credentials = result && Array.isArray(result.items) ? result.items : [];
+    credentials = (result && Array.isArray(result.items) ? result.items : [])
+      .filter((item) => !pendingCredentialDeletes.has(item.id));
     if (credentialsNote && result && !result.secureStorage) {
       credentialsNote.textContent = '当前系统安全存储不可用，暂时无法保存密码。';
       credentialsNote.classList.add('error');
@@ -2523,6 +2678,13 @@
       }
     });
   });
+  // 卡片能被 Tab 聚焦，就必须能用键盘触发；此前只响应鼠标点击。
+  credentialList?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (!event.target.matches('.credential-item[data-id]')) return;
+    event.preventDefault();
+    event.target.querySelector('.credential-copy')?.click();
+  });
   credentialList?.addEventListener('click', async (event) => {
     const row = event.target.closest('.credential-item[data-id]');
     if (!row) return;
@@ -2542,27 +2704,7 @@
       selected: credentialSelection.has(row.dataset.id),
     });
     if (action.type === 'delete') {
-      const deleteButton = event.target.closest('[data-credential-delete]');
-      if (deleteButton) deleteButton.disabled = true;
-      const result = await window.notchAPI.deleteCredentials([row.dataset.id]).catch(() => ({ ok: false }));
-      if (!result?.ok) {
-        if (deleteButton) deleteButton.disabled = false;
-        if (credentialsNote) {
-          credentialsNote.textContent = '删除失败，请稍后重试。';
-          credentialsNote.classList.add('error');
-        }
-        return;
-      }
-      credentialSelection.delete(row.dataset.id);
-      if (editingCredentialId === row.dataset.id) {
-        editingCredentialId = '';
-        editingCredential = null;
-      }
-      await loadCredentials();
-      if (credentialsNote) {
-        credentialsNote.textContent = '密钥已删除。';
-        credentialsNote.classList.remove('error');
-      }
+      queueCredentialDelete([row.dataset.id]);
       return;
     }
     if (action.type === 'copy') {
@@ -2620,11 +2762,8 @@
   });
   credentialBulkDelete?.addEventListener('click', async () => {
     if (!credentialSelection.size || !window.notchAPI) return;
-    const result = await window.notchAPI.deleteCredentials([...credentialSelection]).catch(() => ({ ok: false }));
-    if (!result || !result.ok) return;
-    credentialSelection.clear();
     credentialAnchor = null;
-    await loadCredentials();
+    queueCredentialDelete([...credentialSelection]);
   });
 
   document.addEventListener('notch:clear-selection', () => {
@@ -2643,6 +2782,7 @@
   });
 
   setInterval(() => refreshWindows(), 6000);
+
 
   window.addEventListener('beforeunload', () => {
     stopSpeechRecognition();

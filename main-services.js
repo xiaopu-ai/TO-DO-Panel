@@ -436,12 +436,6 @@ function screenRecordingProbePolicy(status) {
   return { hasAccess: true, inspectWindowTitles: false };
 }
 
-function taskNotificationWindowPolicy(state) {
-  const active = Boolean(state && state.active);
-  const queueLength = Math.max(0, Number(state && state.queueLength) || 0);
-  return !active && queueLength === 0 ? 'dispose' : 'retain';
-}
-
 function reduceClipboardObservation(state, observation, options = {}) {
   const previous = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
   const current = observation && typeof observation === 'object' && !Array.isArray(observation)
@@ -682,7 +676,6 @@ module.exports = {
   runOwnedOpenDialog,
   readClipboardObservation,
   screenRecordingProbePolicy,
-  taskNotificationWindowPolicy,
   reduceClipboardObservation,
   createForegroundMediaPermissionCoordinator,
   createWorkspacePersistenceGate,

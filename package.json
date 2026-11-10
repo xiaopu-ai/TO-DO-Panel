@@ -23,6 +23,12 @@
     "artifactName": "TO-DO-Panel-${version}-${arch}.${ext}",
     "copyright": "© 2026 xiaopu-ai",
     "asar": false,
+    "electronLanguages": [
+      "zh_CN",
+      "zh-CN",
+      "en",
+      "en-US"
+    ],
     "directories": {
       "output": "dist.noindex",
       "buildResources": "build"
@@ -33,10 +39,14 @@
       "main-services.js",
       "platform.js",
       "build/to-do-panel-icon.png",
+      "main/**/*",
       "preload.js",
+      "preload-island.js",
+      "preload-permissions.js",
       "renderer/**/*",
       "scripts/codex-notify.js",
       "scripts/claude-notify.js",
+      "scripts/claude-statusline.js",
       "package.json",
       "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
       "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
@@ -66,7 +76,7 @@
         "CFBundleDisplayName": "TO-DO Panel",
         "NSCameraUsageDescription": "TO-DO Panel 需要使用摄像头来显示「镜子」预览。",
         "NSMicrophoneUsageDescription": "TO-DO Panel 需要使用麦克风来录音并生成转写文本。",
-        "NSAppleEventsUsageDescription": "TO-DO Panel 需要控制「系统事件」来枚举并聚焦当前窗口、发送汽水音乐快捷键。"
+        "NSAppleEventsUsageDescription": "TO-DO Panel 需要控制「系统事件」来枚举并聚焦当前窗口，并控制音乐播放器的播放 / 切歌。"
       }
     },
     "win": {

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TO-DO Panel 灵动岛</title>
+    <link rel="stylesheet" href="./island.css" />
+  </head>
+  <body>
+    <!-- 两个工具图标只定义一次，耳朵与明细卡片用 <use> 引用。 -->
+    <svg class="island-sprite" aria-hidden="true" focusable="false">
+      <symbol id="glyph-claude" viewBox="0 0 16 16">
+        <path
+          d="M8 1.8v12.4M1.8 8h12.4M3.6 3.6l8.8 8.8M12.4 3.6l-8.8 8.8"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+        />
+      </symbol>
+      <symbol id="glyph-codex" viewBox="0 0 16 16">
+        <path
+          d="M3 4.2 6.8 8 3 11.8M8.6 12h4.6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+    </svg>
+
+    <main id="island" class="island" data-mode="hidden">
+      <div class="island-shell" aria-hidden="true"></div>
+
+      <button id="ear-left" class="island-ear island-ear-left" type="button" hidden>
+        <span class="ear-glyph"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#glyph-claude" /></svg></span>
+        <span class="ear-value">–</span>
+      </button>
+      <button id="ear-right" class="island-ear island-ear-right" type="button" hidden>
+        <span class="ear-glyph"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#glyph-codex" /></svg></span>
+        <span class="ear-value">–</span>
+      </button>
+
+      <section id="island-peek" class="island-peek" aria-label="AI 工具用量"></section>
+
+      <button
+        id="island-alert"
+        class="island-alert"
+        type="button"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label="打开任务对应窗口"
+        tabindex="-1"
+      >
+        <span class="alert-icon" aria-hidden="true">
+          <svg class="alert-glyph alert-glyph-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6.5 12.5 3.5 3.5 7.5-8" /></svg>
+          <svg class="alert-glyph alert-glyph-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.5" /><path d="M12 7.8v4.7l3.2 1.8" /></svg>
+        </span>
+        <span class="alert-copy">
+          <span id="alert-title" class="alert-title">任务已完成</span>
+          <span class="alert-meta">
+            <span id="alert-source" class="alert-source">Codex</span>
+            <span id="alert-detail" class="alert-detail">已完成，可以查看了</span>
+          </span>
+        </span>
+        <span id="alert-queue" class="alert-queue" hidden>+1</span>
+      </button>
+    </main>
+
+    <script src="./island.js" defer></script>
+  </body>
+</html>

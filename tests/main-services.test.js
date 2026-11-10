@@ -19,7 +19,6 @@ const {
   runOwnedOpenDialog,
   readClipboardObservation,
   screenRecordingProbePolicy,
-  taskNotificationWindowPolicy,
   prepareClipboardImagePayload,
   updateFeaturePreference,
   normalizeDefaultTabPreference,
@@ -524,12 +523,6 @@ test('screen-recording startup checks never touch capture APIs before user conse
     hasAccess: true,
     inspectWindowTitles: false,
   });
-});
-
-test('hidden task notification renderer is disposed after its queue drains', () => {
-  assert.equal(taskNotificationWindowPolicy({ active: true, queueLength: 0 }), 'retain');
-  assert.equal(taskNotificationWindowPolicy({ active: false, queueLength: 1 }), 'retain');
-  assert.equal(taskNotificationWindowPolicy({ active: false, queueLength: 0 }), 'dispose');
 });
 
 test('unchanged PNG clipboard probes reuse source bytes without re-encoding', () => {

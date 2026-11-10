@@ -29,12 +29,15 @@
 桌面刘海屏待办/
   package.json       # Electron 依赖 + 启动脚本
   main.js            # 主进程：窗口创建、定位、置顶与 IPC
-  preload.js         # 安全桥接 contextBridge
+  main/              # 主进程模块：agent-usage（用量监控）/ notch-geometry / permissions
+  preload.js         # 主面板的 contextBridge
+  preload-island.js / preload-permissions.js  # 岛与权限窗口各自的最小桥
   renderer/
     index.html       # 渲染入口
     styles.css       # 刘海 + 仪表盘玻璃样式
     app.js           # 页面交互逻辑 + LocalStorage 持久化
-    notification.html/css/js  # 独立任务完成提醒窗口
+    island.html/css/js        # 常驻灵动岛：用量耳朵 / 悬停明细 / 提醒
+    permissions.html/css/js   # 权限引导窗口
     assets/app-logo-128.png    # 提醒窗口小尺寸 Logo
   docs/
     DASHBOARD-DESIGN.md  # 仪表盘设计演进与当前产品规格
@@ -52,10 +55,14 @@
 - 可见 Tab：首页 bento（可选百炼实时转写的快速录音 / 图标式当前窗口 / 可滚轮缩放的中心 1:1 镜子 / Markdown 速记 / 常用指令 / 汽水音乐 / 番茄钟）+ 待办 2 × 2 矩阵（内部键 P0–P3，显示名可改）+ 笔记管理 + 链接分组 + 录制管理 + 密钥。剪贴板默认关闭、可从菜单栏「显示功能」启用
 - 剪贴板类型样式：文字 / 链接 / 图片只用浅描边区分，禁止左侧色条与冗余类型标签；长文本按卡片高度截断并显示省略效果
 - 动效对齐 Linear：日常微交互 100–180ms，展开/收起保留从顶部生长与回到顶点的连续手势；窗口本身仍零动画，`prefers-reduced-motion` 必须降级
-- 任务完成提醒：独立 `400 × 96` 无焦点窗口，队列上限 5，悬停暂停、点击关闭；HTTP 入口只监听 `127.0.0.1:43821` 的 `/notify/<source>`，来源白名单 `codex` / `claude` / `gpt`，白名单外一律 404。Codex 走 `~/.codex/config.toml` 的 notify → `scripts/codex-notify.js`（`--previous-notify` 保留原 Computer Use 通知）；Claude Code 走 `~/.claude/settings.json` 的 Stop 钩子 → `scripts/claude-notify.js`（钩子在 CLI 内核里，终端 / VS Code 插件 / 桌面端一份配置全覆盖；Stop 载荷无标题字段，需回读 `transcript_path` JSONL 尾部取最后一条主线助手消息，`isSidechain` 的是子代理记录要跳过）。子代理结束不弹提醒：脚本按 `agent_id` 先挡一层，主进程 `isSubagentNotification` 再挡一层（Claude 的 `agent_type` 存的是子代理名如 `Explore`，不含 subagent 字样，故以 `agent_id` 存在为准）。`CLAUDE_CODE_REMOTE=true` 的云端会话直接放弃，因为那里的 127.0.0.1 不是本机
+- 灵动岛（`renderer/island.*` + `preload-island.js`）：一个常驻的无焦点窗口，三种形态由主进程 `getIslandLayout()` 从状态推导——`live`（物理刘海 + 左右耳朵，高度 = 菜单栏；Claude 固定在左、Codex 固定在右，显示上下文占用）、`peek`（悬停 140ms 后向下长出用量明细：上下文 / 5 小时 / 每周额度）、`alert`（任务完成与待办到期提醒）。窗口横向位置与宽度在三种形态间固定不变、只改高度（否则换位置与换布局不同帧，耳朵会闪出重影）；live 形态两侧的透明区用 `setIgnoreMouseEvents` 放行点击，悬停由主进程 60ms 轮询光标判定后通知页面；形变由渲染层 clip-path 完成；面板展开或被隐藏时岛收起。刘海真实宽度由 `main/notch-geometry.js` 经 osascript 读 `NSScreen.auxiliaryTop*Area` 得到
+- AI 用量监控（`main/agent-usage.js`）：只读本机会话记录，不装钩子、不联网、不碰凭证。Codex 读 `~/.codex/sessions/**/rollout-*.jsonl`（`token_count` 自带上下文窗口与额度）；Claude 读 `~/.claude/projects/*/*.jsonl`（只有上下文，窗口大小靠推断：超过 20 万按 100 万算）。Claude 额度只能由可选的 `scripts/claude-statusline.js` 经 `/usage/claude` 上报。监控同时产生完成提醒（`channel: 'monitor'`），与钩子通道 8 秒内跨通道去重
+- 权限引导（`renderer/permissions.*` + `main/permissions.js`）：缺少必需权限时启动即显示一个普通置顶窗口，逐项「允许 / 打开设置」，每秒回读状态；托盘「权限设置…」可随时打开。禁止再用无父窗口的 `dialog.showMessageBox` 做权限提示（LSUIElement 应用的对话框会被其他窗口盖住）
+- 音乐组件（`main/music-players.js`）：不再写死汽水音乐。扫描应用目录按应用名识别已知播放器；设置 `musicPlayer` 为 `auto` 时先选正在运行的，再按 汽水 → 网易云 → QQ → 酷狗 → 酷我 → Spotify → Apple Music 的顺序选已安装的（Apple Music 系统自带，永远有兜底）。控制分三种策略：Apple Music / Spotify 走 AppleScript（能读曲名与真实播放状态，需「自动化」授权）；汽水音乐沿用「切前台 + 应用内快捷键」；其余发系统媒体键（需「辅助功能」，按键由系统路由给当前的 Now Playing 应用）。点组件标题或托盘「音乐播放器」切换
+- 任务完成提醒：显示在灵动岛的 `alert` 形态，队列上限 5，悬停暂停、点击关闭；HTTP 入口只监听 `127.0.0.1:43821` 的 `/notify/<source>`，来源白名单 `codex` / `claude` / `gpt`，白名单外一律 404。Codex 走 `~/.codex/config.toml` 的 notify → `scripts/codex-notify.js`（`--previous-notify` 保留原 Computer Use 通知）；Claude Code 走 `~/.claude/settings.json` 的 Stop 钩子 → `scripts/claude-notify.js`（钩子在 CLI 内核里，终端 / VS Code 插件 / 桌面端一份配置全覆盖；Stop 载荷无标题字段，需回读 `transcript_path` JSONL 尾部取最后一条主线助手消息，`isSidechain` 的是子代理记录要跳过）。子代理结束不弹提醒：脚本按 `agent_id` 先挡一层，主进程 `isSubagentNotification` 再挡一层（Claude 的 `agent_type` 存的是子代理名如 `Explore`，不含 subagent 字样，故以 `agent_id` 存在为准）。`CLAUDE_CODE_REMOTE=true` 的云端会话直接放弃，因为那里的 127.0.0.1 不是本机
 - 剪贴板：主进程 500ms 轮询 clipboard（Electron 无 changeCount，靠文本本身/图片「宽x高:PNG字节长度」指纹去重），文字里正则 `/^https?:/i` 判链接；跳过 org.nspasteboard.ConcealedType（密码管理器敏感内容）；图片写盘到 userData/clipboard-images/（IPC 统一走 isInsideClipDir 路径白名单，尾分隔符防兄弟目录逃逸），元数据存 LocalStorage，图片 dataURL 仅内存 Map 缓存（绝不进 LocalStorage，否则爆配额）；FIFO 上限 100（notch-clip-history 最新在头，超出淘汰最老并连带删图）；收藏 = notch-clip-favorites（id 数组，与 notch-app-favorites 同构）；点条目 clipboard:write 写回系统剪贴板供用户 Cmd+V。**不再占用任何全局快捷键**：`clipboardServicePolicy` 恒定返回 `registerGlobalShortcut: false`，原 Cmd+Shift+V 已撤销（`app:open-clip` 通道保留，仅由菜单栏驱动）
-- 配色：纯黑底 #000000、白色分级文本，强调色仅 P0–P3 色点（P0 红 / P1 橙 / P2 绿 / P3 蓝）、剪贴板浅类型描边与 app 原生图标
-- 圆角：折叠条下方两角 10px（--r-notch）、展开面板下方两角 16px（--r-panel），两者上沿都贴顶不圆角
+- 配色：近黑底 `#050506` 的渐变面板（`styles.css` 唯一的 `:root` 为准）、白色分级文本，强调色仅 P0–P3 色点（P0 红 / P1 橙 / P2 绿 / P3 蓝）、剪贴板浅类型描边与 app 原生图标
+- 圆角：折叠条下方两角 10px（--r-notch）、展开面板下方两角 28px（--r-panel），两者上沿都贴顶不圆角
 - 动效 Motion System v2：窗口边界始终瞬时变更；展开、收起、内容级联、Tab 胶囊与控件反馈由渲染层完成；`prefers-reduced-motion` 全局降级
 - 待办提交：输入框内按一次回车新增；输入法组合态（isComposing / keyCode 229）不提交
 - 待办收件箱：工作区 `todo-inbox/*.json`，主进程 2s 轮询（mtime 静置 1s 才读）→ IPC 投递 → 渲染层纯函数 `mergeTodoImport`（domain.js）只追加进 `notch-todo-data`，**原地 push 不替换数组**（删除撤销闭包持有引用）→ 回执后主进程 `flushStorageData` 再移入 `processed/` 并写 `.report.json`。无 id 条目用「文件 sha256 前 12 位 + 序号」生成稳定 id，崩溃重放只会命中重复；渲染层重载即作废在途投递，等 `todo-inbox:ready` 重新声明

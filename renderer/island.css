@@ -1,0 +1,543 @@
+:root {
+  color-scheme: dark;
+
+  /* 几何：由主进程按当前屏幕下发，这里只是首帧兜底值 */
+  --center-x: 190px;
+  --core-w: 200px;
+  --menubar-h: 37px;
+  --ear-w: 62px;
+  --left-ear-w: 0px;
+  --right-ear-w: 0px;
+  --canvas-w: 380px;
+
+  /* 颜色：岛体必须与物理刘海同为纯黑，强调色只落在数值与状态点上 */
+  --color-shell: #000000;
+  --color-hairline: rgba(255, 255, 255, 0.1);
+  --color-track: rgba(255, 255, 255, 0.12);
+  --color-text-1: #f5f5f5;
+  --color-text-2: #a1a1a1;
+  --color-text-3: #8a8a8a;
+  --color-ok: #30d978;
+  --color-warn: #ff9352;
+  --color-danger: #ff5f57;
+  --color-todo: #ff9352;
+  --color-focus: #6ea8ff;
+  --color-hover: rgba(255, 255, 255, 0.08);
+
+  /* 字体 */
+  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
+  --font-ear: 11px;
+  --font-body: 12px;
+  --font-title: 13px;
+  --font-meta: 11px;
+
+  /* 间距与尺寸 */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --glyph-size: 12px;
+  --dot-size: 5px;
+  --meter-h: 4px;
+  --row-h: 20px;
+  --label-w: 44px;
+  --value-w: 36px;
+  --note-w: 96px;
+  --alert-icon-size: 28px;
+  --radius-notch: 10px;
+  --radius-shell: 16px;
+  --radius-icon: 8px;
+  --radius-pill: 999px;
+
+  /* 动效：岛体以屏幕顶部刘海为原点生长 / 收回 */
+  --d-grow: 260ms;
+  --d-shrink: 200ms;
+  --d-content: 140ms;
+  --d-content-delay: 80ms;
+  --d-micro: 120ms;
+  --ease-island: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  color: var(--color-text-1);
+  font-family: var(--font-family);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.island-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.island {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.island[data-mode='hidden'] {
+  visibility: hidden;
+}
+
+/* ---------- 岛体 ---------- */
+/* 一块铺满窗口的纯黑，用 clip-path 在「刘海 + 耳朵」与「展开卡片」两个形状之间变形。
+   窗口本身瞬时变尺寸（主进程 setBounds），可见的形变全部在这里完成。 */
+.island-shell {
+  --inset-left: calc(var(--center-x) - var(--core-w) / 2 - var(--left-ear-w));
+  --inset-right: calc(100% - var(--center-x) - var(--core-w) / 2 - var(--right-ear-w));
+  position: absolute;
+  inset: 0;
+  background: var(--color-shell);
+  clip-path: inset(
+    0 var(--inset-right) calc(100% - var(--menubar-h)) var(--inset-left) round 0 0
+      var(--radius-notch) var(--radius-notch)
+  );
+  transition: clip-path var(--d-shrink) var(--ease-out);
+}
+
+.island-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 0 0 var(--radius-shell) var(--radius-shell);
+  box-shadow: inset 0 -1px 0 var(--color-hairline), inset 1px 0 0 var(--color-hairline),
+    inset -1px 0 0 var(--color-hairline);
+  opacity: 0;
+  transition: opacity var(--d-micro) linear;
+}
+
+.island.is-open .island-shell {
+  clip-path: inset(0 0 0 0 round 0 0 var(--radius-shell) var(--radius-shell));
+  transition: clip-path var(--d-grow) var(--ease-island);
+}
+
+.island.is-open .island-shell::after {
+  opacity: 1;
+  transition-delay: var(--d-content-delay);
+}
+
+/* 主进程刚把窗口换成另一种尺寸时，形状必须一帧到位，不能从旧尺寸的形状「滑」过来。 */
+.island.no-anim .island-shell,
+.island.no-anim .island-shell::after,
+.island.no-anim .island-peek,
+.island.no-anim .island-alert {
+  transition: none !important;
+}
+
+/* ---------- 耳朵 ---------- */
+.island-ear {
+  position: absolute;
+  top: 0;
+  display: flex;
+  width: var(--ear-w);
+  height: var(--menubar-h);
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--color-text-1);
+  font-size: var(--font-ear);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.island-ear-left {
+  left: calc(var(--center-x) - var(--core-w) / 2 - var(--ear-w));
+  padding-left: var(--space-2);
+}
+
+.island-ear-right {
+  left: calc(var(--center-x) + var(--core-w) / 2);
+  padding-right: var(--space-2);
+}
+
+.island-ear:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -3px;
+  border-radius: var(--radius-notch);
+}
+
+.ear-glyph {
+  position: relative;
+  display: grid;
+  width: var(--glyph-size);
+  height: var(--glyph-size);
+  flex: none;
+  place-items: center;
+  color: var(--color-text-2);
+}
+
+.ear-glyph svg,
+.peek-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* 状态不只靠颜色：运行中 = 图标呼吸，完成未读 = 右上角实心点，空闲 = 图标变暗。 */
+.island-ear[data-state='running'] .ear-glyph {
+  color: var(--color-text-1);
+  /* 分 5 级跳变而不是连续渐变：岛是常驻的透明窗口，连续动画意味着只要有任务在跑，
+     合成器就以屏幕刷新率（120Hz）不停出帧——实测岛进程 1.5% + GPU 进程 2–3% 的常驻 CPU。
+     分级后每秒只更新约 6 次，观感仍是呼吸。 */
+  animation: ear-breathe 0.9s steps(5, jump-none) infinite alternate;
+}
+
+.island-ear[data-unread='true'] .ear-glyph::after {
+  content: '';
+  position: absolute;
+  top: calc(var(--dot-size) / -2);
+  right: calc(var(--dot-size) / -2);
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--radius-pill);
+  background: var(--color-ok);
+}
+
+.island-ear[data-level='warn'] .ear-value {
+  color: var(--color-warn);
+}
+
+.island-ear[data-level='danger'] .ear-value {
+  color: var(--color-danger);
+}
+
+@keyframes ear-breathe {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.35;
+  }
+}
+
+/* ---------- 展开内容的公共入场 ---------- */
+.island-peek,
+.island-alert {
+  position: absolute;
+  top: var(--menubar-h);
+  left: calc(var(--center-x) - var(--canvas-w) / 2);
+  width: var(--canvas-w);
+  opacity: 0;
+  transform: translateY(-4px);
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--d-micro) var(--ease-out),
+    transform var(--d-micro) var(--ease-out),
+    visibility 0s linear var(--d-micro);
+}
+
+.island.is-open.show-peek .island-peek,
+.island.is-open.show-alert .island-alert {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity var(--d-content) var(--ease-out) var(--d-content-delay),
+    transform var(--d-content) var(--ease-out) var(--d-content-delay),
+    visibility 0s;
+}
+
+/* ---------- 用量明细 ---------- */
+.island-peek {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-2) var(--space-6) var(--space-6);
+  cursor: pointer;
+}
+
+.peek-tool {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.peek-tool + .peek-tool {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--color-hairline);
+}
+
+.peek-head {
+  display: flex;
+  min-width: 0;
+  height: var(--row-h);
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
+  font-size: var(--font-body);
+}
+
+.peek-glyph {
+  width: var(--glyph-size);
+  height: var(--glyph-size);
+  flex: none;
+  color: var(--color-text-1);
+}
+
+.peek-name {
+  flex: none;
+  font-weight: 600;
+}
+
+.peek-project {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--color-text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.peek-state {
+  flex: none;
+  color: var(--color-text-2);
+  font-size: var(--font-meta);
+}
+
+.peek-tool[data-state='running'] .peek-state {
+  color: var(--color-text-1);
+}
+
+.peek-tool[data-state='done'] .peek-state {
+  color: var(--color-ok);
+}
+
+.peek-meter {
+  display: grid;
+  height: var(--row-h);
+  grid-template-columns: var(--label-w) minmax(0, 1fr) var(--value-w) var(--note-w);
+  align-items: center;
+  column-gap: var(--space-4);
+  font-size: var(--font-meta);
+  font-variant-numeric: tabular-nums;
+}
+
+.peek-label,
+.peek-note {
+  color: var(--color-text-2);
+  white-space: nowrap;
+}
+
+.peek-note {
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+}
+
+.peek-value {
+  font-weight: 600;
+  text-align: right;
+}
+
+.peek-bar {
+  position: relative;
+  height: var(--meter-h);
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-track);
+}
+
+.peek-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--color-text-1);
+  transform: scaleX(var(--fill, 0));
+  transform-origin: left center;
+}
+
+.peek-meter[data-level='warn'] .peek-fill {
+  background: var(--color-warn);
+}
+
+.peek-meter[data-level='warn'] .peek-value {
+  color: var(--color-warn);
+}
+
+.peek-meter[data-level='danger'] .peek-fill {
+  background: var(--color-danger);
+}
+
+.peek-meter[data-level='danger'] .peek-value {
+  color: var(--color-danger);
+}
+
+.peek-empty {
+  display: flex;
+  height: var(--row-h);
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--color-text-3);
+  font-size: var(--font-meta);
+}
+
+.peek-empty .peek-label {
+  width: var(--label-w);
+  flex: none;
+}
+
+/* ---------- 提醒 ---------- */
+.island-alert {
+  display: grid;
+  height: calc(100% - var(--menubar-h));
+  grid-template-columns: var(--alert-icon-size) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-5);
+  padding: 0 var(--space-6) var(--space-4);
+  cursor: pointer;
+}
+
+.island-alert:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -4px;
+  border-radius: var(--radius-shell);
+}
+
+.alert-icon {
+  --alert-accent: var(--color-ok);
+  position: relative;
+  display: grid;
+  width: var(--alert-icon-size);
+  height: var(--alert-icon-size);
+  place-items: center;
+  border-radius: var(--radius-icon);
+  background: var(--color-hover);
+  color: var(--alert-accent);
+}
+
+.island-alert[data-source='todo'] .alert-icon {
+  --alert-accent: var(--color-todo);
+}
+
+.alert-glyph {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  opacity: 0;
+}
+
+.island-alert:not([data-source='todo']) .alert-glyph-check,
+.island-alert[data-source='todo'] .alert-glyph-clock {
+  opacity: 1;
+}
+
+.alert-copy {
+  display: grid;
+  min-width: 0;
+  row-gap: var(--space-1);
+}
+
+.alert-title,
+.alert-detail {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.alert-title {
+  font-size: var(--font-title);
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.alert-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--color-text-2);
+  font-size: var(--font-meta);
+  line-height: 16px;
+}
+
+.alert-source {
+  flex: none;
+  color: var(--color-text-1);
+  font-weight: 600;
+}
+
+.alert-source::after {
+  content: '·';
+  margin-left: var(--space-3);
+  color: var(--color-text-3);
+  font-weight: 400;
+}
+
+.alert-detail {
+  flex: 1 1 auto;
+}
+
+.alert-queue {
+  min-width: 26px;
+  height: 18px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--color-hover);
+  color: var(--color-text-2);
+  font-size: var(--font-meta);
+  font-weight: 500;
+  line-height: 18px;
+  text-align: center;
+}
+
+@media (hover: hover) {
+  .island-alert:hover .alert-icon {
+    background: rgba(255, 255, 255, 0.14);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --d-grow: 1ms;
+    --d-shrink: 1ms;
+    --d-content: 1ms;
+    --d-content-delay: 0ms;
+    --d-micro: 1ms;
+  }
+
+  .island-peek,
+  .island-alert {
+    transform: none;
+  }
+
+  /* 不闪动：运行中改为常亮，靠明细里的「运行中」文字表达。 */
+  .island-ear[data-state='running'] .ear-glyph {
+    animation: none;
+  }
+}

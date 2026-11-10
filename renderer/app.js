@@ -24,6 +24,17 @@ function collectLocalStorageSnapshot() {
   return result;
 }
 
+// 工作区快照只在 localStorage 真的被写过之后才发：此前每 2 秒无条件把全部键值
+// 序列化一遍过 IPC（折叠、空闲时也一样），主进程再整体 parse / stringify 比对。
+let workspaceDirty = true;
+for (const method of ['setItem', 'removeItem', 'clear']) {
+  const original = Storage.prototype[method];
+  Storage.prototype[method] = function patchedStorageWrite(...args) {
+    if (this === localStorage) workspaceDirty = true;
+    return original.apply(this, args);
+  };
+}
+
 let workspaceReloadPending = false;
 async function hydratePortableWorkspace() {
   if (!window.notchAPI?.loadWorkspaceData) return;
@@ -46,7 +57,13 @@ async function hydratePortableWorkspace() {
       location.reload();
       return;
     }
-    setInterval(() => window.notchAPI.saveWorkspaceData(collectLocalStorageSnapshot()).catch(() => {}), 2000);
+    setInterval(() => {
+      if (!workspaceDirty) return;
+      workspaceDirty = false;
+      window.notchAPI.saveWorkspaceData(collectLocalStorageSnapshot()).catch(() => {
+        workspaceDirty = true; // 没写成功，下一轮重试
+      });
+    }, 2000);
     // 恢复流程可能整页重载；只有确定不再重载后才接收外部导入。
     startTodoInbox();
   } catch (error) {}
@@ -121,6 +138,11 @@ if (statusToastAction) {
 }
 
 window.addEventListener('beforeunload', () => dismissStatusToast(true));
+// 应用退出前主进程会来问一次：把还在撤销窗口内的删除立即执行掉，再回执。
+window.notchAPI?.onFlushPending?.(() => {
+  dismissStatusToast(true);
+  window.notchAPI.flushDone();
+});
 
 function loadData() {
   try {
@@ -250,18 +272,20 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
+const todoDeadlineFormat = new Intl.DateTimeFormat('zh-CN', {
+  month: 'numeric',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 function todoItemHtml(priority, item) {
   const doneClass = item.done ? ' done' : '';
   const selectedClass = todoSelections[priority]?.has(item.id) ? ' multi-selected' : '';
   const safeId = escapeHtml(item.id);
   const safeText = escapeHtml(item.text);
   const deadline = Number.isFinite(Date.parse(String(item.deadline || '')))
-    ? new Intl.DateTimeFormat('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(item.deadline))
+    ? todoDeadlineFormat.format(new Date(item.deadline))
     : '';
   const toggleLabel = item.done ? `恢复未完成：${safeText}` : `标记完成：${safeText}`;
   const battery = window.NotchDomain.todoTimeBattery(item, Date.now());
@@ -351,7 +375,24 @@ function renderAll() {
   });
 }
 
-setInterval(() => PRIORITIES.forEach(renderList), 60_000);
+// 每分钟刷新一次剩余时间。折叠时没人看，推迟到下次展开；
+// 正在列表里输入（行内改名）时也不重建，否则 innerHTML 会把输入中的文字冲掉。
+let todoListsStale = false;
+function refreshTodoListsForClock() {
+  const editing = document.activeElement
+    && document.activeElement.closest('.todo-list')
+    && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+  if (!isExpanded || editing) {
+    todoListsStale = true;
+    return;
+  }
+  todoListsStale = false;
+  PRIORITIES.forEach(renderList);
+}
+setInterval(refreshTodoListsForClock, 60_000);
+document.addEventListener('notch:modechange', (event) => {
+  if (event.detail?.expanded && todoListsStale) refreshTodoListsForClock();
+});
 
 // 渲染重建 innerHTML 后，给指定条目挂一次性动画类；动画结束即卸载，不污染后续渲染
 function flashItemClass(priority, id, cls) {
@@ -657,6 +698,17 @@ panel.addEventListener('click', (e) => {
 // Escape 不会原生到达页面（被浏览器层吞掉），由主进程 before-input-event 转发
 if (window.notchAPI && typeof window.notchAPI.onEscape === 'function') {
   window.notchAPI.onEscape(() => {
+    // 先关最上层的浮层。此前 Esc 直接落到「失焦 → 收起整个面板」，
+    // 浮层本身没关，下次展开时它还开着。
+    if (todoEditorContext) {
+      closeTodoEditor();
+      return;
+    }
+    const overlay = document.getElementById('transcription-settings-backdrop');
+    if (overlay && !overlay.hidden) {
+      document.dispatchEvent(new CustomEvent('notch:close-overlays'));
+      return;
+    }
     const el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
       el.blur();
@@ -916,6 +968,8 @@ function keyEventToAccelerator(event) {
 
 shortcutRecorder?.addEventListener('keydown', async (event) => {
   if (!shortcutRecorderActive) return;
+  // Tab 留给焦点移动，否则「取消」按钮用键盘到不了。
+  if (event.key === 'Tab') return;
   event.preventDefault();
   event.stopPropagation();
   if (event.key === 'Escape') {
@@ -1284,13 +1338,28 @@ document.querySelectorAll('.todo-bulk-delete[data-bulk-priority]').forEach((butt
     const priority = button.dataset.bulkPriority;
     const selected = todoSelections[priority];
     if (!selected || !selected.size) return;
-    data[priority] = (data[priority] || []).filter((item) => !selected.has(item.id));
+    const before = data[priority] || [];
+    const removedCount = before.filter((item) => selected.has(item.id)).length;
+    data[priority] = before.filter((item) => !selected.has(item.id));
     selected.clear();
     todoSelectionAnchors[priority] = null;
     saveData(data);
     renderList(priority);
     updateCount(priority);
-    showStatusToast('已删除所选待办');
+    showStatusToast(`已删除 ${removedCount} 项待办`, {
+      actionLabel: '撤销',
+      duration: 5000,
+      onAction: () => {
+        // 撤销窗口内新增的条目要保留：把被删的放回原数组，再补上之后新增的。
+        const known = new Set(before.map((item) => item.id));
+        const addedSince = (data[priority] || []).filter((item) => !known.has(item.id));
+        before.push(...addedSince);
+        data[priority] = before;
+        saveData(data);
+        renderList(priority);
+        updateCount(priority);
+      },
+    });
   });
 });
 
@@ -2142,7 +2211,8 @@ if (noteInput) {
 
   noteInput.addEventListener('input', () => {
     if (!noteInput.value.trim()) localStorage.removeItem(NOTE_ACTIVE_ARCHIVE_KEY);
-    renderNotePreview();
+    // 编辑态下预览是隐藏的，切到预览时会重新渲染；没必要每个按键解析一遍整篇 Markdown。
+    if (notePreview && !notePreview.hidden) renderNotePreview();
     clearTimeout(noteTimer);
     noteTimer = setTimeout(saveNote, 300);
   });
@@ -2455,13 +2525,26 @@ notesDetail?.addEventListener('click', (event) => {
   if (!note) return;
   if (action === 'delete-note') {
     const next = notes.filter((item) => item.id !== note.id);
+    const noteIndex = notes.indexOf(note);
+    const wasActive = localStorage.getItem(NOTE_ACTIVE_ARCHIVE_KEY) === note.id;
     localStorage.setItem(NOTE_ARCHIVE_KEY, JSON.stringify(next));
-    if (localStorage.getItem(NOTE_ACTIVE_ARCHIVE_KEY) === note.id) {
-      localStorage.removeItem(NOTE_ACTIVE_ARCHIVE_KEY);
-    }
+    if (wasActive) localStorage.removeItem(NOTE_ACTIVE_ARCHIVE_KEY);
     selectedNoteId = next[0]?.id || '';
     renderNotesLibrary();
-    showStatusToast('笔记已删除');
+    showStatusToast('笔记已删除', {
+      actionLabel: '撤销',
+      duration: 5000,
+      onAction: () => {
+        // 重新读一遍再插回原位，撤销窗口内对其他笔记的修改不会被旧快照覆盖。
+        flushNotesEditorSave();
+        const current = loadNoteArchive().filter((item) => item.id !== note.id);
+        current.splice(Math.min(noteIndex, current.length), 0, note);
+        localStorage.setItem(NOTE_ARCHIVE_KEY, JSON.stringify(current));
+        if (wasActive) localStorage.setItem(NOTE_ACTIVE_ARCHIVE_KEY, note.id);
+        selectedNoteId = note.id;
+        renderNotesLibrary();
+      },
+    });
     return;
   }
 });

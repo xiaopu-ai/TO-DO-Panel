@@ -1,0 +1,254 @@
+:root {
+  color-scheme: dark;
+
+  --color-bg: #111113;
+  --color-surface: #1b1b1e;
+  --color-hairline: rgba(255, 255, 255, 0.1);
+  --color-text-1: #f5f5f5;
+  --color-text-2: #b4b4bb;
+  --color-ok: #30d978;
+  --color-warn: #ff9352;
+  --color-button: rgba(255, 255, 255, 0.1);
+  --color-button-hover: rgba(255, 255, 255, 0.16);
+  --color-primary: #f5f5f5;
+  --color-primary-hover: #ffffff;
+  --color-primary-text: #111113;
+  --color-focus: #6ea8ff;
+
+  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', sans-serif;
+  --font-title: 17px;
+  --font-item: 14px;
+  --font-body: 13px;
+  --font-meta: 12px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --titlebar-h: 36px;
+  --button-h: 30px;
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --radius-pill: 999px;
+  --d-fast: 120ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text-1);
+  font-family: var(--font-family);
+  font-size: var(--font-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.drag-region {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--titlebar-h);
+  -webkit-app-region: drag;
+}
+
+.permissions {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: calc(var(--titlebar-h) + var(--space-1)) var(--space-5) var(--space-5);
+}
+
+.permissions-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.permissions-logo {
+  flex: none;
+  border-radius: var(--radius-card);
+}
+
+h1 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-title);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+p {
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+.permissions-list {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-content: start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.permission {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.permission-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-item);
+  font-weight: 600;
+}
+
+.permission-tag {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-2);
+  font-size: var(--font-meta);
+  font-weight: 400;
+  line-height: 18px;
+}
+
+.permission-reason {
+  margin-top: var(--space-1);
+  font-size: var(--font-meta);
+}
+
+/* 状态同时用文字和图形表达，不只靠颜色。 */
+.permission-status {
+  display: inline-flex;
+  min-width: 84px;
+  height: var(--button-h);
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  color: var(--color-ok);
+  font-size: var(--font-body);
+  font-weight: 600;
+}
+
+.permission-status svg {
+  width: 14px;
+  height: 14px;
+}
+
+.button {
+  min-width: 84px;
+  height: var(--button-h);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-button);
+  background: var(--color-button);
+  color: var(--color-text-1);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--d-fast) ease-out;
+}
+
+.button:hover {
+  background: var(--color-button-hover);
+}
+
+.button:active {
+  background: var(--color-button);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button-primary {
+  background: var(--color-primary);
+  color: var(--color-primary-text);
+}
+
+.button-primary:hover {
+  background: var(--color-primary-hover);
+}
+
+.button:focus-visible,
+.permissions-skip input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.permissions-note {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-button);
+  background: rgba(255, 147, 82, 0.12);
+  color: var(--color-warn);
+}
+
+.permissions-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.permissions-skip {
+  display: inline-flex;
+  min-height: var(--button-h);
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-2);
+  cursor: pointer;
+}
+
+.permissions-skip input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+
+.permissions-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
+}
+
+.permissions-howto {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--color-button);
+  font-size: var(--font-meta);
+}
+
+.permissions-howto strong {
+  color: var(--color-text-1);
+  font-weight: 600;
+}
