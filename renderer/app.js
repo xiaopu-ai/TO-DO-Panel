@@ -1331,13 +1331,28 @@ document.querySelectorAll('.todo-bulk-delete[data-bulk-priority]').forEach((butt
     const priority = button.dataset.bulkPriority;
     const selected = todoSelections[priority];
     if (!selected || !selected.size) return;
-    data[priority] = (data[priority] || []).filter((item) => !selected.has(item.id));
+    const before = data[priority] || [];
+    const removedCount = before.filter((item) => selected.has(item.id)).length;
+    data[priority] = before.filter((item) => !selected.has(item.id));
     selected.clear();
     todoSelectionAnchors[priority] = null;
     saveData(data);
     renderList(priority);
     updateCount(priority);
-    showStatusToast('已删除所选待办');
+    showStatusToast(`已删除 ${removedCount} 项待办`, {
+      actionLabel: '撤销',
+      duration: 5000,
+      onAction: () => {
+        // 撤销窗口内新增的条目要保留：把被删的放回原数组，再补上之后新增的。
+        const known = new Set(before.map((item) => item.id));
+        const addedSince = (data[priority] || []).filter((item) => !known.has(item.id));
+        before.push(...addedSince);
+        data[priority] = before;
+        saveData(data);
+        renderList(priority);
+        updateCount(priority);
+      },
+    });
   });
 });
 
@@ -2503,13 +2518,26 @@ notesDetail?.addEventListener('click', (event) => {
   if (!note) return;
   if (action === 'delete-note') {
     const next = notes.filter((item) => item.id !== note.id);
+    const noteIndex = notes.indexOf(note);
+    const wasActive = localStorage.getItem(NOTE_ACTIVE_ARCHIVE_KEY) === note.id;
     localStorage.setItem(NOTE_ARCHIVE_KEY, JSON.stringify(next));
-    if (localStorage.getItem(NOTE_ACTIVE_ARCHIVE_KEY) === note.id) {
-      localStorage.removeItem(NOTE_ACTIVE_ARCHIVE_KEY);
-    }
+    if (wasActive) localStorage.removeItem(NOTE_ACTIVE_ARCHIVE_KEY);
     selectedNoteId = next[0]?.id || '';
     renderNotesLibrary();
-    showStatusToast('笔记已删除');
+    showStatusToast('笔记已删除', {
+      actionLabel: '撤销',
+      duration: 5000,
+      onAction: () => {
+        // 重新读一遍再插回原位，撤销窗口内对其他笔记的修改不会被旧快照覆盖。
+        flushNotesEditorSave();
+        const current = loadNoteArchive().filter((item) => item.id !== note.id);
+        current.splice(Math.min(noteIndex, current.length), 0, note);
+        localStorage.setItem(NOTE_ARCHIVE_KEY, JSON.stringify(current));
+        if (wasActive) localStorage.setItem(NOTE_ACTIVE_ARCHIVE_KEY, note.id);
+        selectedNoteId = note.id;
+        renderNotesLibrary();
+      },
+    });
     return;
   }
 });

@@ -20,6 +20,30 @@
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
   }
 
+  // 删除类操作统一给 5 秒撤销。commit 用于「撤销窗口过了才真正执行」的不可逆动作
+  //（删磁盘文件、删保险库记录）；被下一条提示顶掉或页面卸载时同样会触发。
+  function offerUndo(message, undo, commit) {
+    if (typeof showStatusToast !== 'function') {
+      if (commit) commit();
+      return;
+    }
+    showStatusToast(message, { actionLabel: '撤销', duration: 5000, onAction: undo, onExpire: commit });
+  }
+
+  function restoreCommands(before) {
+    // 撤销窗口内新增的指令保留在前面（新增是插到头部的）。
+    const known = new Set(before.map((item) => item.id));
+    commands = [...commands.filter((item) => !known.has(item.id)), ...before];
+    persistCommands();
+    renderCommands();
+  }
+
+  function restoreLinkGroups(before) {
+    linkGroups = before;
+    persistLinks();
+    renderLinkGroups();
+  }
+
   function loadJson(key, fallback) {
     try {
       const parsed = JSON.parse(localStorage.getItem(key));
@@ -181,10 +205,12 @@
       if (!action) return;
       if (action.dataset.action === 'edit-command') editCommand(row);
       if (action.dataset.action === 'delete-command') {
+        const before = commands;
         commands = commands.filter((item) => item.id !== command.id);
         commandSelection.delete(command.id);
         persistCommands();
         renderCommands();
+        offerUndo('指令已删除', () => restoreCommands(before));
       }
       if (action.dataset.action === 'copy-command' && window.notchAPI) {
         const copied = await window.notchAPI.writeClipboard({ type: 'text', text: command.text });
@@ -197,11 +223,13 @@
   }
   commandBulkDelete?.addEventListener('click', () => {
     if (!commandSelection.size) return;
+    const before = commands;
     commands = commands.filter((command) => !commandSelection.has(command.id));
     commandSelection.clear();
     commandSelectionAnchor = null;
     persistCommands();
     renderCommands();
+    offerUndo(`已删除 ${before.length - commands.length} 条指令`, () => restoreCommands(before));
   });
 
   // ============ 链接收藏夹 ============
@@ -514,19 +542,24 @@
         renderLinkGroups();
       }
       if (action.dataset.action === 'delete-group') {
+        const before = structuredClone(linkGroups);
+        const count = (group.links || []).length;
         (group.links || []).forEach((item) => linkSelection.delete(item.id));
         linkGroups = linkGroups.filter((item) => item.id !== groupId);
         persistLinks();
         renderLinkGroups();
+        offerUndo(count ? `已删除分组及其中 ${count} 个链接` : '分组已删除', () => restoreLinkGroups(before));
       }
       if (action.dataset.action === 'open-link' && link && window.notchAPI) {
         window.notchAPI.openExternal(link.url);
       }
       if (action.dataset.action === 'delete-link' && link) {
+        const before = structuredClone(linkGroups);
         group.links = group.links.filter((item) => item.id !== link.id);
         linkSelection.delete(link.id);
         persistLinks();
         renderLinkGroups();
+        offerUndo('链接已删除', () => restoreLinkGroups(before));
       }
       if (action.dataset.action === 'edit-link' && link && row) {
         const openButton = row.querySelector('.link-open');
@@ -680,6 +713,8 @@
 
   linkBulkDelete?.addEventListener('click', () => {
     if (!linkSelection.size) return;
+    const before = structuredClone(linkGroups);
+    const count = linkSelection.size;
     linkGroups = linkGroups.map((group) => ({
       ...group,
       links: (group.links || []).filter((link) => !linkSelection.has(link.id)),
@@ -688,6 +723,7 @@
     linkSelectionAnchor = null;
     persistLinks();
     renderLinkGroups();
+    offerUndo(`已删除 ${count} 个链接`, () => restoreLinkGroups(before));
     setLinksStatus('已删除所选链接');
   });
 
@@ -1953,9 +1989,7 @@
   async function deleteSingleRecording(recordingId) {
     const recording = recordings.find((item) => item.id === recordingId);
     if (!recording) return;
-    if (window.notchAPI && recording.audioPath) {
-      await window.notchAPI.deleteRecording(recording.audioPath).catch(() => false);
-    }
+    const before = recordings;
     const next = Domain.removeRecordingState(
       recordings,
       recording.id,
@@ -1968,6 +2002,23 @@
     recordingSelectionAnchor = selectedRecordingId || null;
     persistRecordings();
     renderRecordings();
+    offerRecordingUndo('录音已删除', before, [recording]);
+  }
+
+  // 录音先从列表移除，磁盘上的音频等撤销窗口过了才真正删除——音频删了就找不回来。
+  function offerRecordingUndo(message, before, removed) {
+    offerUndo(message, () => {
+      recordings = before;
+      selectedRecordingId = removed[0].id;
+      recordingSelectionAnchor = selectedRecordingId;
+      persistRecordings();
+      renderRecordings();
+    }, () => {
+      if (!window.notchAPI) return;
+      removed.forEach((recording) => {
+        if (recording.audioPath) window.notchAPI.deleteRecording(recording.audioPath).catch(() => false);
+      });
+    });
   }
 
   function renderRecordingList() {
@@ -2059,11 +2110,7 @@
     if (!recordingSelection.size) return;
     const targets = recordings.filter((recording) => !recording.isDraft && recordingSelection.has(recording.id));
     if (!targets.length) return;
-    if (window.notchAPI) {
-      await Promise.all(targets.map((recording) => recording.audioPath
-        ? window.notchAPI.deleteRecording(recording.audioPath).catch(() => false)
-        : Promise.resolve(true)));
-    }
+    const before = recordings;
     const targetIds = new Set(targets.map((recording) => recording.id));
     recordings = recordings.filter((recording) => !targetIds.has(recording.id));
     recordingSelection.clear();
@@ -2071,6 +2118,7 @@
     recordingSelectionAnchor = selectedRecordingId || null;
     persistRecordings();
     renderRecordings();
+    offerRecordingUndo(`已删除 ${targets.length} 条录音`, before, targets);
   });
 
   // ============ 当前窗口 ============
@@ -2505,11 +2553,39 @@
     updateCredentialBulkAction();
   }
 
+  // 密钥先从列表隐藏，保险库里的记录等撤销窗口过了才真正删除——密码删了无法恢复。
+  const pendingCredentialDeletes = new Set();
+  function queueCredentialDelete(ids) {
+    ids.forEach((id) => {
+      pendingCredentialDeletes.add(id);
+      credentialSelection.delete(id);
+    });
+    if (ids.includes(editingCredentialId)) {
+      editingCredentialId = '';
+      editingCredential = null;
+    }
+    credentials = credentials.filter((item) => !pendingCredentialDeletes.has(item.id));
+    renderCredentials();
+    offerUndo(ids.length > 1 ? `已删除 ${ids.length} 项密钥` : '密钥已删除', () => {
+      ids.forEach((id) => pendingCredentialDeletes.delete(id));
+      loadCredentials();
+    }, async () => {
+      const result = await window.notchAPI.deleteCredentials(ids).catch(() => ({ ok: false }));
+      ids.forEach((id) => pendingCredentialDeletes.delete(id));
+      await loadCredentials();
+      if (!result?.ok && credentialsNote) {
+        credentialsNote.textContent = '删除失败，请稍后重试。';
+        credentialsNote.classList.add('error');
+      }
+    });
+  }
+
   async function loadCredentials() {
     if (!window.notchAPI || typeof window.notchAPI.listCredentials !== 'function') return;
     let result;
     try { result = await window.notchAPI.listCredentials(); } catch (error) { result = null; }
-    credentials = result && Array.isArray(result.items) ? result.items : [];
+    credentials = (result && Array.isArray(result.items) ? result.items : [])
+      .filter((item) => !pendingCredentialDeletes.has(item.id));
     if (credentialsNote && result && !result.secureStorage) {
       credentialsNote.textContent = '当前系统安全存储不可用，暂时无法保存密码。';
       credentialsNote.classList.add('error');
@@ -2584,27 +2660,7 @@
       selected: credentialSelection.has(row.dataset.id),
     });
     if (action.type === 'delete') {
-      const deleteButton = event.target.closest('[data-credential-delete]');
-      if (deleteButton) deleteButton.disabled = true;
-      const result = await window.notchAPI.deleteCredentials([row.dataset.id]).catch(() => ({ ok: false }));
-      if (!result?.ok) {
-        if (deleteButton) deleteButton.disabled = false;
-        if (credentialsNote) {
-          credentialsNote.textContent = '删除失败，请稍后重试。';
-          credentialsNote.classList.add('error');
-        }
-        return;
-      }
-      credentialSelection.delete(row.dataset.id);
-      if (editingCredentialId === row.dataset.id) {
-        editingCredentialId = '';
-        editingCredential = null;
-      }
-      await loadCredentials();
-      if (credentialsNote) {
-        credentialsNote.textContent = '密钥已删除。';
-        credentialsNote.classList.remove('error');
-      }
+      queueCredentialDelete([row.dataset.id]);
       return;
     }
     if (action.type === 'copy') {
@@ -2662,11 +2718,8 @@
   });
   credentialBulkDelete?.addEventListener('click', async () => {
     if (!credentialSelection.size || !window.notchAPI) return;
-    const result = await window.notchAPI.deleteCredentials([...credentialSelection]).catch(() => ({ ok: false }));
-    if (!result || !result.ok) return;
-    credentialSelection.clear();
     credentialAnchor = null;
-    await loadCredentials();
+    queueCredentialDelete([...credentialSelection]);
   });
 
   document.addEventListener('notch:clear-selection', () => {
