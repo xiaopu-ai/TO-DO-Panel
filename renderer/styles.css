@@ -4841,3 +4841,27 @@ select:focus-visible {
 .shortcut-recorder button { min-height: 24px; }
 .windows-refresh { min-width: 24px; min-height: 24px; }
 .todo-date-popover .todo-calendar-grid button { min-height: 24px; }
+
+/* 音乐组件标题：装了多个播放器时可点，弹出切换菜单。 */
+.music-switch {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-input);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.music-switch strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-switch svg { width: 14px; height: 14px; flex: none; color: var(--text-2); display: none; }
+.music-switch[data-switchable='true'] { cursor: pointer; }
+.music-switch[data-switchable='true'] svg { display: block; }
+.music-switch[data-switchable='true']:hover svg { color: var(--text-1); }
+.music-switch:disabled { opacity: 1; }

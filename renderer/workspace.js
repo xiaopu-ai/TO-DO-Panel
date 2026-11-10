@@ -2365,13 +2365,16 @@
   });
   document.addEventListener('notch:recording-state-changed', renderHomeModuleSettings);
 
-  // ============ 本地汽水音乐 ============
+  // ============ 本地音乐播放器 ============
+  // 用哪个播放器由主进程识别（见 main/music-players.js），这里只按返回的状态渲染。
   const homeMusic = document.getElementById('home-music');
   const musicArtwork = document.getElementById('music-artwork');
   const musicTitle = document.getElementById('music-title');
   const musicStatus = document.getElementById('music-status');
+  const musicSwitch = document.getElementById('music-switch');
   const musicPlayToggle = document.getElementById('music-play-toggle');
   let musicPlaying = false;
+  let musicPlayerName = '';
 
   function renderMusicPlaybackState() {
     if (!homeMusic || !musicPlayToggle) return;
@@ -2383,11 +2386,12 @@
       : '<svg viewBox="0 0 24 24"><path d="m9 7 8 5-8 5z" /></svg>';
   }
 
-  async function refreshMusicStatus() {
-    if (!homeMusic || !window.notchAPI || typeof window.notchAPI.getMusicStatus !== 'function') return;
-    let status;
-    try { status = await window.notchAPI.getMusicStatus(); } catch (error) { status = null; }
+  function applyMusicStatus(status) {
+    if (!homeMusic) return;
+    const installed = Boolean(status && status.installed);
+    musicPlayerName = installed ? status.name : '';
     homeMusic.classList.toggle('music-running', Boolean(status && status.running));
+    homeMusic.setAttribute('aria-label', installed ? `音乐播放器：${status.name}` : '音乐播放器');
     if (status && typeof status.playing === 'boolean') {
       musicPlaying = status.playing;
       renderMusicPlaybackState();
@@ -2399,41 +2403,73 @@
       image.alt = '';
       musicArtwork.appendChild(image);
     }
-    if (musicTitle) musicTitle.textContent = status && status.installed ? '汽水音乐' : '未安装汽水音乐';
-    if (musicStatus) musicStatus.textContent = status && status.running ? (musicPlaying ? '正在播放' : '已连接') : status && status.installed ? '轻触即播' : '需要本地客户端';
+    // 能读到曲名（Apple Music / Spotify）就显示曲名，否则显示播放器名。
+    const song = installed && status.title ? (status.artist ? `${status.title} · ${status.artist}` : status.title) : '';
+    if (musicTitle) {
+      musicTitle.textContent = song || (installed ? status.name : '未找到音乐播放器');
+      musicTitle.title = song ? `${song}（${status.name}）` : '';
+    }
+    if (musicSwitch) {
+      const choices = status && Array.isArray(status.choices) ? status.choices : [];
+      // 只装了一个播放器时没什么可切的，不显示成可点的样子。
+      const switchable = choices.length > 1;
+      musicSwitch.dataset.switchable = String(switchable);
+      musicSwitch.disabled = !switchable;
+      musicSwitch.setAttribute(
+        'aria-label',
+        switchable ? `切换音乐播放器，当前：${status.name}` : installed ? status.name : '未找到音乐播放器'
+      );
+    }
+    if (musicStatus) musicStatus.textContent = status && status.running ? (musicPlaying ? '正在播放' : '已连接') : installed ? '轻触即播' : '需要本地客户端';
   }
 
+  async function refreshMusicStatus() {
+    if (!homeMusic || !window.notchAPI || typeof window.notchAPI.getMusicStatus !== 'function') return;
+    let status;
+    try { status = await window.notchAPI.getMusicStatus(); } catch (error) { status = null; }
+    applyMusicStatus(status);
+  }
+
+  function musicErrorMessage(error) {
+    const name = musicPlayerName || '音乐播放器';
+    if (error === 'not_installed') return '未找到音乐播放器';
+    if (error === 'accessibility_permission_required') return '需要“辅助功能”权限，已为你打开权限设置';
+    if (error === 'automation_permission_required') return `请在 系统设置 → 隐私与安全性 → 自动化 中允许控制 ${name}`;
+    if (error === 'no_active_session' || error === 'soda_session_inactive') return `${name} 还没打开，请先点播放`;
+    if (error === 'launch_failed') return `打不开 ${name}`;
+    return `${name} 暂时无法控制`;
+  }
+
+  musicSwitch?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (musicSwitch.dataset.switchable === 'true') window.notchAPI?.chooseMusicPlayer?.();
+  });
+
   homeMusic?.addEventListener('click', async (event) => {
-    if (event.target.closest('[data-widget-size-cycle]') || !window.notchAPI) return;
+    if (event.target.closest('[data-widget-size-cycle]') || event.target.closest('#music-switch') || !window.notchAPI) return;
     const control = event.target.closest('[data-music-action]') || musicPlayToggle;
-    if (!control) return;
+    if (!control || control.disabled) return;
     event.stopPropagation();
     control.disabled = true;
     const action = control.dataset.musicAction;
     let result;
     try { result = await window.notchAPI.controlMusic(action); } catch (error) { result = { ok: false }; }
     control.disabled = false;
+    if (result && result.status) applyMusicStatus(result.status);
     if (!result || !result.ok) {
-      const needsSession = result && ['no_active_session', 'soda_session_inactive'].includes(result.error);
-      const needsPermission = result && result.error === 'accessibility_permission_required';
-      if (musicStatus) musicStatus.textContent = result && result.error === 'not_installed'
-        ? '需要本地客户端'
-        : needsPermission ? '需要辅助功能权限'
-          : needsSession ? '请先点播放' : '控制暂不可用';
-      if (typeof showStatusToast === 'function') {
-        showStatusToast(result && result.error === 'not_installed'
-          ? '未安装汽水音乐'
-          : needsPermission ? '请在系统设置中允许 TO-DO Panel 使用辅助功能'
-            : needsSession ? '请先点击播放，再使用切歌控制' : '汽水音乐控制暂不可用');
-      }
-    } else {
-      if (typeof result.playing === 'boolean') musicPlaying = result.playing;
-      else if (action === 'play') musicPlaying = true;
-      else if (action === 'pause') musicPlaying = false;
-      renderMusicPlaybackState();
-      if (musicStatus) musicStatus.textContent = action === 'next' ? '下一首' : action === 'previous' ? '上一首' : musicPlaying ? '正在播放' : '已暂停';
+      if (typeof showStatusToast === 'function') showStatusToast(musicErrorMessage(result && result.error), { duration: 3200 });
+      return;
     }
-    setTimeout(refreshMusicStatus, 500);
+    if (!result.status) {
+      if (typeof result.playing === 'boolean') musicPlaying = result.playing;
+      renderMusicPlaybackState();
+    }
+  });
+
+  window.notchAPI?.onMusicChanged?.(() => refreshMusicStatus());
+  // 面板收起期间用户可能开了 / 关了播放器，每次展开重新识别一次（放在入场动画之后）。
+  document.addEventListener('notch:modechange', (event) => {
+    if (event.detail && event.detail.expanded) setTimeout(refreshMusicStatus, WINDOWS_REFRESH_AFTER_OPEN_MS);
   });
 
   renderMusicPlaybackState();

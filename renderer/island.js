@@ -159,7 +159,8 @@ function renderPeek() {
       block.append(meterRow(
         '上下文',
         tool.contextPercent,
-        `${formatTokens(tool.contextTokens)} / ${formatTokens(tool.contextWindow)}`
+        // Claude 的记录里没有窗口上限，分母是推断值，如实标成「约」。
+        `${formatTokens(tool.contextTokens)} / ${tool.tool === 'claude' ? '约 ' : ''}${formatTokens(tool.contextWindow)}`
       ));
     } else {
       block.append(emptyRow('上下文', '本回合尚无数据'));

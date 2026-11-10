@@ -60,6 +60,7 @@ const {
 } = require('./main-services');
 const { createAgentUsageMonitor } = require('./main/agent-usage');
 const { createNotchGeometry } = require('./main/notch-geometry');
+const { createMusicPlayers, normalizeMusicPreference } = require('./main/music-players');
 const {
   buildPermissionList,
   missingRequiredPermissions,
@@ -233,7 +234,6 @@ const TODO_INBOX_MAX_BYTES = 1024 * 1024;
 const TODO_INBOX_ACK_TIMEOUT_MS = 30000;
 const TODO_INBOX_RETRY_MS = 60000;
 const workspacePersistenceGate = createWorkspacePersistenceGate();
-const SODA_MUSIC_APP = '/Applications/汽水音乐.app';
 const TRANSCRIPTION_MODEL = 'qwen3-asr-flash-realtime';
 const TRANSCRIPTION_SAMPLE_RATE = 16000;
 const TRANSCRIPTION_FINISH_TIMEOUT_MS = 7000;
@@ -276,7 +276,6 @@ let mediaPermissionRequests = 0;
 let mediaPermissionBatchHadCamera = false;
 let transientSystemInteractionRequests = 0;
 let cameraBlurDeferred = false;
-let sodaMusicPlaying = false;
 const mediaPermissionCoordinator = createForegroundMediaPermissionCoordinator();
 
 let islandWindow = null;
@@ -1334,6 +1333,10 @@ function readAppSettings() {
     shortcut: isValidPanelShortcut(stored.shortcut) ? stored.shortcut : 'Space',
     defaultTab: normalizeDefaultTabPreference(stored.defaultTab, features),
     agentMonitor: stored.agentMonitor !== false,
+    musicPlayer: normalizeMusicPreference(stored.musicPlayer),
+    musicAutomation: Array.isArray(stored.musicAutomation)
+      ? stored.musicAutomation.filter((id) => typeof id === 'string').slice(0, 16)
+      : [],
   };
 }
 
@@ -1582,6 +1585,10 @@ function refreshTrayMenu() {
         refreshTrayMenu();
       },
     },
+    ...(musicChoices.length > 0 ? [{
+      label: '音乐播放器',
+      submenu: musicMenuItems(settings.musicPlayer),
+    }] : []),
     {
       label: `设置快捷键…  当前：${settings.shortcut}`,
       click: () => openRendererPanel('app:record-shortcut'),
@@ -1991,6 +1998,7 @@ ipcMain.handle('shell:open-privacy-settings', (event, pane) => {
 // 缺「辅助功能」→ 枚举、聚焦窗口和汽水音乐发按键全部无效。
 // 系统对前者根本不弹提示，所以只能由应用自己说，否则用户完全无从下手。
 const PERMISSION_PROMPT_SKIP_FILE = 'permission-prompt-skipped';
+const PERMISSION_WELCOME_FILE = 'welcome-shown';
 
 // 权限引导窗口。此前用 dialog.showMessageBox：LSUIElement 应用没有 Dock 图标、启动时也不是
 // 前台应用，无父窗口的系统对话框会直接出现在别的窗口后面，用户根本看不到，也就无从授权。
@@ -2028,7 +2036,7 @@ function openPermissionsWindow() {
   }
   permissionsWindow = new BrowserWindow({
     width: 560,
-    height: 660,
+    height: 730,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -2108,8 +2116,16 @@ ipcMain.on('permissions:close', (event, payload) => {
 // 这里只查询状态，不触碰任何会弹系统框的接口。
 function showPermissionsOnboardingIfNeeded() {
   if (process.platform !== 'darwin') return;
-  const skipFlag = path.join(app.getPath('userData'), PERMISSION_PROMPT_SKIP_FILE);
-  if (fs.existsSync(skipFlag)) return;
+  const userData = app.getPath('userData');
+  // 第一次启动一定显示一次：应用没有 Dock 图标，折叠条又藏在刘海里，
+  // 新用户装完双击后屏幕上什么都没出现，根本不知道它在哪、怎么打开。窗口里带着用法说明。
+  const welcomeFlag = path.join(userData, PERMISSION_WELCOME_FILE);
+  if (!fs.existsSync(welcomeFlag)) {
+    try { fs.writeFileSync(welcomeFlag, new Date().toISOString()); } catch (error) {}
+    openPermissionsWindow();
+    return;
+  }
+  if (fs.existsSync(path.join(userData, PERMISSION_PROMPT_SKIP_FILE))) return;
   if (missingRequiredPermissions(readPermissionStatuses()).length === 0) return;
   openPermissionsWindow();
 }
@@ -2820,26 +2836,6 @@ ipcMain.handle('credentials:copy', async (event, payload) => {
   return true;
 });
 
-function sodaMusicRunning() {
-  return new Promise((resolve) => {
-    execFile('/usr/bin/pgrep', ['-f', '^/Applications/汽水音乐\\.app/Contents/MacOS/汽水音乐$'], { timeout: 1500 }, (error) => resolve(!error));
-  });
-}
-
-function launchSodaMusic() {
-  return new Promise((resolve) => {
-    const cleanEnvironment = { ...process.env };
-    delete cleanEnvironment.ELECTRON_RUN_AS_NODE;
-    cleanEnvironment.XPC_SERVICE_NAME = '0';
-    execFile(
-      '/usr/bin/open',
-      [SODA_MUSIC_APP],
-      { timeout: 4000, env: cleanEnvironment },
-      (error) => resolve(!error)
-    );
-  });
-}
-
 const SODA_SHORTCUT_JXA = `
 function run(argv) {
   const keyCode = Number(argv[0]);
@@ -2862,7 +2858,7 @@ function run(argv) {
 
 async function sendSodaShortcut(action) {
   if (process.platform !== 'darwin') return { ok: false, error: 'unsupported' };
-  if (!systemPreferences.isTrustedAccessibilityClient(true)) {
+  if (!systemPreferences.isTrustedAccessibilityClient(false)) {
     return { ok: false, error: 'accessibility_permission_required' };
   }
   const shortcut = sodaShortcutSpec(action);
@@ -2880,48 +2876,177 @@ async function sendSodaShortcut(action) {
   }
 }
 
-// 应用图标不会变；此前每次查询播放状态（启动、每次点击后 500ms）都起一个 osascript 读它。
-let sodaMusicIconPromise = null;
-function readSodaMusicIcon() {
-  if (!sodaMusicIconPromise) {
-    sodaMusicIconPromise = readSystemAppIconNow(SODA_MUSIC_APP).then((icon) => {
-      if (!icon) sodaMusicIconPromise = null; // 读失败不缓存，下次再试
+// ============ 音乐播放器 ============
+// 识别、选择与控制策略见 main/music-players.js；这里只负责把它接到设置、权限与窗口上。
+const musicPlayers = createMusicPlayers({ execFile, runJxa });
+const musicPlayingById = new Map(); // 读不到真实状态的播放器：记住上一次操作后的乐观状态
+const musicIconCache = new Map(); // appPath -> Promise<dataUrl|null>
+let musicChoices = []; // 最近一次扫描到的已安装播放器，供托盘菜单同步读取
+
+function readMusicIcon(player) {
+  if (!musicIconCache.has(player.appPath)) {
+    musicIconCache.set(player.appPath, readSystemAppIconNow(player.appPath).then((icon) => {
+      if (!icon) musicIconCache.delete(player.appPath); // 读失败不缓存，下次再试
       return icon;
-    });
+    }));
   }
-  return sodaMusicIconPromise;
+  return musicIconCache.get(player.appPath);
 }
 
-ipcMain.handle('music:status', async () => {
-  const installed = fs.existsSync(SODA_MUSIC_APP);
-  const running = installed ? await sodaMusicRunning() : false;
-  if (!running) sodaMusicPlaying = false;
+function rememberMusicChoices(installed) {
+  const next = installed.map((player) => ({ id: player.id, name: player.name }));
+  const changed = JSON.stringify(next) !== JSON.stringify(musicChoices);
+  musicChoices = next;
+  if (changed) refreshTrayMenu();
+}
+
+// AppleScript 控制第一次会触发系统的「自动化」授权框。面板在 screen-saver 层会把它压在下面，
+// 所以首次调用期间临时降层，并挡住这期间的失焦收起。
+async function runBelowSystemPrompts(task) {
+  const targetWindow = mainWindow;
+  const restore = Boolean(targetWindow && !targetWindow.isDestroyed() && targetWindow.isAlwaysOnTop());
+  transientSystemInteractionRequests += 1;
+  if (restore) targetWindow.setAlwaysOnTop(false);
+  try {
+    return await task();
+  } finally {
+    if (restore && !targetWindow.isDestroyed()) targetWindow.setAlwaysOnTop(true, 'screen-saver');
+    transientSystemInteractionRequests = Math.max(0, transientSystemInteractionRequests - 1);
+  }
+}
+
+async function buildMusicStatus(scriptStatus = null) {
+  if (process.platform !== 'darwin') {
+    return { supported: false, installed: false, running: false, sessionActive: false, playing: false, name: '', title: '', artist: '', icon: null, choices: [] };
+  }
+  const settings = readAppSettings();
+  const { installed, player, running } = await musicPlayers.resolve(settings.musicPlayer);
+  rememberMusicChoices(installed);
+  const base = {
+    supported: true,
+    preference: settings.musicPlayer,
+    choices: musicChoices,
+  };
+  if (!player) {
+    return { ...base, installed: false, running: false, sessionActive: false, playing: false, playerId: '', name: '', title: '', artist: '', icon: null };
+  }
+  if (!running) musicPlayingById.delete(player.id);
+  let playing = running && musicPlayingById.get(player.id) === true;
+  let title = '';
+  let artist = '';
+  // 只有用户曾经成功控制过（即已授予自动化权限）才主动读状态，否则启动时就会弹系统授权框。
+  let status = scriptStatus;
+  if (!status && running && player.strategy === 'script' && settings.musicAutomation.includes(player.id)) {
+    status = await musicPlayers.readScriptStatus(player);
+  }
+  if (status && status.running) {
+    playing = status.playing;
+    title = status.title;
+    artist = status.artist;
+    musicPlayingById.set(player.id, playing);
+  }
   return {
-    installed,
+    ...base,
+    installed: true,
+    playerId: player.id,
+    name: player.name,
     running,
     sessionActive: running,
-    playing: running && sodaMusicPlaying,
-    title: '',
-    artist: '',
-    icon: installed ? await readSodaMusicIcon() : null,
+    playing,
+    title,
+    artist,
+    icon: await readMusicIcon(player),
   };
-});
+}
+
+ipcMain.handle('music:status', () => buildMusicStatus());
 
 ipcMain.handle('music:control', async (event, action) => {
   if (process.platform !== 'darwin') return { ok: false, error: 'unsupported' };
-  if (!fs.existsSync(SODA_MUSIC_APP)) return { ok: false, error: 'not_installed' };
+  const settings = readAppSettings();
+  const { player } = await musicPlayers.resolve(settings.musicPlayer);
+  if (!player) return { ok: false, error: 'not_installed' };
+
+  let scriptStatus = null;
+  const sendShortcut = async (requested) => {
+    if (player.strategy === 'script') {
+      const firstTime = !settings.musicAutomation.includes(player.id);
+      const send = () => musicPlayers.sendScriptCommand(player, requested);
+      const sent = firstTime ? await runBelowSystemPrompts(send) : await send();
+      if (sent.ok) {
+        scriptStatus = sent.status;
+        if (firstTime) {
+          const next = readAppSettings();
+          next.musicAutomation = [...new Set([...next.musicAutomation, player.id])];
+          saveAppSettings(next);
+        }
+      }
+      return sent;
+    }
+    // 发按键 / 媒体键都需要「辅助功能」。缺权限时打开自己的权限窗口，
+    // 不再调系统的授权提示——那个提示会被别的窗口盖住。
+    if (!systemPreferences.isTrustedAccessibilityClient(false)) {
+      openPermissionsWindow();
+      return { ok: false, error: 'accessibility_permission_required' };
+    }
+    return player.strategy === 'soda-keys' ? sendSodaShortcut(requested) : musicPlayers.sendMediaKey(requested);
+  };
+
   const result = await controlSodaMusic(action, {
-    isRunning: sodaMusicRunning,
-    launch: launchSodaMusic,
-    sendShortcut: sendSodaShortcut,
-  }, sodaMusicPlaying);
-  if (result && result.ok) sodaMusicPlaying = result.playing;
-  if (result && result.ok && mainWindow && !mainWindow.isDestroyed() && currentMode === 'expanded') {
+    isRunning: () => musicPlayers.isRunning(player),
+    launch: () => musicPlayers.launch(player),
+    sendShortcut,
+  }, musicPlayingById.get(player.id) === true);
+  if (result && result.ok) {
+    if (scriptStatus) result.playing = scriptStatus.playing;
+    musicPlayingById.set(player.id, result.playing);
+  }
+  // 汽水音乐的方案要先把它切到前台，发完按键再把面板拿回来；其余策略不抢焦点。
+  if (
+    result && result.ok && player.strategy === 'soda-keys'
+    && mainWindow && !mainWindow.isDestroyed() && currentMode === 'expanded'
+  ) {
     if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
   }
-  return result;
+  return { ...result, status: await buildMusicStatus(scriptStatus) };
 });
+
+function setMusicPreference(preference) {
+  const next = readAppSettings();
+  next.musicPlayer = normalizeMusicPreference(preference);
+  saveAppSettings(next);
+  refreshTrayMenu();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('music:changed');
+}
+
+function musicMenuItems(preference) {
+  return [
+    { label: '自动选择', type: 'radio', checked: preference === 'auto', click: () => setMusicPreference('auto') },
+    ...musicChoices.map((choice) => ({
+      label: choice.name,
+      type: 'radio',
+      checked: preference === choice.id,
+      click: () => setMusicPreference(choice.id),
+    })),
+  ];
+}
+
+// 点音乐组件的标题弹出原生菜单切换播放器。
+ipcMain.handle('music:choose', async (event) => {
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents) return false;
+  rememberMusicChoices(await musicPlayers.listInstalled(true));
+  if (musicChoices.length === 0) return false;
+  transientSystemInteractionRequests += 1;
+  Menu.buildFromTemplate(musicMenuItems(readAppSettings().musicPlayer)).popup({
+    window: mainWindow,
+    callback: () => {
+      transientSystemInteractionRequests = Math.max(0, transientSystemInteractionRequests - 1);
+    },
+  });
+  return true;
+});
+
 
 // ============ 百炼实时语音转写 ============
 function getTranscriptionSettingsPath() {
@@ -3623,9 +3748,11 @@ function startHoverSpaceShortcut() {
       return;
     }
     const point = screen.getCursorScreenPoint();
-    const bounds = mainWindow.getBounds();
-    const hovering = point.x >= bounds.x && point.x < bounds.x + bounds.width
+    const inside = (bounds) => point.x >= bounds.x && point.x < bounds.x + bounds.width
       && point.y >= bounds.y && point.y < bounds.y + bounds.height;
+    // 岛的耳朵比折叠条宽：悬停在耳朵上按空格也应该能唤出面板。
+    const hovering = inside(mainWindow.getBounds())
+      || Boolean(islandWindow && !islandWindow.isDestroyed() && islandWindow.isVisible() && inside(islandWindow.getBounds()));
     setHoverSpaceShortcut(hovering);
   }, policy.intervalMs);
 }
@@ -3750,7 +3877,8 @@ ipcMain.handle('clipboard:write', (event, entry) => writeClipboardEntry(entry));
 ipcMain.handle('clipboard:paste', async (event, entry) => {
   if (!await writeClipboardEntry(entry)) return { ok: false, pasted: false };
   if (!PLATFORM_CAPABILITIES.automaticPaste) return { ok: true, pasted: false };
-  if (process.platform === 'darwin' && !systemPreferences.isTrustedAccessibilityClient(true)) {
+  if (process.platform === 'darwin' && !systemPreferences.isTrustedAccessibilityClient(false)) {
+    openPermissionsWindow();
     return { ok: true, pasted: false, permissionRequired: true };
   }
   const target = previousPasteTarget;

@@ -240,3 +240,15 @@ p {
     transition: none;
   }
 }
+
+.permissions-howto {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-card);
+  background: var(--color-button);
+  font-size: var(--font-meta);
+}
+
+.permissions-howto strong {
+  color: var(--color-text-1);
+  font-weight: 600;
+}

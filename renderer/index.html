@@ -99,13 +99,16 @@
         <div class="panels" id="panels">
           <section id="tab-home" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-home" aria-hidden="true" inert>
             <div class="home-bento" id="home-bento" aria-label="可长按拖动调整的首页布局">
-              <!-- 本地汽水音乐控制 -->
-              <section class="tile home-music" id="home-music" data-home-module="music" data-widget-size="medium" aria-label="汽水音乐播放器">
+              <!-- 本地音乐播放器控制：播放器由主进程识别，可点标题切换 -->
+              <section class="tile home-music" id="home-music" data-home-module="music" data-widget-size="medium" aria-label="音乐播放器">
                 <canvas class="module-effect-canvas" id="music-color-bends" aria-hidden="true"></canvas>
                 <div class="music-copy">
-                  <strong id="music-title">汽水音乐</strong>
+                  <button class="music-switch" id="music-switch" type="button" aria-label="切换音乐播放器" data-switchable="false">
+                    <strong id="music-title">音乐</strong>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
+                  </button>
                 </div>
-                <div class="music-controls" role="group" aria-label="汽水音乐控制">
+                <div class="music-controls" role="group" aria-label="播放控制">
                   <button type="button" data-music-action="previous" aria-label="上一首"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 9 12l9 6V6Z" /><path d="M6 6v12" /></svg></button>
                   <button class="music-play" id="music-play-toggle" type="button" data-music-action="play" aria-label="播放"><svg viewBox="0 0 24 24"><path d="m9 7 8 5-8 5z" /></svg></button>
                   <button type="button" data-music-action="next" aria-label="下一首"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 9 6-9 6V6Z" /><path d="M18 6v12" /></svg></button>

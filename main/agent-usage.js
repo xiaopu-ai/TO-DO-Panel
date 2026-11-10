@@ -24,6 +24,9 @@ const SESSION_VISIBLE_MS = 12 * 60 * 60 * 1000; // 超过半天没动的会话�
 const CLAUDE_DEFAULT_WINDOW = 200000;
 const CLAUDE_EXTENDED_WINDOW = 1000000;
 const CLAUDE_QUOTA_STALE_MS = 6 * 60 * 60 * 1000;
+// 监控自己发现的完成只对「跑了一阵子」的回合提醒：几秒钟的一问一答用户本来就盯着，
+// 每条都从刘海弹一次只会让人把提醒关掉。时长读不出来时按长回合处理（宁可多提醒）。
+const MIN_ALERT_TURN_MS = 30 * 1000;
 
 function parseJsonLines(text) {
   const rows = [];
@@ -92,6 +95,7 @@ function parseCodexSession(text, options = {}) {
     model: '',
     turnId: '',
     completedTurnId: '',
+    turnDurationMs: null,
   };
   for (const row of rows) {
     const payload = row.payload && typeof row.payload === 'object' ? row.payload : {};
@@ -109,6 +113,7 @@ function parseCodexSession(text, options = {}) {
       session.state = 'done';
       session.completedTurnId = String(payload.turn_id || '');
       session.title = firstLine(payload.last_agent_message);
+      session.turnDurationMs = Number.isFinite(Number(payload.duration_ms)) ? Number(payload.duration_ms) : null;
     } else if (payload.type === 'turn_aborted' || payload.type === 'error') {
       session.state = 'idle';
     } else if (payload.type === 'token_count') {
@@ -154,6 +159,7 @@ function isClaudeToolResult(row) {
 
 function parseClaudeSession(text) {
   const rows = parseJsonLines(text);
+  let turnStartedAt = 0;
   const session = {
     tool: 'claude',
     state: 'idle',
@@ -166,6 +172,7 @@ function parseClaudeSession(text) {
     model: '',
     turnId: '',
     completedTurnId: '',
+    turnDurationMs: null,
   };
   for (const row of rows) {
     // 子代理与元记录写在同一份文件里，不代表主线进度。
@@ -174,7 +181,10 @@ function parseClaudeSession(text) {
     const message = row.message && typeof row.message === 'object' ? row.message : null;
     if (row.type === 'user' && message) {
       session.state = 'running';
-      if (!isClaudeToolResult(row)) session.turnId = String(row.uuid || '');
+      if (!isClaudeToolResult(row)) {
+        session.turnId = String(row.uuid || '');
+        turnStartedAt = Date.parse(row.timestamp) || 0;
+      }
     } else if (row.type === 'assistant' && message) {
       const usage = message.usage && typeof message.usage === 'object' ? message.usage : null;
       if (usage) {
@@ -190,6 +200,8 @@ function parseClaudeSession(text) {
         session.state = 'done';
         session.completedTurnId = session.turnId || String(row.uuid || '');
         session.title = firstLine(claudeMessageText(message.content)) || session.title;
+        const endedAt = Date.parse(row.timestamp) || 0;
+        session.turnDurationMs = turnStartedAt && endedAt >= turnStartedAt ? endedAt - turnStartedAt : null;
       } else {
         session.state = 'running';
       }
@@ -356,6 +368,7 @@ function createAgentUsageMonitor(options = {}) {
       && session.state === 'done'
       && session.completedTurnId
       && session.completedTurnId !== previous.reportedTurnId
+      && !(Number.isFinite(session.turnDurationMs) && session.turnDurationMs < MIN_ALERT_TURN_MS)
     ) {
       onCompletion({
         source: tool,
@@ -467,4 +480,5 @@ module.exports = {
   createAgentUsageMonitor,
   RUNNING_STALE_MS,
   SESSION_VISIBLE_MS,
+  MIN_ALERT_TURN_MS,
 };

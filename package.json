@@ -70,7 +70,7 @@
         "CFBundleDisplayName": "TO-DO Panel",
         "NSCameraUsageDescription": "TO-DO Panel 需要使用摄像头来显示「镜子」预览。",
         "NSMicrophoneUsageDescription": "TO-DO Panel 需要使用麦克风来录音并生成转写文本。",
-        "NSAppleEventsUsageDescription": "TO-DO Panel 需要控制「系统事件」来枚举并聚焦当前窗口、发送汽水音乐快捷键。"
+        "NSAppleEventsUsageDescription": "TO-DO Panel 需要控制「系统事件」来枚举并聚焦当前窗口，并控制音乐播放器的播放 / 切歌。"
       }
     },
     "win": {

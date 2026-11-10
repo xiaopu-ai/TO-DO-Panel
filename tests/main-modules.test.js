@@ -187,3 +187,88 @@ test('permission list maps system status to a single next action', () => {
   assert.match(permissionSettingsUrl('camera'), /^x-apple\.systempreferences:.*Privacy_Camera$/);
   assert.equal(permissionSettingsUrl('constructor'), null);
 });
+
+const { matchInstalledPlayers, choosePlayer, normalizeMusicPreference, parseScriptStatus, createMusicPlayers } = require('../main/music-players');
+
+test('music players are recognised by app name, Apple Music only from the system folder', () => {
+  const installed = matchInstalledPlayers([
+    { dir: '/Applications', name: 'NeteaseMusic' },
+    { dir: '/Applications', name: '汽水音乐' },
+    { dir: '/Applications', name: 'Music' }, // 第三方同名应用，不能当成 Apple Music
+    { dir: '/System/Applications', name: 'Music' },
+    { dir: '/Applications', name: 'Safari' },
+  ]);
+  assert.deepEqual(installed.map((player) => player.id), ['soda', 'netease', 'apple']);
+  assert.equal(installed[1].appPath, '/Applications/NeteaseMusic.app');
+  assert.equal(installed[2].appPath, '/System/Applications/Music.app');
+  assert.deepEqual(matchInstalledPlayers([]), []);
+});
+
+test('player choice: explicit preference, then whatever is running, then the default order', () => {
+  const installed = matchInstalledPlayers([
+    { dir: '/Applications', name: '汽水音乐' },
+    { dir: '/Applications', name: 'QQMusic' },
+    { dir: '/System/Applications', name: 'Music' },
+  ]);
+  assert.equal(choosePlayer(installed, 'qq', ['soda']).id, 'qq');
+  assert.equal(choosePlayer(installed, 'auto', ['apple']).id, 'apple');
+  assert.equal(choosePlayer(installed, 'auto', []).id, 'soda');
+  // 指定的播放器后来被卸载：退回自动。
+  assert.equal(choosePlayer(installed, 'netease', []).id, 'soda');
+  assert.equal(choosePlayer([], 'auto', []), null);
+  assert.equal(normalizeMusicPreference('spotify'), 'spotify');
+  assert.equal(normalizeMusicPreference('constructor'), 'auto');
+  assert.equal(normalizeMusicPreference(undefined), 'auto');
+});
+
+test('script status parsing tolerates garbage and truncates long titles', () => {
+  assert.deepEqual(parseScriptStatus('{"running":true,"playing":true,"title":"Song","artist":"A"}'), { running: true, playing: true, title: 'Song', artist: 'A' });
+  assert.equal(parseScriptStatus('execution error'), null);
+  assert.equal(parseScriptStatus(JSON.stringify({ running: true, title: 'x'.repeat(500) })).title.length, 120);
+});
+
+test('auto mode follows the running player and never probes when the user pinned one', async () => {
+  const probes = [];
+  const running = new Set(['/Applications/QQMusic.app']);
+  const players = createMusicPlayers({
+    appDirs: ['/Applications', '/System/Applications'],
+    readDir: async (dir) => (dir === '/Applications' ? ['汽水音乐.app', 'QQMusic.app', 'Notes.app'] : ['Music.app']),
+    execFile: (file, args, options, callback) => {
+      probes.push(args[1]);
+      const hit = [...running].some((appPath) => args[1].includes(appPath.replace(/\./g, '\\.')));
+      callback(hit ? null : new Error('no match'));
+    },
+  });
+  const auto = await players.resolve('auto');
+  assert.equal(auto.player.id, 'qq');
+  assert.equal(auto.running, true);
+  assert.equal(probes.length, 3);
+
+  probes.length = 0;
+  const pinned = await players.resolve('soda');
+  assert.equal(pinned.player.id, 'soda');
+  assert.equal(pinned.running, false);
+  assert.equal(probes.length, 1);
+});
+
+const { MIN_ALERT_TURN_MS } = require('../main/agent-usage');
+
+test('turn duration is read so quick back-and-forth turns do not raise alerts', () => {
+  const codex = parseCodexSession(lines([
+    { type: 'event_msg', payload: { type: 'task_started', turn_id: 't' } },
+    { type: 'event_msg', payload: { type: 'task_complete', turn_id: 't', duration_ms: 4200 } },
+  ]), { nowMs: NOW });
+  assert.equal(codex.turnDurationMs, 4200);
+
+  const claude = parseClaudeSession(lines([
+    { type: 'user', uuid: 'u', timestamp: '2026-11-10T10:00:00.000Z', message: { role: 'user', content: 'hi' } },
+    { type: 'assistant', uuid: 'a', timestamp: '2026-11-10T10:02:00.000Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] } },
+  ]));
+  assert.equal(claude.turnDurationMs, 120000);
+  // 尾部读不到回合起点时不猜时长。
+  const unknown = parseClaudeSession(lines([
+    { type: 'assistant', uuid: 'a', timestamp: '2026-11-10T10:02:00.000Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [] } },
+  ]));
+  assert.equal(unknown.turnDurationMs, null);
+  assert.ok(MIN_ALERT_TURN_MS >= 10000);
+});

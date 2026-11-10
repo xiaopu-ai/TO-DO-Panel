@@ -15,7 +15,7 @@ const PERMISSIONS = [
   {
     id: 'accessibility',
     title: '辅助功能',
-    reason: '切换到「当前窗口」里的任意窗口、控制汽水音乐播放、把剪贴板历史粘贴回原应用。',
+    reason: '切换到「当前窗口」里的任意窗口、控制音乐播放器（汽水音乐、网易云、QQ音乐等）、把剪贴板历史粘贴回原应用。',
     required: true,
   },
   {
